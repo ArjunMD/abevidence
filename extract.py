@@ -1,4 +1,5 @@
 # extract.py
+import os
 import re
 import time
 import random
@@ -624,6 +625,7 @@ def _openai_api_key() -> str:
             return str(st.secrets["OPENAI_API_KEY"]).strip()
     except Exception:
         pass
+    return os.environ.get("OPENAI_API_KEY", "").strip()
 
 
 def _openai_model() -> str:
@@ -635,12 +637,15 @@ def _openai_model() -> str:
 SEMANTIC_SCHOLAR_RECOMMEND_FORPAPER_URL = "https://api.semanticscholar.org/recommendations/v1/papers/forpaper/"
 
 def _semantic_scholar_api_key() -> str:
-    """Return Semantic Scholar API key (supports multiple secrets.toml layouts)."""
+    """Return Semantic Scholar API key. Checks st.secrets first, then the
+    SEMANTIC_SCHOLAR_API_KEY environment variable (so Render and similar
+    hosts can supply it without a secrets.toml file)."""
     try:
         if "SEMANTIC_SCHOLAR_API_KEY" in st.secrets:
             return str(st.secrets["SEMANTIC_SCHOLAR_API_KEY"]).strip()
     except Exception:
         pass
+    return os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
 
 @st.cache_data(show_spinner=False, ttl=60 * 60)
 def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
@@ -1882,6 +1887,7 @@ def _azure_di_endpoint() -> str:
             return str(st.secrets["AZURE_DI_ENDPOINT"]).strip()
     except Exception:
         pass
+    return os.environ.get("AZURE_DI_ENDPOINT", "").strip()
 
 
 def _azure_di_key() -> str:
@@ -1890,6 +1896,7 @@ def _azure_di_key() -> str:
             return str(st.secrets["AZURE_DI_KEY"]).strip()
     except Exception:
         pass
+    return os.environ.get("AZURE_DI_KEY", "").strip()
 
 def _require_azure_di() -> None:
     if DocumentIntelligenceClient is None or AzureKeyCredential is None:
