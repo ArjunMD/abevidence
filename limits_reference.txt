@@ -1,0 +1,73 @@
+HARDCODED LIMITS & MAXIMUMS — Quick Reference
+================================================
+
+CORE SEARCH / BROWSE LIMITS (pages_shared.py)
+----------------------------------------------
+SEARCH_MAX_DEFAULT           1,500        Max search results from local DB
+BROWSE_MAX_ROWS             30,000        Max rows when browsing
+GUIDELINES_MAX_LIST         30,000        Max guidelines listed at once
+META_MAX_STUDIES_HARD_CAP   30,000        Hard cap on studies for meta synthesis
+
+
+OPENAI max_output_tokens (extract.py / pages_shared.py)
+--------------------------------------------------------
+gpt_extract_rec_population                  16     Population identifier
+gpt_extract_rec_strength                    48     Strength label
+gpt_extract_rec_evidence                    72     Evidence label
+gpt_extract_rec_comment                    160     Comment
+gpt_extract_guideline_metadata             220     Guideline metadata
+gpt_extract_rec_source                     320     Source snippet
+gpt_extract_rec_rationale                  350     Rationale
+gpt_extract_rec_intervention               520     Intervention details
+_get_duplicate_info_via_gpt                900     Duplicate detection
+gpt_extract_guideline_title_year           900     Title & year extraction
+classify_section_recommendations         1,200     Section classification
+gpt_extract_guideline_recommendations_md 1,400     Recommendations extraction
+gpt_generate_meta_combined              10,000     Meta synthesis
+
+
+HTTP TIMEOUTS (extract.py)
+---------------------------
+PubMed efetch / elink / esearch / esummary   25s   All PubMed API calls
+Semantic Scholar                             30s   S2 similar papers
+OpenAI default (_post_with_retries)          30s   Default API timeout
+Classification / recommendations / meta     60s   Longer GPT calls
+Duplicate detection                          75s   Most complex GPT call
+
+
+TEXT TRUNCATION & CHUNKING (extract.py)
+----------------------------------------
+SECTION_PREVIEW_HEAD_CHARS        1,200 chars    Head of section preview
+SECTION_PREVIEW_TAIL_CHARS          700 chars    Tail of section preview
+SECTION_PREVIEW_MAX_HINT_LINES      28 lines    Max hint lines per section
+SECTION_MAX_CHARS_SEND           14,000 chars    Max chars sent per section to API
+SECTION_PART_OVERLAP_CHARS          600 chars    Overlap when splitting large sections
+META_MAX_CHARS_PER_STUDY         10,000 chars    Max chars per study in meta
+_pack_guideline_for_meta         12,000 chars    Guideline packing for meta
+_guideline_meta_snippet           9,000 chars    Snippet for metadata extraction
+Section selection                26,000 chars / 170 items / 45 head
+Recommendation chunking          14,000 chars / 45 items
+Duplicate check batch            10,000 chars / 28 items
+Max sections to process           3,000          Hard cap on sections
+
+
+PUBMED & SEARCH LIMITS
+-----------------------
+SEARCH_FETCH_LIMIT (page_search_pubmed)    200     Max PubMed results per request
+retmax (elink neighbors)                    50     Neighbor fetch default
+retmax (esearch / journal search)          200     PubMed search default
+esummary chunk size                        200     Batch size for esummary fetching
+top_n (neighbors / S2)                       5     Default top N related papers shown
+BROWSE_INLINE_CART_WIDGET_LIMIT          1,200     Inline cart widget limit
+History page limit                         500     Abstracts & guidelines in history
+list_folders default                       500     Folder listing limit
+
+
+RETRY & CACHE
+--------------
+max_attempts (default)                       5     Default retry attempts for API calls
+max_attempts (title/year, specialty)         1     No retries for lightweight extractions
+Cache TTL (PubMed calls)               3,600s     1 hour
+Cache TTL (PubMed search)              1,800s     30 minutes
+Cache TTL (GPT extractions)           86,400s     24 hours
+SECTION_TRIAGE_BATCH                        10     Sections triaged per batch

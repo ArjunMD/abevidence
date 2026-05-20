@@ -1,0 +1,24 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+
+# ---- Virtualenv ----
+.venv/
+venv/
+ENV/
+
+# ---- Streamlit ----
+# Never commit secrets.
+.streamlit/secrets.toml
+.streamlit/secrets.*
+
+# ---- OS / editor / agent ----
+.DS_Store
+Thumbs.db
+.idea/
+.claude/
+
+# ---- Local scratch ----
+Versions/
