@@ -23,6 +23,7 @@ from ui_pages.page_guidelines import render as render_guidelines
 from ui_pages.page_history import render as render_history
 from ui_pages.page_pmid_abstract import render as render_pmid_abstract
 from ui_pages.page_search_pubmed import render as render_search_pubmed
+from ui_pages.page_suggest import render as render_suggest
 
 st.set_page_config(page_title="PMID → Abstract", page_icon="📄", layout="wide")
 ensure_schema()
@@ -39,12 +40,13 @@ _PAGES = {
     "Dashboard": render_dashboard,
     "About": render_about,
     "History": render_history,
+    "Suggest an article": render_suggest,
 }
 
 # In public mode (ABEV_MODE=public — set on the hosted .com instance), only
 # these pages are exposed; everything else, plus all edit/upload affordances
 # inside the surviving pages, is hidden.
-_PUBLIC_PAGES = {"Browse studies", "Single-study view", "History"}
+_PUBLIC_PAGES = {"Browse studies", "Single-study view", "History", "Suggest an article"}
 
 _IS_PUBLIC = is_public_mode()
 _VISIBLE_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_PAGES]
