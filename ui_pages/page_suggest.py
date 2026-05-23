@@ -4,7 +4,6 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-OWNER_EMAIL = "arjunbahl64@gmail.com"
 WEB3FORMS_ENDPOINT = "https://api.web3forms.com/submit"
 
 
@@ -20,7 +19,10 @@ def _get_access_key() -> str:
 
 def render() -> None:
     st.title("✉️ Suggest an article")
-    st.caption(f"Send a suggestion to {OWNER_EMAIL}.")
+    st.caption(
+        "Submit a PMID (preferred) or article title to be considered "
+        "for inclusion in the database."
+    )
 
     access_key = _get_access_key()
     if not access_key:
@@ -32,7 +34,6 @@ def render() -> None:
 
     safe_key = html.escape(access_key, quote=True)
     safe_endpoint = html.escape(WEB3FORMS_ENDPOINT, quote=True)
-    safe_email = html.escape(OWNER_EMAIL, quote=True)
 
     components.html(
         f"""
@@ -96,7 +97,6 @@ def render() -> None:
   const resultEl = document.getElementById('result');
   const ACCESS_KEY = "{safe_key}";
   const ENDPOINT = "{safe_endpoint}";
-  const OWNER_EMAIL = "{safe_email}";
 
   form.addEventListener('submit', async function(e) {{
     e.preventDefault();
@@ -119,7 +119,6 @@ def render() -> None:
       access_key: ACCESS_KEY,
       subject: 'Article suggestion: ' + short,
       from_name: 'ABevidence — Suggest an article',
-      email: OWNER_EMAIL,
       pmid_or_title: article,
       suggester: suggester || '(anonymous)',
       message: 'PMID or title: ' + article + '\\nFrom: ' + (suggester || '(anonymous)')
