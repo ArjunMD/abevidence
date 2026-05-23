@@ -19,10 +19,6 @@ def _get_access_key() -> str:
 
 def render() -> None:
     st.title("✉️ Suggest an article")
-    st.caption(
-        "Submit a PMID (preferred) or article title to be considered "
-        "for inclusion in the database."
-    )
 
     access_key = _get_access_key()
     if not access_key:
@@ -79,9 +75,8 @@ def render() -> None:
 </head>
 <body>
 <form id="suggest-form">
-  <label for="article">Enter PMID (preferred) or Article title</label>
-  <textarea id="article" name="pmid_or_title"
-    placeholder="e.g. 12345678  —  or paste the full title" required></textarea>
+  <label for="article">PMID (preferred) or article title</label>
+  <textarea id="article" name="pmid_or_title" required></textarea>
 
   <label for="suggester">Your name (optional)</label>
   <input id="suggester" type="text" name="suggester" />
