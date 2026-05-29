@@ -1,4 +1,5 @@
 import html
+from datetime import datetime
 from typing import Dict, List
 
 import streamlit as st
@@ -10,6 +11,21 @@ from pages_shared import (
     _split_specialties,
     _year_sort_key,
 )
+
+
+def _format_added_date(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return "Unknown"
+    try:
+        dt = datetime.strptime(s[:10], "%Y-%m-%d")
+    except ValueError:
+        return "Unknown"
+    return dt.strftime("%B %-d, %Y")
+
+
+def _added_day_key(item: Dict[str, str]) -> str:
+    return (item.get("uploaded_at") or "")[:10]
 
 
 def _month_sort_value(item: Dict[str, str]) -> int:
@@ -31,7 +47,17 @@ def _browse_item_sort_key(item: Dict[str, str]) -> tuple:
     return (item_type, -_month_sort_value(item), title, pmid, gid)
 
 
-def _render_browse_item(it: Dict[str, str]) -> None:
+def _format_pub_year_month(year: str, pub_month: str) -> str:
+    y = (year or "").strip()
+    m = (pub_month or "").strip()
+    if not y:
+        return ""
+    if m.isdigit() and 1 <= int(m) <= 12:
+        return f"{y}-{int(m):02d}"
+    return y
+
+
+def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None:
     if (it.get("type") or "") == "guideline":
         title = (it.get("title") or "").strip() or "(no name)"
         gid = (it.get("guideline_id") or "").strip()
@@ -63,6 +89,10 @@ def _render_browse_item(it: Dict[str, str]) -> None:
         meta_bits.append(f"N={pn}")
     if j:
         meta_bits.append(j)
+    if show_pub_date:
+        ym = _format_pub_year_month(it.get("year") or "", it.get("pub_month") or "")
+        if ym:
+            meta_bits.append(ym)
     meta = ", ".join(meta_bits)
 
     st.markdown(
@@ -78,22 +108,33 @@ def _render_browse_item(it: Dict[str, str]) -> None:
 
 @st.fragment
 def _render_browse_body() -> None:
-    by_specialty = st.toggle(
-        "Browse by specialty",
-        value=False,
-        key="browse_by_specialty",
-    )
-    guidelines_only = st.toggle(
-        "Guidelines only",
-        value=False,
-        key="browse_guidelines_only",
-    )
+    col_sort, col_spec, col_guide = st.columns(3)
+    with col_sort:
+        sort_by_date_added = st.toggle(
+            "Sort by date added",
+            value=False,
+            key="browse_sort_date_added",
+        )
+    with col_spec:
+        by_specialty = st.toggle(
+            "Browse by specialty",
+            value=False,
+            key="browse_by_specialty",
+            disabled=sort_by_date_added,
+        )
+    with col_guide:
+        guidelines_only = st.toggle(
+            "Guidelines only",
+            value=False,
+            key="browse_guidelines_only",
+        )
+    if sort_by_date_added:
+        by_specialty = False
     browse_q = st.text_input(
         "Search",
         placeholder='Filter this browse view by any field. Supports AND, OR, and "exact phrase"…',
         key="db_browse_any",
     )
-    st.caption('Example: `heart AND "reduced ejection fraction"` or `sepsis OR septic shock`')
 
     items: List[Dict[str, str]] = []
     if guidelines_only:
@@ -149,6 +190,25 @@ def _render_browse_body() -> None:
         if not items:
             st.info("No matches in current browse view.")
             st.stop()
+
+    if sort_by_date_added:
+        by_day: Dict[str, List[Dict[str, str]]] = {}
+        for it in items:
+            by_day.setdefault(_added_day_key(it), []).append(it)
+
+        days = sorted(by_day.keys(), reverse=True)
+        days = [d for d in days if d] + [d for d in days if not d]
+
+        for idx, day in enumerate(days):
+            if idx > 0:
+                st.markdown("---")
+            st.markdown(f"### {_format_added_date(day)}")
+
+            rows = sorted(by_day.get(day, []), key=lambda it: (it.get("title") or "").lower())
+            rows.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
+            for it in rows:
+                _render_browse_item(it, show_pub_date=True)
+        return
 
     if by_specialty:
         grouped: Dict[str, Dict[str, List[Dict[str, str]]]] = {}

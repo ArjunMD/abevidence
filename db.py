@@ -500,7 +500,7 @@ def list_browse_items(limit: int) -> List[Dict[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             """
-            SELECT pmid, title, year, pub_month, journal, patient_n, specialty, authors_conclusions
+            SELECT pmid, title, year, pub_month, journal, patient_n, specialty, authors_conclusions, uploaded_at
             FROM abstracts
             ORDER BY
                 specialty COLLATE NOCASE ASC,
@@ -523,6 +523,7 @@ def list_browse_items(limit: int) -> List[Dict[str, str]]:
                 "patient_n": str(r["patient_n"] or "").strip(),
                 "specialty": (r["specialty"] or "").strip(),
                 "authors_conclusions": (r["authors_conclusions"] or "").strip(),
+                "uploaded_at": (r["uploaded_at"] or "").strip(),
             }
         )
     return out
@@ -899,7 +900,8 @@ def list_browse_guideline_items(limit: int) -> List[Dict[str, str]]:
                 COALESCE(NULLIF(guideline_name,''), filename) AS title,
                 COALESCE(pub_year,'') AS year,
                 COALESCE(specialty,'') AS specialty,
-                COALESCE(society,'') AS society
+                COALESCE(society,'') AS society,
+                COALESCE(uploaded_at,'') AS uploaded_at
             FROM guidelines
             ORDER BY
                 specialty COLLATE NOCASE ASC,
@@ -920,6 +922,7 @@ def list_browse_guideline_items(limit: int) -> List[Dict[str, str]]:
                 "year": (r["year"] or "").strip(),
                 "specialty": (r["specialty"] or "").strip(),
                 "society": (r["society"] or "").strip(),
+                "uploaded_at": (r["uploaded_at"] or "").strip(),
             }
         )
     return out

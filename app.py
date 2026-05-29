@@ -46,7 +46,7 @@ _PAGES = {
 # In public mode (ABEV_MODE=public — set on the hosted .com instance), only
 # these pages are exposed; everything else, plus all edit/upload affordances
 # inside the surviving pages, is hidden.
-_PUBLIC_PAGES = {"Browse studies", "Single-study view", "History", "Suggest an article"}
+_PUBLIC_PAGES = {"Browse studies", "Single-study view", "Suggest an article"}
 
 _IS_PUBLIC = is_public_mode()
 _VISIBLE_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_PAGES]
