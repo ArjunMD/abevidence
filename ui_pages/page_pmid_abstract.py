@@ -11,11 +11,10 @@ from extract import (
     fetch_pubmed_xml,
     get_s2_similar_papers,
     get_top_neighbors,
+    gpt_classify_study,
     gpt_extract_authors_conclusions,
-    gpt_extract_intervention_comparison,
-    gpt_extract_patient_details,
     gpt_extract_patient_n,
-    gpt_extract_results,
+    gpt_extract_pico,
     gpt_extract_specialty,
     gpt_extract_study_design,
     parse_abstract,
@@ -164,10 +163,8 @@ def render() -> None:
 
         st.session_state["gpt_patient_n_error"] = ""
         st.session_state["gpt_design_error"] = ""
-        st.session_state["gpt_details_error"] = ""
-        st.session_state["gpt_ic_error"] = ""
+        st.session_state["gpt_pico_error"] = ""
         st.session_state["gpt_conclusions_error"] = ""
-        st.session_state["gpt_results_error"] = ""
         st.session_state["gpt_specialty_error"] = ""
 
         if (st.session_state.get("last_abstract") or "").strip():
@@ -198,35 +195,32 @@ def render() -> None:
                 st.session_state["study_design_input"] = ""
 
             try:
-                with st.spinner("Extracting patient details…"):
-                    details = gpt_extract_patient_details(
+                with st.spinner("Classifying study type…"):
+                    study_class = gpt_classify_study(
                         st.session_state.get("last_title") or "",
                         st.session_state.get("last_abstract") or "",
-                        int(st.session_state.get("gpt_patient_n") or 0),
-                        st.session_state.get("gpt_study_design") or "",
                     )
-                    st.session_state["gpt_patient_details"] = details
-                    st.session_state["patient_details_input"] = details
-            except Exception as e:
-                st.session_state["gpt_details_error"] = str(e)
-                st.session_state["gpt_patient_details"] = ""
-                st.session_state["patient_details_input"] = ""
+                    st.session_state["gpt_study_class"] = study_class
+            except Exception:
+                st.session_state["gpt_study_class"] = "COMPARATIVE"
 
             try:
-                with st.spinner("Extracting intervention/comparison…"):
-                    ic = gpt_extract_intervention_comparison(
+                with st.spinner("Extracting PICO + outcomes…"):
+                    pico = gpt_extract_pico(
                         st.session_state.get("last_title") or "",
                         st.session_state.get("last_abstract") or "",
-                        int(st.session_state.get("gpt_patient_n") or 0),
-                        st.session_state.get("gpt_study_design") or "",
-                        st.session_state.get("gpt_patient_details") or "",
+                        st.session_state.get("gpt_study_class") or "COMPARATIVE",
                     )
-                    st.session_state["gpt_intervention_comparison"] = ic
-                    st.session_state["intervention_comparison_input"] = ic
+                    st.session_state["patient_details_input"] = pico["patient_details"]
+                    st.session_state["intervention_comparison_input"] = pico["intervention_comparison"]
+                    st.session_state["outcomes_input"] = pico["outcomes"]
+                    st.session_state["evidence_base_input"] = pico["evidence_base"]
             except Exception as e:
-                st.session_state["gpt_ic_error"] = str(e)
-                st.session_state["gpt_intervention_comparison"] = ""
+                st.session_state["gpt_pico_error"] = str(e)
+                st.session_state["patient_details_input"] = ""
                 st.session_state["intervention_comparison_input"] = ""
+                st.session_state["outcomes_input"] = ""
+                st.session_state["evidence_base_input"] = ""
 
             try:
                 with st.spinner("Extracting authors' conclusions…"):
@@ -235,8 +229,8 @@ def render() -> None:
                         st.session_state.get("last_abstract") or "",
                         int(st.session_state.get("gpt_patient_n") or 0),
                         st.session_state.get("gpt_study_design") or "",
-                        st.session_state.get("gpt_patient_details") or "",
-                        st.session_state.get("gpt_intervention_comparison") or "",
+                        st.session_state.get("patient_details_input") or "",
+                        st.session_state.get("intervention_comparison_input") or "",
                     )
                     st.session_state["gpt_authors_conclusions"] = concl
                     st.session_state["authors_conclusions_input"] = concl
@@ -244,23 +238,6 @@ def render() -> None:
                 st.session_state["gpt_conclusions_error"] = str(e)
                 st.session_state["gpt_authors_conclusions"] = ""
                 st.session_state["authors_conclusions_input"] = ""
-
-            try:
-                with st.spinner("Extracting results…"):
-                    res = gpt_extract_results(
-                        st.session_state.get("last_title") or "",
-                        st.session_state.get("last_abstract") or "",
-                        int(st.session_state.get("gpt_patient_n") or 0),
-                        st.session_state.get("gpt_study_design") or "",
-                        st.session_state.get("gpt_patient_details") or "",
-                        st.session_state.get("gpt_intervention_comparison") or "",
-                    )
-                    st.session_state["gpt_results"] = res
-                    st.session_state["results_input"] = res
-            except Exception as e:
-                st.session_state["gpt_results_error"] = str(e)
-                st.session_state["gpt_results"] = ""
-                st.session_state["results_input"] = ""
 
             try:
                 with st.spinner("Extracting specialty…"):
@@ -279,14 +256,13 @@ def render() -> None:
             st.session_state["patient_n_input"] = ""
             st.session_state["gpt_study_design"] = ""
             st.session_state["study_design_input"] = ""
-            st.session_state["gpt_patient_details"] = ""
+            st.session_state["gpt_study_class"] = ""
             st.session_state["patient_details_input"] = ""
-            st.session_state["gpt_intervention_comparison"] = ""
             st.session_state["intervention_comparison_input"] = ""
+            st.session_state["outcomes_input"] = ""
+            st.session_state["evidence_base_input"] = ""
             st.session_state["gpt_authors_conclusions"] = ""
             st.session_state["authors_conclusions_input"] = ""
-            st.session_state["gpt_results"] = ""
-            st.session_state["results_input"] = ""
             st.session_state["gpt_specialty"] = ""
             st.session_state["specialty_input"] = ""
 
@@ -339,8 +315,11 @@ def render() -> None:
                         raw_concl = (st.session_state.get("authors_conclusions_input", "") or "").strip()
                         parsed_concl = raw_concl if raw_concl else None
 
-                        raw_results = (st.session_state.get("results_input", "") or "").strip()
-                        parsed_results = raw_results if raw_results else None
+                        raw_outcomes = (st.session_state.get("outcomes_input", "") or "").strip()
+                        parsed_outcomes = raw_outcomes if raw_outcomes else None
+
+                        raw_evidence = (st.session_state.get("evidence_base_input", "") or "").strip()
+                        parsed_evidence = raw_evidence if raw_evidence else None
 
                         raw_spec = (st.session_state.get("specialty_input") or "").strip()
                         parsed_spec = _parse_tag_list(raw_spec) or None
@@ -361,7 +340,8 @@ def render() -> None:
                                     parsed_details,
                                     parsed_ic,
                                     parsed_concl,
-                                    parsed_results,
+                                    parsed_outcomes,
+                                    parsed_evidence,
                                     parsed_spec,
                                 )
                                 st.success("Saved.")
@@ -427,18 +407,6 @@ def render() -> None:
             _render_related_tray()
 
         with right:
-            cerr = (st.session_state.get("gpt_conclusions_error") or "").strip()
-            if cerr:
-                st.error(cerr)
-            st.text_area(
-                "Author's conclusions",
-                key="authors_conclusions_input",
-                placeholder="Near-verbatim conclusion statement.",
-                height=110,
-            )
-
-            st.divider()
-
             serr = (st.session_state.get("gpt_specialty_error") or "").strip()
             if serr:
                 st.error(serr)
@@ -465,9 +433,12 @@ def render() -> None:
 
             st.divider()
 
-            perr = (st.session_state.get("gpt_details_error") or "").strip()
-            if perr:
-                st.error(perr)
+            study_class = (st.session_state.get("gpt_study_class") or "").strip()
+            if study_class:
+                st.caption(f"Study type: {study_class.title()}")
+            picoerr = (st.session_state.get("gpt_pico_error") or "").strip()
+            if picoerr:
+                st.error(picoerr)
             st.text_area(
                 "Patient details",
                 key="patient_details_input",
@@ -477,9 +448,6 @@ def render() -> None:
 
             st.divider()
 
-            icerr = (st.session_state.get("gpt_ic_error") or "").strip()
-            if icerr:
-                st.error(icerr)
             st.text_area(
                 "Intervention / comparison",
                 key="intervention_comparison_input",
@@ -489,12 +457,30 @@ def render() -> None:
 
             st.divider()
 
-            rerr = (st.session_state.get("gpt_results_error") or "").strip()
-            if rerr:
-                st.error(rerr)
             st.text_area(
-                "Results",
-                key="results_input",
-                placeholder="- Primary outcome: ... (effect estimate, CI)\n- Secondary outcome: ...",
+                "Outcomes",
+                key="outcomes_input",
+                placeholder="- Primary outcome: 30-day mortality\n- Secondary outcome: ...\n- Result: HR 0.76 (95% CI 0.67-0.87)",
                 height=200,
+            )
+
+            st.divider()
+
+            st.text_area(
+                "Evidence base (reviews / meta-analyses)",
+                key="evidence_base_input",
+                placeholder="- 18 included studies (k); N=934\n- Designs pooled: RCTs\n- PROSPERO-registered; I^2 ...",
+                height=120,
+            )
+
+            st.divider()
+
+            cerr = (st.session_state.get("gpt_conclusions_error") or "").strip()
+            if cerr:
+                st.error(cerr)
+            st.text_area(
+                "Author's conclusions",
+                key="authors_conclusions_input",
+                placeholder="Near-verbatim conclusion statement.",
+                height=110,
             )

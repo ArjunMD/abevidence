@@ -36,7 +36,8 @@ def _init_edit_fields(rec: Dict[str, str], pmid: str) -> None:
     st.session_state[f"manage_patient_details_{pmid}"] = rec.get("patient_details") or ""
     st.session_state[f"manage_ic_{pmid}"] = rec.get("intervention_comparison") or ""
     st.session_state[f"manage_conclusions_{pmid}"] = rec.get("authors_conclusions") or ""
-    st.session_state[f"manage_results_{pmid}"] = rec.get("results") or ""
+    st.session_state[f"manage_outcomes_{pmid}"] = rec.get("outcomes") or ""
+    st.session_state[f"manage_evidence_{pmid}"] = rec.get("evidence_base") or ""
     st.session_state[f"manage_specialty_{pmid}"] = rec.get("specialty") or ""
     st.session_state[marker] = True
 
@@ -99,13 +100,6 @@ def render() -> None:
 
             with col_left:
                 st.text_area(
-                    "Authors' conclusions",
-                    key=f"manage_conclusions_{sel_pmid}",
-                    placeholder="Near-verbatim conclusion statement.",
-                    height=110,
-                )
-
-                st.text_area(
                     "Patient details",
                     key=f"manage_patient_details_{sel_pmid}",
                     placeholder="- Adults >=18 years with ...\n- Excluded if ...\n- Mean age ...\n- % male ...",
@@ -113,10 +107,24 @@ def render() -> None:
                 )
 
                 st.text_area(
-                    "Results",
-                    key=f"manage_results_{sel_pmid}",
-                    placeholder="- Primary outcome: ... (effect estimate, CI)\n- Secondary outcome: ...",
+                    "Outcomes",
+                    key=f"manage_outcomes_{sel_pmid}",
+                    placeholder="- Primary outcome: 30-day mortality\n- Result: HR 0.76 (95% CI 0.67-0.87)",
                     height=160,
+                )
+
+                st.text_area(
+                    "Evidence base (reviews / meta-analyses)",
+                    key=f"manage_evidence_{sel_pmid}",
+                    placeholder="- 18 included studies (k); N=934\n- Designs pooled: RCTs; I^2 ...",
+                    height=110,
+                )
+
+                st.text_area(
+                    "Authors' conclusions",
+                    key=f"manage_conclusions_{sel_pmid}",
+                    placeholder="Near-verbatim conclusion statement.",
+                    height=110,
                 )
 
             with col_right:
@@ -166,8 +174,11 @@ def render() -> None:
                     raw_concl = (st.session_state.get(f"manage_conclusions_{sel_pmid}") or "").strip()
                     parsed_concl = raw_concl if raw_concl else None
 
-                    raw_results = (st.session_state.get(f"manage_results_{sel_pmid}") or "").strip()
-                    parsed_results = raw_results if raw_results else None
+                    raw_outcomes = (st.session_state.get(f"manage_outcomes_{sel_pmid}") or "").strip()
+                    parsed_outcomes = raw_outcomes if raw_outcomes else None
+
+                    raw_evidence = (st.session_state.get(f"manage_evidence_{sel_pmid}") or "").strip()
+                    parsed_evidence = raw_evidence if raw_evidence else None
 
                     raw_spec = (st.session_state.get(f"manage_specialty_{sel_pmid}") or "").strip()
                     parsed_spec = _parse_tag_list(raw_spec) or None
@@ -183,7 +194,8 @@ def render() -> None:
                                 patient_details=parsed_details,
                                 intervention_comparison=parsed_ic,
                                 authors_conclusions=parsed_concl,
-                                results=parsed_results,
+                                outcomes=parsed_outcomes,
+                                evidence_base=parsed_evidence,
                                 specialty=parsed_spec,
                             )
                             # Reset the loaded marker so next rerun picks up fresh DB values

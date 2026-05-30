@@ -629,7 +629,7 @@ def _openai_api_key() -> str:
 
 
 def _openai_model() -> str:
-    return ("gpt-5.4")
+    return ("gpt-5.5")
 
 
 # ---------------- Semantic Scholar helpers ----------------
@@ -1600,8 +1600,60 @@ def gpt_extract_study_design(title: str, abstract: str) -> str:
     return _parse_tag_list(_extract_output_text(r.json()))
 
 
+# Study classes that drive how PICO is extracted.
+STUDY_CLASSES = ("COMPARATIVE", "REVIEW", "DESCRIPTIVE")
+
+_PICO_COMMON_RULES = (
+    "Use ONLY information explicitly stated in the abstract; never invent.\n"
+    "Each field is a JSON array of short bullet strings (no leading '- '); use [] if nothing applies.\n"
+    "Do not put the same fact in two fields.\n"
+)
+
+# Per-class instructions. Every class returns the SAME four JSON keys
+# (patients, groups, outcomes, evidence_base) so parsing is uniform; the
+# meaning of each key is tailored to the study type.
+_PICO_INSTRUCTIONS = {
+    "COMPARATIVE": (
+        "You extract structured evidence from a comparative clinical study abstract (RCT or observational).\n"
+        + _PICO_COMMON_RULES +
+        "Return ONLY a JSON object with keys: patients, groups, outcomes, evidence_base.\n"
+        "- patients: characteristics SHARED BY ALL groups before they diverge — eligibility criteria, "
+        "baseline characteristics, setting/geography, total N. Anything true of everyone goes here.\n"
+        "- groups: ONLY what DIFFERS between the arms/groups — intervention vs comparator, or exposure vs "
+        "non-exposure (one bullet per group). Dose/timing/duration that distinguishes a group. "
+        "Do NOT put outcome names here.\n"
+        "- outcomes: FIRST the names of the primary and secondary outcomes being measured, THEN the results "
+        "for each (effect estimate RR/OR/HR/MD + CI when stated). One bullet per outcome or result.\n"
+        "- evidence_base: [] (not applicable)."
+    ),
+    "REVIEW": (
+        "You extract structured evidence from a systematic review / meta-analysis abstract.\n"
+        + _PICO_COMMON_RULES +
+        "Return ONLY a JSON object with keys: patients, groups, outcomes, evidence_base.\n"
+        "- patients: the population / inclusion criteria of the review question (who the included studies enrolled).\n"
+        "- groups: the comparison being pooled (intervention vs comparator).\n"
+        "- outcomes: FIRST the outcomes analyzed, THEN the POOLED results (pooled RR/OR/HR/MD + CI) and "
+        "heterogeneity (I^2) when stated.\n"
+        "- evidence_base: number of included studies (k), total participants (N), study designs pooled, "
+        "and search/registration details (e.g. PROSPERO) when stated."
+    ),
+    "DESCRIPTIVE": (
+        "You extract structured evidence from a single-arm / descriptive study abstract (NO comparator group).\n"
+        + _PICO_COMMON_RULES +
+        "Return ONLY a JSON object with keys: patients, groups, outcomes, evidence_base.\n"
+        "- patients: the cohort described — eligibility, baseline characteristics, setting, total N.\n"
+        "- groups: what was done to or observed in everyone (intervention/exposure/test). "
+        "Do NOT invent a comparison group.\n"
+        "- outcomes: FIRST the outcomes/measurements reported, THEN their values (rates, proportions, or for "
+        "diagnostic studies sensitivity/specificity/PPV/NPV/AUC).\n"
+        "- evidence_base: [] (not applicable)."
+    ),
+}
+
+
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def gpt_extract_patient_details(title: str, abstract: str, patient_n: int, study_design: str) -> str:
+def gpt_classify_study(title: str, abstract: str) -> str:
+    """Classify an abstract into one of STUDY_CLASSES to route PICO extraction."""
     key = _openai_api_key()
     if not key:
         raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
@@ -1609,35 +1661,26 @@ def gpt_extract_patient_details(title: str, abstract: str, patient_n: int, study
     title = (title or "").strip()
     abstract = (abstract or "").strip()
     if not abstract:
-        return ""
+        return "COMPARATIVE"
 
     instructions = (
-        "You extract patient population details from a PubMed abstract.\n"
-        "Return ONLY bullet lines, each starting with '- ' (or return an empty string).\n"
-        "Hard rules:\n"
-        "- Use ONLY information explicitly stated in the abstract. Do not invent or infer beyond what's stated.\n"
-        "- Do NOT include any headers, labels, or subheadings.\n"
-        "- Do NOT repeat the total patient count or any study design descriptors/tags.\n"
-        "- Prioritize eligibility criteria and baseline characteristics.\n"
-        "- Keep it concise and high-yield. Prefer 3–10 bullets when possible.\n"
-        "- If the abstract does not state meaningful eligibility/baseline details, return an empty string."
-    )
-
-    user_input = (
-        f"TITLE:\n{title}\n\n"
-        f"ALREADY EXTRACTED (do not repeat):\n"
-        f"- Patient count: {int(patient_n) if patient_n is not None else 0}\n"
-        f"- Study design tags: {study_design or ''}\n\n"
-        f"ABSTRACT:\n{abstract}\n\nReturn the bullet list."
+        "Classify a PubMed abstract into exactly ONE study class for evidence extraction.\n"
+        "Output ONLY one token, nothing else:\n"
+        "  COMPARATIVE  - two or more groups compared (RCT, controlled trial, cohort, case-control, "
+        "cross-sectional with comparison, post-hoc/subgroup of a comparative trial)\n"
+        "  REVIEW       - systematic review and/or meta-analysis pooling multiple studies\n"
+        "  DESCRIPTIVE  - single-arm / no comparator (case series, single-arm trial, prevalence/incidence, "
+        "registry description, diagnostic accuracy of a single test)\n"
+        "If a meta-analysis pools RCTs, it is REVIEW (not COMPARATIVE)."
     )
 
     payload = {
         "model": _openai_model(),
         "instructions": instructions,
-        "input": user_input,
+        "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nClass:",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 350,
+        "max_output_tokens": 16,
         "temperature": 0,
         "store": False,
     }
@@ -1650,17 +1693,37 @@ def gpt_extract_patient_details(title: str, abstract: str, patient_n: int, study
     )
     r.raise_for_status()
 
-    return _normalize_bullets(_extract_output_text(r.json()))
+    raw = (_extract_output_text(r.json()) or "").strip().upper()
+    for cls in STUDY_CLASSES:
+        if cls in raw:
+            return cls
+    return "COMPARATIVE"
+
+
+def _bullets_from_list(value) -> str:
+    if isinstance(value, list):
+        lines = [str(x).strip() for x in value if str(x).strip()]
+    elif isinstance(value, str):
+        lines = [value.strip()] if value.strip() else []
+    else:
+        lines = []
+    return _normalize_bullets("\n".join(lines))
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def gpt_extract_intervention_comparison(
-    title: str,
-    abstract: str,
-    patient_n: int,
-    study_design: str,
-    patient_details: str,
-) -> str:
+def gpt_extract_pico(title: str, abstract: str, study_class: str) -> Dict[str, str]:
+    """Routed PICO+Outcomes extraction in a single JSON call.
+
+    Returns a dict with keys: patient_details, intervention_comparison, outcomes,
+    evidence_base (all bullet-formatted strings; evidence_base is "" unless REVIEW).
+    """
+    empty = {
+        "patient_details": "",
+        "intervention_comparison": "",
+        "outcomes": "",
+        "evidence_base": "",
+    }
+
     key = _openai_api_key()
     if not key:
         raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
@@ -1668,36 +1731,19 @@ def gpt_extract_intervention_comparison(
     title = (title or "").strip()
     abstract = (abstract or "").strip()
     if not abstract:
-        return ""
+        return dict(empty)
 
-    instructions = (
-        "You extract the intervention and the comparison from a PubMed abstract.\n"
-        "Return ONLY bullet lines, each starting with '- ' (or return an empty string).\n"
-        "Hard rules:\n"
-        "- Use ONLY information explicitly stated in the abstract. Do not invent or infer beyond what's stated.\n"
-        "- Do NOT include any headers, labels, or subheadings.\n"
-        "- Do NOT repeat patient count, study design tags, or patient population details.\n"
-        "- Capture: intervention/exposure, comparator/control/reference, dosing/intensity, timing, duration, co-interventions if stated.\n"
-        "- If no clear intervention/comparator is described, return an empty string.\n"
-        "- Keep it concise (prefer 2–8 bullets)."
-    )
-
-    user_input = (
-        f"TITLE:\n{title}\n\n"
-        f"ALREADY EXTRACTED (do not repeat):\n"
-        f"- Patient count: {int(patient_n) if patient_n is not None else 0}\n"
-        f"- Study design tags: {study_design or ''}\n"
-        f"- Patient details:\n{patient_details or ''}\n\n"
-        f"ABSTRACT:\n{abstract}\n\nReturn the bullet list."
-    )
+    cls = (study_class or "").strip().upper()
+    if cls not in _PICO_INSTRUCTIONS:
+        cls = "COMPARATIVE"
 
     payload = {
         "model": _openai_model(),
-        "instructions": instructions,
-        "input": user_input,
+        "instructions": _PICO_INSTRUCTIONS[cls],
+        "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nReturn the JSON object.",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 320,
+        "max_output_tokens": 1100,
         "temperature": 0,
         "store": False,
     }
@@ -1706,11 +1752,29 @@ def gpt_extract_intervention_comparison(
         OPENAI_RESPONSES_URL,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json=payload,
-        timeout=30,
+        timeout=45,
     )
     r.raise_for_status()
 
-    return _normalize_bullets(_extract_output_text(r.json()))
+    raw = (_extract_output_text(r.json()) or "").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw[:4].lower() == "json":
+            raw = raw[4:]
+        raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return dict(empty)
+    if not isinstance(data, dict):
+        return dict(empty)
+
+    return {
+        "patient_details": _bullets_from_list(data.get("patients")),
+        "intervention_comparison": _bullets_from_list(data.get("groups")),
+        "outcomes": _bullets_from_list(data.get("outcomes")),
+        "evidence_base": _bullets_from_list(data.get("evidence_base")) if cls == "REVIEW" else "",
+    }
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -1770,69 +1834,6 @@ def gpt_extract_authors_conclusions(
     r.raise_for_status()
 
     return (_extract_output_text(r.json()) or "").strip()
-
-
-@st.cache_data(ttl=24 * 3600, show_spinner=False)
-def gpt_extract_results(
-    title: str,
-    abstract: str,
-    patient_n: int,
-    study_design: str,
-    patient_details: str,
-    intervention_comparison: str,
-) -> str:
-    key = _openai_api_key()
-    if not key:
-        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
-
-    title = (title or "").strip()
-    abstract = (abstract or "").strip()
-    if not abstract:
-        return ""
-
-    instructions = (
-        "Extract the RESULTS from a PubMed abstract.\n"
-        "Return ONLY bullet lines, each starting with '- '. No headers, no labels.\n"
-        "Make ONE bullet per distinct reported result.\n"
-        "Rules:\n"
-        "- Use ONLY information explicitly stated in the abstract. Do not invent.\n"
-        "- Avoid repeating patient count, study design tags, patient details, and intervention/comparison descriptions.\n"
-        "- If a confidence interval (CI) is provided for a result, do NOT include a p-value for that same result.\n"
-        "- Prefer including: outcome name, time horizon (if stated), effect estimate (RR/OR/HR/MD/etc), and CI when stated.\n"
-        "- If results are not clearly stated, return an empty string.\n"
-        "- Keep it concise; prefer 2–12 bullets."
-    )
-
-    user_input = (
-        f"TITLE:\n{title}\n\n"
-        f"ALREADY EXTRACTED (do not repeat):\n"
-        f"- Patient count: {int(patient_n) if patient_n is not None else 0}\n"
-        f"- Study design tags: {study_design or ''}\n"
-        f"- Patient details:\n{patient_details or ''}\n"
-        f"- Intervention/comparison:\n{intervention_comparison or ''}\n\n"
-        f"ABSTRACT:\n{abstract}\n\nReturn the results bullet list."
-    )
-
-    payload = {
-        "model": _openai_model(),
-        "instructions": instructions,
-        "input": user_input,
-        "reasoning": {"effort": "none"},
-        "text": {"verbosity": "low"},
-        "max_output_tokens": 520,
-        "temperature": 0,
-        "store": False,
-    }
-
-    r = _post_with_retries(
-        OPENAI_RESPONSES_URL,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=30,
-    )
-    r.raise_for_status()
-
-    return _normalize_bullets(_extract_output_text(r.json()))
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)

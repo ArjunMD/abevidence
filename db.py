@@ -38,6 +38,24 @@ def _sha256_bytes(b: bytes) -> str:
 
 # ---------------- Abstracts schema + CRUD ----------------
 
+def _migrate_abstracts_columns(conn: sqlite3.Connection) -> None:
+    """In-place schema migration for the abstracts table.
+
+    Renames the legacy `results` column to `outcomes` and adds `evidence_base`.
+    Uses ALTER TABLE (no table rebuild), so the pmid primary key and all rows are
+    preserved — the saved/hidden detection that SearchPubMed relies on is untouched.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(abstracts);").fetchall()}
+    if "results" in cols and "outcomes" not in cols:
+        conn.execute("ALTER TABLE abstracts RENAME COLUMN results TO outcomes;")
+        cols.discard("results")
+        cols.add("outcomes")
+    if "outcomes" not in cols:
+        conn.execute("ALTER TABLE abstracts ADD COLUMN outcomes TEXT;")
+    if "evidence_base" not in cols:
+        conn.execute("ALTER TABLE abstracts ADD COLUMN evidence_base TEXT;")
+
+
 def ensure_schema() -> None:
     with _connect_db() as conn:
         conn.execute(
@@ -54,12 +72,14 @@ def ensure_schema() -> None:
                 patient_details TEXT,
                 intervention_comparison TEXT,
                 authors_conclusions TEXT,
-                results TEXT,
+                outcomes TEXT,
+                evidence_base TEXT,
                 specialty TEXT,
                 uploaded_at TEXT
             );
             """
         )
+        _migrate_abstracts_columns(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS hidden_pubmed_pmids (
@@ -108,7 +128,8 @@ def save_record(
     patient_details: Optional[str],
     intervention_comparison: Optional[str],
     authors_conclusions: Optional[str],
-    results: Optional[str],
+    outcomes: Optional[str],
+    evidence_base: Optional[str],
     specialty: Optional[str],
 ) -> None:
     uploaded_at = _utc_iso_z()
@@ -117,10 +138,10 @@ def save_record(
             """
             INSERT INTO abstracts (
                 pmid, title, abstract, year, pub_month, journal, patient_n, study_design,
-                patient_details, intervention_comparison, authors_conclusions, results,
-                specialty, uploaded_at
+                patient_details, intervention_comparison, authors_conclusions, outcomes,
+                evidence_base, specialty, uploaded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 pmid,
@@ -134,7 +155,8 @@ def save_record(
                 patient_details,
                 intervention_comparison,
                 authors_conclusions,
-                results,
+                outcomes,
+                evidence_base,
                 specialty,
                 uploaded_at,
             ),
@@ -457,7 +479,8 @@ def search_records(limit: int, q: str) -> List[Dict[str, str]]:
         "COALESCE(patient_details,'')",
         "COALESCE(intervention_comparison,'')",
         "COALESCE(authors_conclusions,'')",
-        "COALESCE(results,'')",
+        "COALESCE(outcomes,'')",
+        "COALESCE(evidence_base,'')",
         "COALESCE(specialty,'')",
         "COALESCE(CAST(patient_n AS TEXT),'')",
     ]
@@ -534,8 +557,8 @@ def get_record(pmid: str) -> Dict[str, str]:
         row = conn.execute(
             """
             SELECT pmid, title, abstract, year, pub_month, journal, patient_n, study_design,
-                   patient_details, intervention_comparison, authors_conclusions, results,
-                   specialty
+                   patient_details, intervention_comparison, authors_conclusions, outcomes,
+                   evidence_base, specialty
             FROM abstracts
             WHERE pmid=? LIMIT 1;
             """,
@@ -555,7 +578,8 @@ def get_record(pmid: str) -> Dict[str, str]:
             "patient_details": (row["patient_details"] or "").strip(),
             "intervention_comparison": (row["intervention_comparison"] or "").strip(),
             "authors_conclusions": (row["authors_conclusions"] or "").strip(),
-            "results": (row["results"] or "").strip(),
+            "outcomes": (row["outcomes"] or "").strip(),
+            "evidence_base": (row["evidence_base"] or "").strip(),
             "specialty": (row["specialty"] or "").strip(),
         }
 
@@ -567,7 +591,8 @@ def update_record(
     patient_details: Optional[str],
     intervention_comparison: Optional[str],
     authors_conclusions: Optional[str],
-    results: Optional[str],
+    outcomes: Optional[str],
+    evidence_base: Optional[str],
     specialty: Optional[str],
 ) -> None:
     with _connect_db() as conn:
@@ -579,7 +604,8 @@ def update_record(
                 patient_details = ?,
                 intervention_comparison = ?,
                 authors_conclusions = ?,
-                results = ?,
+                outcomes = ?,
+                evidence_base = ?,
                 specialty = ?
             WHERE pmid = ?;
             """,
@@ -589,7 +615,8 @@ def update_record(
                 patient_details,
                 intervention_comparison,
                 authors_conclusions,
-                results,
+                outcomes,
+                evidence_base,
                 specialty,
                 pmid,
             ),

@@ -135,7 +135,6 @@ def render() -> None:
         placeholder='Search anything. Supports AND, OR, and "exact phrase"…',
         key="db_search_any",
     )
-    st.caption('Example: `heart AND "reduced ejection fraction"` or `sepsis OR septic shock`')
 
     if (q or "").strip():
         st.session_state.pop("db_search_open_pmid", None)
@@ -176,29 +175,48 @@ def render() -> None:
         if title:
             st.subheader(title)
 
-        meta_bits = []
-        if rec.get("journal"):
-            meta_bits.append(rec["journal"])
-        if rec.get("year"):
-            year_str = rec["year"]
-            pub_month = (rec.get("pub_month") or "").strip()
-            if pub_month:
-                year_str = f"{year_str}-{pub_month}"
-            meta_bits.append(year_str)
-        if meta_bits:
-            st.caption(" • ".join(meta_bits))
+        # ----- Evidence-quality banner: Journal / N / Study design -----
+        journal = (rec.get("journal") or "").strip()
+        year_str = (rec.get("year") or "").strip()
+        pub_month = (rec.get("pub_month") or "").strip()
+        if year_str and pub_month:
+            year_str = f"{year_str}-{pub_month}"
 
-        c1, c2, c3 = st.columns([1, 1, 2], gap="large")
-        with c1:
-            st.metric("Patients (N)", rec.get("patient_n") or "—")
-        with c2:
-            st.metric("Specialty", rec.get("specialty") or "—")
-        with c3:
-            tags_md = _tags_to_md(rec.get("study_design") or "")
-            st.markdown(tags_md if tags_md else " ")
+        n_raw = (rec.get("patient_n") or "").strip()
+        try:
+            n_display = f"{int(n_raw):,}" if n_raw else "—"
+        except (TypeError, ValueError):
+            n_display = n_raw or "—"
+
+        tags_md = _tags_to_md(rec.get("study_design") or "")
+
+        ev1, ev2, ev3 = st.columns([3, 2, 3], gap="large")
+        with ev1:
+            if journal or year_str:
+                journal_line = html.escape(journal) if journal else "—"
+                year_line = (
+                    f"<br><span style='opacity:0.65;font-size:0.85rem;'>{html.escape(year_str)}</span>"
+                    if year_str
+                    else ""
+                )
+                st.markdown(
+                    f"**Journal**<br><span style='font-size:1.05rem;'>{journal_line}</span>{year_line}",
+                    unsafe_allow_html=True,
+                )
+        with ev2:
+            st.markdown(
+                f"**Patients (N)**<br><span style='font-size:1.5rem;font-weight:600;'>{html.escape(n_display)}</span>",
+                unsafe_allow_html=True,
+            )
+        with ev3:
+            st.markdown(
+                "**Study design**<br>" + (tags_md if tags_md else "—"),
+                unsafe_allow_html=True,
+            )
 
         st.divider()
 
+        # ----- PICO drill-down -----
         st.markdown("### P — Population")
         _render_bullets(rec.get("patient_details") or "", empty_hint="—")
 
@@ -206,10 +224,17 @@ def render() -> None:
         _render_bullets(rec.get("intervention_comparison") or "", empty_hint="—")
 
         st.markdown("### O — Outcomes / Results")
-        _render_bullets(rec.get("results") or "", empty_hint="—")
+        _render_bullets(rec.get("outcomes") or "", empty_hint="—")
 
+        evidence_base = (rec.get("evidence_base") or "").strip()
+        if evidence_base:
+            st.markdown("### Evidence base")
+            _render_bullets(evidence_base, empty_hint="—")
+
+        # ----- Authors' conclusion at the bottom, under outcomes -----
         concl = (rec.get("authors_conclusions") or "").strip()
         if concl:
+            st.divider()
             st.markdown("### Authors’ conclusion")
             st.markdown(concl)
 
