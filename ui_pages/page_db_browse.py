@@ -132,9 +132,10 @@ def _render_browse_body() -> None:
         by_specialty = False
     browse_q = st.text_input(
         "Search",
-        placeholder='Filter this browse view by any field. Supports AND, OR, and "exact phrase"…',
+        placeholder="Search by drug, condition, author, journal…",
         key="db_browse_any",
     )
+    st.caption('Tip: combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.')
 
     items: List[Dict[str, str]] = []
     if guidelines_only:
@@ -255,4 +256,9 @@ def _render_browse_body() -> None:
 
 def render() -> None:
     st.title("🗂️ Browse studies")
+    st.markdown(
+        "Browse our library of clinical studies and guidelines. Each entry is summarized "
+        "into **PICO** — **P**atients, **I**ntervention / **C**omparison, and **O**utcomes. "
+        "Click 🔎 to open the full structured summary, or a title to view it on PubMed."
+    )
     _render_browse_body()

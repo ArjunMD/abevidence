@@ -46,10 +46,22 @@ _PAGES = {
 # In public mode (ABEV_MODE=public — set on the hosted .com instance), only
 # these pages are exposed; everything else, plus all edit/upload affordances
 # inside the surviving pages, is hidden.
-_PUBLIC_PAGES = {"Browse studies", "Single-study view", "Suggest an article"}
+#
+# "Single-study view" is intentionally NOT a public sidebar item: a visitor
+# reaches it by clicking a study on Browse and returns via its "Back to studies"
+# button. Keeping it out of the sidebar avoids a confusing nav entry that does
+# nothing useful when clicked with no study selected.
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "Suggest an article"}
 
 _IS_PUBLIC = is_public_mode()
-_VISIBLE_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_PAGES]
+_SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]
+
+
+def _exit_public_study_overlay() -> None:
+    """Leave the single-study overlay when a public visitor picks a sidebar page."""
+    st.session_state["public_study_overlay"] = False
+    st.session_state.pop("db_search_open_pmid", None)
+    st.session_state.pop("db_search_open_gid", None)
 
 _qp = _get_query_params()
 _open_pmid = _clean_pmid(_qp_first(_qp, "pmid"))
@@ -62,8 +74,12 @@ if _open_abs_pmid and not _IS_PUBLIC:
     st.session_state["pmid_input"] = _open_abs_pmid
     _clear_query_params()
 elif _open_pmid or _open_gid:
-    st.session_state["nav_page"] = "Single-study view"
     st.session_state["db_search_any"] = ""
+    if _IS_PUBLIC:
+        # Single-study view isn't in the public sidebar; show it as an overlay.
+        st.session_state["public_study_overlay"] = True
+    else:
+        st.session_state["nav_page"] = "Single-study view"
 
     if _open_pmid:
         st.session_state["db_search_open_pmid"] = _open_pmid
@@ -79,13 +95,14 @@ elif _open_pmid or _open_gid:
 
     _clear_query_params()
 
-_default_index = _VISIBLE_PAGES.index("Browse studies") if _IS_PUBLIC else 0
+_default_index = _SIDEBAR_PAGES.index("Browse studies") if _IS_PUBLIC else 0
 
 nav_page = st.sidebar.radio(
     "Research",
-    _VISIBLE_PAGES,
+    _SIDEBAR_PAGES,
     index=_default_index,
     key="nav_page",
+    on_change=_exit_public_study_overlay if _IS_PUBLIC else None,
 )
 
 st.sidebar.caption(
@@ -93,4 +110,7 @@ st.sidebar.caption(
     f"({db_count()} abstracts, {guidelines_count()} guidelines)"
 )
 
-_PAGES[nav_page]()
+if _IS_PUBLIC and st.session_state.get("public_study_overlay"):
+    render_db_search()
+else:
+    _PAGES[nav_page]()

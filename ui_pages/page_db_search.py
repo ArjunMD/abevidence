@@ -119,6 +119,13 @@ def _highlight_guideline_strength_evidence(md: str) -> str:
 
 
 def render() -> None:
+    if is_public_mode() and st.session_state.get("public_study_overlay"):
+        if st.button("← Back to studies", key="db_search_back"):
+            st.session_state["public_study_overlay"] = False
+            st.session_state.pop("db_search_open_pmid", None)
+            st.session_state.pop("db_search_open_gid", None)
+            st.rerun()
+
     st.title("📚 Single-study view")
 
     forced_selected: Optional[Dict[str, str]] = None
@@ -132,9 +139,10 @@ def render() -> None:
 
     q = st.text_input(
         "Search",
-        placeholder='Search anything. Supports AND, OR, and "exact phrase"…',
+        placeholder="Search by drug, condition, author, journal…",
         key="db_search_any",
     )
+    st.caption('Tip: combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.')
 
     if (q or "").strip():
         st.session_state.pop("db_search_open_pmid", None)
@@ -217,6 +225,10 @@ def render() -> None:
         st.divider()
 
         # ----- PICO drill-down -----
+        st.caption(
+            "**PICO** — a structured summary: **P**atients (who was studied), "
+            "**I/C** (the intervention vs. its comparison), and **O**utcomes (what was measured and found)."
+        )
         st.markdown("### P — Population")
         _render_bullets(rec.get("patient_details") or "", empty_hint="—")
 
