@@ -168,6 +168,7 @@ _view_key = "|".join([
     _overlay_now,
     (st.session_state.get("db_search_open_pmid") or "").strip(),
     (st.session_state.get("db_search_open_gid") or "").strip(),
+    str(st.session_state.get("browse_scroll_token") or ""),
 ])
 if st.session_state.get("_last_view_key") != _view_key:
     st.session_state["_last_view_key"] = _view_key

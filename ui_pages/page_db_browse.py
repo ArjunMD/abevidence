@@ -100,6 +100,12 @@ def _quick_delete_control(it: Dict[str, str], key_ns: str) -> None:
                 else:
                     delete_record(ident)
                 st.toast(f"Deleted {label} from the library.")
+                # Bump the scroll token so app.py's view-change gate fires and
+                # scrolls back to the top after the delete (otherwise the full
+                # rerun leaves you mid-page where the removed item used to be).
+                st.session_state["browse_scroll_token"] = (
+                    int(st.session_state.get("browse_scroll_token") or 0) + 1
+                )
                 st.rerun()
             except Exception as e:
                 st.error(str(e))
