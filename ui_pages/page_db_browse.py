@@ -4,13 +4,22 @@ from typing import Dict, List
 
 import streamlit as st
 
-from db import list_browse_guideline_items, list_browse_items, search_guidelines, search_records
+from db import (
+    delete_guideline,
+    delete_record,
+    list_browse_guideline_items,
+    list_browse_items,
+    search_guidelines,
+    search_records,
+)
 from pages_shared import (
     BROWSE_MAX_ROWS,
+    _browse_manage_link,
     _browse_search_link,
     _split_specialties,
     _year_sort_key,
     display_journal,
+    is_public_mode,
 )
 
 
@@ -58,7 +67,54 @@ def _format_pub_year_month(year: str, pub_month: str) -> str:
     return y
 
 
-def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None:
+def _quick_delete_control(it: Dict[str, str], key_ns: str) -> None:
+    """Backend-only popover to delete an abstract or guideline straight from the
+    browse list. Two clicks (open popover → Confirm) to avoid accidental loss."""
+    is_guideline = (it.get("type") or "").strip() == "guideline"
+    ident = ((it.get("guideline_id") if is_guideline else it.get("pmid")) or "").strip()
+    if not ident:
+        return
+
+    label = "guideline" if is_guideline else "abstract"
+    with st.popover("🗑️", help=f"Delete this {label} from the library"):
+        st.caption(f"Permanently delete this {label}?")
+        if st.button(
+            "Confirm delete",
+            key=f"browse_qdel_{'g' if is_guideline else 'p'}_{key_ns}_{ident}",
+            type="primary",
+            width="stretch",
+        ):
+            try:
+                if is_guideline:
+                    delete_guideline(ident)
+                else:
+                    delete_record(ident)
+                st.toast(f"Deleted {label} from the library.")
+                st.rerun()
+            except Exception as e:
+                st.error(str(e))
+
+
+def _render_browse_item(
+    it: Dict[str, str],
+    show_pub_date: bool = False,
+    allow_delete: bool = False,
+    key_ns: str = "",
+) -> None:
+    if not allow_delete:
+        _render_browse_item_body(it, show_pub_date, allow_manage=False)
+        return
+
+    col_main, col_del = st.columns([0.95, 0.05], gap="small")
+    with col_main:
+        _render_browse_item_body(it, show_pub_date, allow_manage=True)
+    with col_del:
+        _quick_delete_control(it, key_ns)
+
+
+def _render_browse_item_body(
+    it: Dict[str, str], show_pub_date: bool = False, allow_manage: bool = False
+) -> None:
     if (it.get("type") or "") == "guideline":
         title = (it.get("title") or "").strip() or "(no name)"
         gid = (it.get("guideline_id") or "").strip()
@@ -66,8 +122,9 @@ def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None
         safe_title = html.escape(title)
         soc_part = f" <i style='opacity:0.55;'>({html.escape(society)})</i>" if society else ""
         if gid:
+            manage = _browse_manage_link(gid=gid) if allow_manage else ""
             st.markdown(
-                f"- {safe_title}{soc_part}{_browse_search_link(gid=gid)}",
+                f"- {safe_title}{soc_part}{_browse_search_link(gid=gid)}{manage}",
                 unsafe_allow_html=True,
             )
         else:
@@ -80,7 +137,6 @@ def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None
 
     pub_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
     safe_title = html.escape(title)
-    safe_pmid = html.escape(pmid)
 
     j = display_journal(it.get("journal") or "")
     pn = (it.get("patient_n") or "").strip()
@@ -96,9 +152,10 @@ def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None
             meta_bits.append(ym)
     meta = ", ".join(meta_bits)
 
+    manage = _browse_manage_link(pmid=pmid) if allow_manage else ""
     st.markdown(
-        f"- <a href='{pub_url}' target='_blank'>{safe_title}</a> — <code>{safe_pmid}</code>"
-        f"{_browse_search_link(pmid=pmid)}",
+        f"- <a href='{pub_url}' target='_blank'>{safe_title}</a>"
+        f"{_browse_search_link(pmid=pmid)}{manage}",
         unsafe_allow_html=True,
     )
     if concl:
@@ -109,7 +166,8 @@ def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None
 
 @st.fragment
 def _render_browse_body() -> None:
-    col_sort, col_spec, col_guide = st.columns(3)
+    can_delete = not is_public_mode()
+    col_spec, col_guide, col_sort = st.columns(3)
     with col_sort:
         sort_by_date_added = st.toggle(
             "Sort by date added",
@@ -209,7 +267,7 @@ def _render_browse_body() -> None:
             rows = sorted(by_day.get(day, []), key=lambda it: (it.get("title") or "").lower())
             rows.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
             for it in rows:
-                _render_browse_item(it, show_pub_date=True)
+                _render_browse_item(it, show_pub_date=True, allow_delete=can_delete, key_ns=f"day_{day}")
         return
 
     if by_specialty:
@@ -231,7 +289,7 @@ def _render_browse_body() -> None:
                     st.markdown(f"**{y}**")
                     rows = sorted(years_map.get(y, []), key=_browse_item_sort_key)
                     for it in rows:
-                        _render_browse_item(it)
+                        _render_browse_item(it, allow_delete=can_delete, key_ns=f"spec_{spec}_{y}")
 
                     st.markdown("")
     else:
@@ -252,7 +310,7 @@ def _render_browse_body() -> None:
             rows = sorted(rows, key=_browse_item_sort_key)
 
             for it in rows:
-                _render_browse_item(it)
+                _render_browse_item(it, allow_delete=can_delete, key_ns=f"year_{y}")
 
 
 def render() -> None:

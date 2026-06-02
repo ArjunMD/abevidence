@@ -309,6 +309,23 @@ def _browse_search_link(*, pmid: str = "", gid: str = "") -> str:
     return ""
 
 
+def _browse_manage_link(*, pmid: str = "", gid: str = "") -> str:
+    """Backend-only link that jumps to the Manage page with this item pre-selected
+    for editing/deleting. Routed by app.py via the manage_pmid / manage_gid query
+    params. Never rendered in public mode."""
+    if pmid:
+        return (
+            f"<a href='?manage_pmid={quote_plus(pmid)}' target='_self' title='Open in Manage (edit / delete)' "
+            f"style='text-decoration:none; opacity:0.45; margin-left:0.3rem; font-size:0.9em;'>✏️</a>"
+        )
+    if gid:
+        return (
+            f"<a href='?manage_gid={quote_plus(gid)}' target='_self' title='Open in Manage (edit / delete)' "
+            f"style='text-decoration:none; opacity:0.45; margin-left:0.3rem; font-size:0.9em;'>✏️</a>"
+        )
+    return ""
+
+
 def _format_date_added(iso_str: str) -> str:
     s = (iso_str or "").strip()
     if not s:

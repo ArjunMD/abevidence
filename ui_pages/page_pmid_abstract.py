@@ -118,7 +118,7 @@ def _render_related_item_row(pmid: str, title: str, source: str = "") -> None:
 
 
 def render() -> None:
-    st.title("📄 PMID → Abstract")
+    st.title("📄 Upload Abstract")
 
     if "pmid_input" not in st.session_state:
         st.session_state["pmid_input"] = st.session_state.get("last_pmid") or ""
