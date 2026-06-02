@@ -38,6 +38,16 @@ def _added_day_key(item: Dict[str, str]) -> str:
     return (item.get("uploaded_at") or "")[:10]
 
 
+_MONTH_NAMES = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _month_label(m: int) -> str:
+    return _MONTH_NAMES[m] if 1 <= int(m) <= 12 else "Guidelines"
+
+
 def _month_sort_value(item: Dict[str, str]) -> int:
     if (item.get("type") or "").strip().lower() == "guideline":
         return 0
@@ -306,11 +316,17 @@ def _render_browse_body() -> None:
                 st.markdown("---")
             st.markdown(f"### {y}")
 
-            rows = by_year.get(y, [])
-            rows = sorted(rows, key=_browse_item_sort_key)
+            # Subdivide each year by publication month (newest first; guidelines
+            # and undated papers fall into "Undated" at the bottom).
+            by_month: Dict[int, List[Dict[str, str]]] = {}
+            for it in by_year.get(y, []):
+                by_month.setdefault(_month_sort_value(it), []).append(it)
 
-            for it in rows:
-                _render_browse_item(it, allow_delete=can_delete, key_ns=f"year_{y}")
+            for m in sorted(by_month.keys(), reverse=True):
+                st.markdown(f"**{_month_label(m)}**")
+                rows = sorted(by_month.get(m, []), key=_browse_item_sort_key)
+                for it in rows:
+                    _render_browse_item(it, allow_delete=can_delete, key_ns=f"year_{y}_m{m}")
 
 
 def render() -> None:
