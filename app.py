@@ -98,7 +98,7 @@ elif _open_pmid or _open_gid:
 _default_index = _SIDEBAR_PAGES.index("Browse studies") if _IS_PUBLIC else 0
 
 nav_page = st.sidebar.radio(
-    "Research",
+    "Hospital Medicine Shelf",
     _SIDEBAR_PAGES,
     index=_default_index,
     key="nav_page",

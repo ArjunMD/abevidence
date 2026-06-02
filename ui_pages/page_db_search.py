@@ -23,6 +23,7 @@ from pages_shared import (
     _render_bullets,
     _render_plain_text,
     _tags_to_md,
+    display_journal,
     is_public_mode,
 )
 
@@ -184,7 +185,7 @@ def render() -> None:
             st.subheader(title)
 
         # ----- Evidence-quality banner: Journal / N / Study design -----
-        journal = (rec.get("journal") or "").strip()
+        journal = display_journal(rec.get("journal") or "")
         year_str = (rec.get("year") or "").strip()
         pub_month = (rec.get("pub_month") or "").strip()
         if year_str and pub_month:

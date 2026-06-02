@@ -10,6 +10,7 @@ from pages_shared import (
     _browse_search_link,
     _split_specialties,
     _year_sort_key,
+    display_journal,
 )
 
 
@@ -81,7 +82,7 @@ def _render_browse_item(it: Dict[str, str], show_pub_date: bool = False) -> None
     safe_title = html.escape(title)
     safe_pmid = html.escape(pmid)
 
-    j = (it.get("journal") or "").strip()
+    j = display_journal(it.get("journal") or "")
     pn = (it.get("patient_n") or "").strip()
 
     meta_bits = []
@@ -257,8 +258,9 @@ def _render_browse_body() -> None:
 def render() -> None:
     st.title("🗂️ Browse studies")
     st.markdown(
-        "Browse our library of clinical studies and guidelines. Each entry is summarized "
-        "into **PICO** — **P**atients, **I**ntervention / **C**omparison, and **O**utcomes. "
-        "Click 🔎 to open the full structured summary, or a title to view it on PubMed."
+        "Hospital Medicine Shelf is a library of trials, reviews, and guidelines relevant "
+        "to hospitalists. Browse studies by year, specialty, or date added to the library. "
+        "Click the 🔎 to see extracted details: structured PICO information for trials and "
+        "reviews, and recommendation statements for guidelines."
     )
     _render_browse_body()

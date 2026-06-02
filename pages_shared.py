@@ -22,6 +22,31 @@ def is_public_mode() -> bool:
     site sets ABEV_MODE=public). Personal/local mode is the default."""
     return os.environ.get("ABEV_MODE", "personal").strip().lower() == "public"
 
+
+# Matches a trailing place/edition qualifier, e.g. " (London, England)" or
+# " (Clinical research ed.)".
+_JOURNAL_PAREN_SUFFIX_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def display_journal(name: str) -> str:
+    """Clean a stored NLM journal name for display only (the DB value is left
+    untouched). Drops the ': official journal of …' subtitle and a trailing
+    place/edition qualifier, preserving the source casing so acronyms like BMJ
+    or JAMA stay intact. Examples:
+      'Clinical infectious diseases : an official publication…' -> 'Clinical infectious diseases'
+      'Critical care (London, England)'                          -> 'Critical care'
+    """
+    s = (name or "").strip()
+    if not s:
+        return ""
+    # NLM appends the issuing society after a colon; drop it.
+    if ":" in s:
+        s = s.split(":", 1)[0].strip()
+    # Drop a trailing parenthetical qualifier.
+    s = _JOURNAL_PAREN_SUFFIX_RE.sub("", s).strip()
+    return s
+
+
 _REC_LINE_RE = re.compile(r"^\s*(?:-\s+)?\*\*(?:Rec\s+)?(\d+)\.\*\*\s*(.*)$")
 
 
@@ -54,7 +79,7 @@ def _split_specialties(raw: str) -> List[str]:
 
 def _fmt_article(r: Dict[str, str]) -> str:
     title = (r.get("title") or "").strip() or "(no title)"
-    journal = (r.get("journal") or "").strip()
+    journal = display_journal(r.get("journal") or "")
     year = (r.get("year") or "").strip()
 
     bits: List[str] = []

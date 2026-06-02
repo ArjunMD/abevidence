@@ -1071,9 +1071,7 @@ def _openai_global_repeat_post_pass(
             )
             + "\n\nReturn JSON now.",
             "text": {"verbosity": "low"},
-            "max_output_tokens": 900,
-            "temperature": 0,
-            "reasoning": {"effort": "none"},
+            "max_output_tokens": 900,            "reasoning": {"effort": "none"},
             "store": False,
         }
 
@@ -1235,9 +1233,7 @@ def gpt_generate_guideline_recommendations_display(
             "instructions": instructions,
             "input": "INPUT_JSON:\n" + json.dumps({"items": ch}, ensure_ascii=False) + "\n\nReturn JSON now.",
             "text": {"verbosity": "low"},
-            "max_output_tokens": 1200,
-            "temperature": 0,
-            "reasoning": {"effort": "none"},
+            "max_output_tokens": 1200,            "reasoning": {"effort": "none"},
             "store": False,
         }
         r = _post_with_retries(
@@ -1534,9 +1530,7 @@ def gpt_extract_specialty(
         "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nReturn the specialty list.",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 48,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 48,        "store": False,
     }
 
     r = _post_with_retries(
@@ -1584,9 +1578,7 @@ def gpt_extract_study_design(title: str, abstract: str) -> str:
         "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nReturn the study design + setting/geography tags.",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 72,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 72,        "store": False,
     }
 
     r = _post_with_retries(
@@ -1680,9 +1672,7 @@ def gpt_classify_study(title: str, abstract: str) -> str:
         "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nClass:",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 16,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 16,        "store": False,
     }
 
     r = _post_with_retries(
@@ -1743,9 +1733,7 @@ def gpt_extract_pico(title: str, abstract: str, study_class: str) -> Dict[str, s
         "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nReturn the JSON object.",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 1100,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 1100,        "store": False,
     }
 
     r = _post_with_retries(
@@ -1820,9 +1808,7 @@ def gpt_extract_authors_conclusions(
         "input": user_input,
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 160,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 160,        "store": False,
     }
 
     r = _post_with_retries(
@@ -1863,9 +1849,7 @@ def gpt_extract_patient_n(title: str, abstract: str) -> int:
         "input": f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nReturn the total number of patients studied.",
         "reasoning": {"effort": "none"},
         "text": {"verbosity": "low"},
-        "max_output_tokens": 16,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 16,        "store": False,
     }
 
     r = _post_with_retries(
@@ -2003,9 +1987,7 @@ Strictness mode is '{strictness}'. In 'strict', be more conservative.
         "instructions": instructions,
         "input": "SECTIONS_JSON:\n" + json.dumps({"items": items}, ensure_ascii=False) + "\n\nReturn JSON now.",
         "text": {"verbosity": "low"},
-        "max_output_tokens": 900,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 900,        "store": False,
     }
 
     r = _post_with_retries(
@@ -2105,9 +2087,7 @@ Strictness mode: '{strictness}'
         "instructions": instructions,
         "input": f"HEADING_PATH:\n{(heading_path or '').strip()}\n\nSECTION_TEXT:\n{sec}\n\nReturn JSON now.",
         "text": {"verbosity": "low"},
-        "max_output_tokens": 1400,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 1400,        "store": False,
     }
 
     r = _post_with_retries(
@@ -2431,9 +2411,7 @@ def gpt_extract_guideline_title_year(
         "instructions": instructions,
         "input": f"FILENAME:\n{fn}\n\nTEXT EXCERPT:\n{sn}\n\nReturn JSON now.",
         "text": {"verbosity": "low"},
-        "max_output_tokens": 220,
-        "temperature": 0,
-        "store": False,
+        "max_output_tokens": 220,        "store": False,
     }
 
     r = _post_with_retries(
