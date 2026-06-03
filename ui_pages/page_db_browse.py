@@ -300,7 +300,7 @@ def _render_browse_body() -> None:
             years = sorted(years_map.keys(), key=_year_sort_key)
             years = list(reversed(years))
 
-            with st.expander(spec, expanded=False):
+            with st.expander(spec, expanded=bool(q)):
                 for y in years:
                     st.markdown(f"**{y}**")
                     rows = sorted(years_map.get(y, []), key=_browse_item_sort_key)
@@ -317,30 +317,31 @@ def _render_browse_body() -> None:
         years = sorted(by_year.keys(), key=_year_sort_key)
         years = list(reversed(years))
 
+        # Collapse each year into an expander so the first screen is a short,
+        # scannable list of years instead of an endless scroll of titles. The
+        # most recent year opens by default; a search opens every year so all
+        # matches are visible.
         for idx, y in enumerate(years):
-            if idx > 0:
-                st.markdown("---")
-            st.markdown(f"### {y}")
+            year_items = by_year.get(y, [])
+            with st.expander(str(y), expanded=bool(q) or idx == 0):
+                # Subdivide each year by publication month (newest first;
+                # guidelines and undated papers fall into "Guidelines" at the
+                # bottom).
+                by_month: Dict[int, List[Dict[str, str]]] = {}
+                for it in year_items:
+                    by_month.setdefault(_month_sort_value(it), []).append(it)
 
-            # Subdivide each year by publication month (newest first; guidelines
-            # and undated papers fall into "Undated" at the bottom).
-            by_month: Dict[int, List[Dict[str, str]]] = {}
-            for it in by_year.get(y, []):
-                by_month.setdefault(_month_sort_value(it), []).append(it)
-
-            for m in sorted(by_month.keys(), reverse=True):
-                st.markdown(f"**{_month_label(m)}**")
-                rows = sorted(by_month.get(m, []), key=_browse_item_sort_key)
-                for it in rows:
-                    _render_browse_item(it, allow_delete=can_delete, key_ns=f"year_{y}_m{m}")
+                for m in sorted(by_month.keys(), reverse=True):
+                    st.markdown(f"**{_month_label(m)}**")
+                    rows = sorted(by_month.get(m, []), key=_browse_item_sort_key)
+                    for it in rows:
+                        _render_browse_item(it, allow_delete=can_delete, key_ns=f"year_{y}_m{m}")
 
 
 def render() -> None:
     st.title("🗂️ Browse studies")
     st.markdown(
-        "Hospital Medicine Shelf is a library of trials, reviews, and guidelines relevant "
-        "to hospitalists. Browse studies by year, specialty, or date added to the library. "
-        "Click the 🔎 to see extracted details: structured PICO information for trials and "
-        "reviews, and recommendation statements for guidelines."
+        "Search a condition, drug, author, or trial below — or open a year to browse. "
+        "Click the 🔎 on any study for its structured details."
     )
     _render_browse_body()

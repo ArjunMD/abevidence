@@ -154,10 +154,14 @@ nav_page = st.sidebar.radio(
     on_change=_exit_public_study_overlay if _IS_PUBLIC else None,
 )
 
-st.sidebar.caption(
-    f"Saved: **{db_count_all()}**  "
-    f"({db_count()} abstracts, {guidelines_count()} guidelines)"
-)
+# Keep the running count for the owner's own reference, but don't greet public
+# visitors with a big "N papers" number — it reads as a database dump rather
+# than a useful tool.
+if not _IS_PUBLIC:
+    st.sidebar.caption(
+        f"Saved: **{db_count_all()}**  "
+        f"({db_count()} abstracts, {guidelines_count()} guidelines)"
+    )
 
 # Scroll back to the top whenever the effective view changes (sidebar page,
 # public study overlay, or which study is open). Gated on the view key so it
