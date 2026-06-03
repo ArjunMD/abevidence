@@ -75,10 +75,10 @@ def render() -> None:
 </head>
 <body>
 <form id="suggest-form">
-  <label for="article">PMID (preferred) or article title</label>
+  <label for="article">PMID (preferred) or article/guideline title</label>
   <textarea id="article" name="pmid_or_title" required></textarea>
 
-  <label for="suggester">Your name (optional)</label>
+  <label for="suggester">Your name/email (optional)</label>
   <input id="suggester" type="text" name="suggester" />
 
   <button type="submit" id="submit-btn">Send suggestion</button>
@@ -104,7 +104,7 @@ def render() -> None:
 
     if (!article) {{
       resultEl.className = 'err';
-      resultEl.textContent = 'Please enter a PMID or article title.';
+      resultEl.textContent = 'Please enter a PMID or article/guideline title.';
       btn.disabled = false;
       return;
     }}
@@ -112,8 +112,8 @@ def render() -> None:
     const short = article.length <= 80 ? article : article.slice(0, 77) + '...';
     const payload = {{
       access_key: ACCESS_KEY,
-      subject: 'Article suggestion: ' + short,
-      from_name: 'ABevidence — Suggest an article',
+      subject: 'Article/guideline suggestion: ' + short,
+      from_name: 'ABevidence — Suggest an article/guideline',
       pmid_or_title: article,
       suggester: suggester || '(anonymous)',
       message: 'PMID or title: ' + article + '\\nFrom: ' + (suggester || '(anonymous)')
