@@ -256,22 +256,23 @@ def render() -> None:
             try:
                 neighbors = get_top_neighbors(selected_pmid, top_n=5)
                 if not neighbors:
-                    st.info("No related articles returned.")
+                    st.caption("No related articles found.")
                 else:
                     for n in neighbors:
                         st.markdown(
                             f"- [{n['title'] or n['pmid']}](https://pubmed.ncbi.nlm.nih.gov/{n['pmid']}/) — `{n['pmid']}`"
                         )
-            except requests.HTTPError as e:
-                st.error(f"Neighbors lookup failed: {e}")
-            except Exception as e:
-                st.error(f"Neighbors lookup error: {e}")
+            except Exception:
+                # NCBI's elink endpoint is intermittently unavailable. Never surface
+                # the raw exception — it contains the request URL, which includes the
+                # NCBI api_key. Show a clean, generic message instead.
+                st.caption("PubMed related articles are temporarily unavailable — try again later.")
 
         with st.expander("Semantic Scholar similar papers (top 5)"):
             try:
                 s2_papers = get_s2_similar_papers(selected_pmid, top_n=5)
                 if not s2_papers:
-                    st.info("No Semantic Scholar recommendations returned.")
+                    st.caption("No similar papers found.")
                 else:
                     for p in s2_papers:
                         title = (p.get("title") or "").strip() or (
@@ -287,12 +288,10 @@ def render() -> None:
                             st.markdown(f"- [{title}]({url}){tag}")
                         else:
                             st.markdown(f"- {title}{tag}")
-            except ValueError as e:
-                st.warning(str(e))
-            except requests.HTTPError as e:
-                st.error(f"Semantic Scholar lookup failed: {e}")
-            except Exception as e:
-                st.error(f"Semantic Scholar lookup error: {e}")
+            except Exception:
+                # Same precaution: don't leak request details (and the S2 config-hint
+                # message isn't useful to a public visitor).
+                st.caption("Semantic Scholar recommendations are temporarily unavailable — try again later.")
 
     else:
         gid = (selected.get("guideline_id") or "").strip()
