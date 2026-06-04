@@ -25,7 +25,7 @@ from ui_pages.page_pmid_abstract import render as render_pmid_abstract
 from ui_pages.page_search_pubmed import render as render_search_pubmed
 from ui_pages.page_suggest import render as render_suggest
 
-st.set_page_config(page_title="Upload Abstract", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Hospital Medicine Shelf", page_icon="🩺", layout="wide")
 ensure_schema()
 ensure_guidelines_schema()
 
@@ -148,8 +148,10 @@ elif _open_pmid or _open_gid:
 
 _default_index = _SIDEBAR_PAGES.index("Browse studies") if _IS_PUBLIC else 0
 
+st.sidebar.title("🩺 Hospital Medicine Shelf")
+
 nav_page = st.sidebar.radio(
-    "Hospital Medicine Shelf",
+    "Go to",
     _SIDEBAR_PAGES,
     index=_default_index,
     key="nav_page",

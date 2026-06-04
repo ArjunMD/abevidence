@@ -140,10 +140,10 @@ def render() -> None:
 
     q = st.text_input(
         "Search",
-        placeholder="Search by drug, condition, author, journal…",
+        placeholder="Search by drug, condition, or journal…",
         key="db_search_any",
+        help='Combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.',
     )
-    st.caption('Tip: combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.')
 
     if (q or "").strip():
         st.session_state.pop("db_search_open_pmid", None)

@@ -94,8 +94,11 @@ Right now you can sort by year, by specialty, and by date added.
 The main caveats are 3-fold: First, I already touched on, is that some AI is involved. Ideally I would go over the extracted information and edit it.
 My app lets me do that. But to be honest in this development phase I haven't done that much at all. I may go back and clean up extracted information later. 
 However, the full abstracts are available in the database so you can always read the source if something looks off. Second, what ends up in the database
-may reflect my bias. Unfortunately this is unavoidable and I am hoping that I can do a good job of being self-aware about it and inclusive. I also hope that
-at some point the "Suggest an article" page gets some good usage to help combat that and help me find blind spots. Third, it has to be used for what it's meant to be:
+may reflect my bias. I generally make decisions rapidly based on topic, type of study, number of patients, quality of journal, and findings. 
+Regarding topic and conclusions, sometimes I'll not include a paper if the topic is saturated already within the database, 
+if the conclusion is too antithetical to current practice, if the trial is a negative study of a new intervention, or if the trial is a positive study of an intervention that is already widely used.
+I am sure I have some other biases as well. Unfortunately this is unavoidable and I am hoping that I can do a good job of being self-aware about it. I also hope that
+at some point the "Suggest an article" page gets some good usage to help combat that and help me find blind spots. . Third, it has to be used for what it's meant to be:
 not a point-of-care tool or a deep-dive tool, but a screening tool that you can spend 5 minutes on whenever you have a little time or interest.
 Fourth and finally, things might change or even break as I continue to work on it. Once again, if anyone has ideas, or spots something
 broken, I would love to hear about it.

@@ -207,10 +207,10 @@ def _render_browse_body() -> None:
         by_specialty = False
     browse_q = st.text_input(
         "Search",
-        placeholder="Search by drug, condition, author, journal…",
+        placeholder="Search by drug, condition, or journal…",
         key="db_browse_any",
+        help='Combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.',
     )
-    st.caption('Tip: combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.')
 
     items: List[Dict[str, str]] = []
     if guidelines_only:
@@ -341,7 +341,10 @@ def _render_browse_body() -> None:
 def render() -> None:
     st.title("🗂️ Browse studies")
     st.markdown(
-        "Search a condition, drug, author, or trial below — or open a year to browse. "
-        "Click the 🔎 on any study for its structured details."
+        "Welcome! Hospital Medicine Shelf is a library of clinical trials, meta-analyses, "
+        "systematic reviews, and guidelines relevant to hospital medicine. Articles are listed "
+        "most-recent-first by default (guidelines are grouped at the end of each year). You can "
+        "also browse by specialty, sort by date added, or search using the bar below. Click the "
+        "🔎 on any study to open its summary, or see About to learn more. Thank you for visiting!"
     )
     _render_browse_body()
