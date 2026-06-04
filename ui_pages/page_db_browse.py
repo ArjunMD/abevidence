@@ -1,5 +1,5 @@
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List
 
 import streamlit as st
@@ -36,6 +36,19 @@ def _format_added_date(raw: str) -> str:
 
 def _added_day_key(item: Dict[str, str]) -> str:
     return (item.get("uploaded_at") or "")[:10]
+
+
+def _added_week_start_key(item: Dict[str, str]) -> str:
+    """ISO date (YYYY-MM-DD) of the Monday of the week an item was added, or ''
+    if the added date is missing/invalid. The date-added view buckets by week
+    (not by exact day) so it surfaces "what's new" without exposing precise
+    per-day curation activity."""
+    s = (item.get("uploaded_at") or "")[:10]
+    try:
+        d = datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return ""
+    return (d - timedelta(days=d.weekday())).isoformat()
 
 
 _MONTH_NAMES = [
@@ -268,22 +281,26 @@ def _render_browse_body() -> None:
             st.stop()
 
     if sort_by_date_added:
-        by_day: Dict[str, List[Dict[str, str]]] = {}
+        # Bucket by the week an item was added (Monday-anchored), newest week
+        # first, each week in an expander like the by-year / by-specialty views.
+        # Week-level granularity keeps the "what's new" signal without exposing
+        # exact per-day activity.
+        by_week: Dict[str, List[Dict[str, str]]] = {}
         for it in items:
-            by_day.setdefault(_added_day_key(it), []).append(it)
+            by_week.setdefault(_added_week_start_key(it), []).append(it)
 
-        days = sorted(by_day.keys(), reverse=True)
-        days = [d for d in days if d] + [d for d in days if not d]
+        weeks = sorted([w for w in by_week if w], reverse=True)
+        weeks += [w for w in by_week if not w]  # undated bucket, if any, goes last
 
-        for idx, day in enumerate(days):
-            if idx > 0:
-                st.markdown("---")
-            st.markdown(f"### {_format_added_date(day)}")
-
-            rows = sorted(by_day.get(day, []), key=lambda it: (it.get("title") or "").lower())
+        for idx, wk in enumerate(weeks):
+            label = f"Week of {_format_added_date(wk)}" if wk else "Date added unknown"
+            rows = sorted(by_week.get(wk, []), key=lambda it: (it.get("title") or "").lower())
             rows.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
-            for it in rows:
-                _render_browse_item(it, show_pub_date=True, allow_delete=can_delete, key_ns=f"day_{day}")
+            with st.expander(label, expanded=bool(q) or idx == 0):
+                for it in rows:
+                    _render_browse_item(
+                        it, show_pub_date=True, allow_delete=can_delete, key_ns=f"week_{wk or 'na'}"
+                    )
         return
 
     if by_specialty:

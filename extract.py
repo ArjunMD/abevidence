@@ -710,16 +710,22 @@ def _semantic_scholar_api_key() -> str:
     return os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
-def resolve_pmid_from_doi_or_pmcid(doi: str = "", pmcid: str = "") -> str:
-    """Best-effort PMID lookup for a paper that has a DOI and/or PMC ID but no
-    PMID attached. Semantic Scholar often omits the PubMed id for very recent
-    papers (it may only carry the DOI / PMC id), so we resolve it ourselves:
-    a DOI search in PubMed first, then NCBI's ID Converter for the PMC id.
-    Returns '' if nothing resolves. Cached for a day — these mappings are stable."""
+def resolve_pmid_for_paper(doi: str = "", pmcid: str = "", title: str = "") -> str:
+    """Best-effort PMID lookup for a paper Semantic Scholar returned without a
+    PubMed id. Tries, in order:
+      1. DOI -> PMID (esearch)
+      2. PMC id -> PMID (NCBI ID Converter)
+      3. title -> PMID (guarded [Title] search)
+    S2 frequently omits the PubMed id, and sometimes carries a *different* DOI
+    than PubMed plus no PMC id — in which case the title is the only bridge. The
+    title step is deliberately conservative: it searches a cleaned title prefix
+    and only accepts a result when PubMed returns EXACTLY one record, so we never
+    attach a wrong PMID. Returns '' if nothing resolves. Cached for a day."""
     doi = (doi or "").strip()
     pmcid = (pmcid or "").strip()
+    title = (title or "").strip()
 
-    # DOI -> PMID via esearch (most reliable when a DOI is present).
+    # 1) DOI -> PMID via esearch (most reliable when the DOI matches PubMed's).
     if doi:
         try:
             params = {"db": "pubmed", "term": f"{doi}[doi]", "retmode": "json", **_ncbi_params_base()}
@@ -730,7 +736,7 @@ def resolve_pmid_from_doi_or_pmcid(doi: str = "", pmcid: str = "") -> str:
         except Exception:
             pass
 
-    # PMC id -> PMID via NCBI's ID Converter.
+    # 2) PMC id -> PMID via NCBI's ID Converter.
     if pmcid:
         pmc = pmcid if pmcid.upper().startswith("PMC") else f"PMC{pmcid}"
         try:
@@ -742,6 +748,24 @@ def resolve_pmid_from_doi_or_pmcid(doi: str = "", pmcid: str = "") -> str:
                     return p
         except Exception:
             pass
+
+    # 3) Title -> PMID via a guarded [Title] search. Strip punctuation and use a
+    #    short prefix (full titles fail when S2 appends a subtitle PubMed's record
+    #    lacks). Accept ONLY when exactly one record matches, to avoid mis-linking.
+    if title:
+        cleaned = re.sub(r"[^A-Za-z0-9 ]", " ", title)
+        words = re.sub(r"\s+", " ", cleaned).strip().split()
+        if len(words) >= 4:
+            prefix = " ".join(words[:10])
+            try:
+                params = {"db": "pubmed", "term": f"{prefix}[Title]", "retmode": "json", **_ncbi_params_base()}
+                r = _get_with_retries(NCBI_ESEARCH_URL, params=params)
+                res = (r.json() or {}).get("esearchresult") or {}
+                idlist = res.get("idlist") or []
+                if str(res.get("count") or "") == "1" and len(idlist) == 1:
+                    return str(idlist[0]).strip()
+            except Exception:
+                pass
 
     return ""
 
@@ -782,10 +806,11 @@ def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
         doi_val = str(ext.get("DOI") or "").strip()
         pmcid_val = str(ext.get("PubMedCentral") or "").strip()
 
-        # S2 frequently omits the PubMed id for recent papers even when one
-        # exists; recover it from the DOI / PMC id so the result links to PubMed.
-        if not pmid_val and (doi_val or pmcid_val):
-            pmid_val = resolve_pmid_from_doi_or_pmcid(doi=doi_val, pmcid=pmcid_val)
+        # S2 frequently omits the PubMed id even when one exists; recover it from
+        # the DOI / PMC id, falling back to a guarded title match.
+        title_val = (p.get("title") or "").strip()
+        if not pmid_val and (doi_val or pmcid_val or title_val):
+            pmid_val = resolve_pmid_for_paper(doi=doi_val, pmcid=pmcid_val, title=title_val)
 
         out.append(
             {
