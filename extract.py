@@ -42,6 +42,7 @@ NCBI_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 NCBI_ELINK_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi"
 NCBI_ESUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
 NCBI_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+NCBI_IDCONV_URL = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 GUIDELINE_OPENAI_STRICTNESS = "medium"  # "strict" | "medium" | "loose"
@@ -708,6 +709,43 @@ def _semantic_scholar_api_key() -> str:
         pass
     return os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
 
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def resolve_pmid_from_doi_or_pmcid(doi: str = "", pmcid: str = "") -> str:
+    """Best-effort PMID lookup for a paper that has a DOI and/or PMC ID but no
+    PMID attached. Semantic Scholar often omits the PubMed id for very recent
+    papers (it may only carry the DOI / PMC id), so we resolve it ourselves:
+    a DOI search in PubMed first, then NCBI's ID Converter for the PMC id.
+    Returns '' if nothing resolves. Cached for a day — these mappings are stable."""
+    doi = (doi or "").strip()
+    pmcid = (pmcid or "").strip()
+
+    # DOI -> PMID via esearch (most reliable when a DOI is present).
+    if doi:
+        try:
+            params = {"db": "pubmed", "term": f"{doi}[doi]", "retmode": "json", **_ncbi_params_base()}
+            r = _get_with_retries(NCBI_ESEARCH_URL, params=params)
+            idlist = ((r.json() or {}).get("esearchresult") or {}).get("idlist") or []
+            if idlist:
+                return str(idlist[0]).strip()
+        except Exception:
+            pass
+
+    # PMC id -> PMID via NCBI's ID Converter.
+    if pmcid:
+        pmc = pmcid if pmcid.upper().startswith("PMC") else f"PMC{pmcid}"
+        try:
+            params = {"ids": pmc, "format": "json", "tool": NCBI_TOOL, "email": _ncbi_email()}
+            r = _get_with_retries(NCBI_IDCONV_URL, params=params)
+            for rec in ((r.json() or {}).get("records") or []):
+                p = str(rec.get("pmid") or "").strip()
+                if p:
+                    return p
+        except Exception:
+            pass
+
+    return ""
+
+
 @st.cache_data(show_spinner=False, ttl=60 * 60)
 def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
     """Return top Semantic Scholar recommendations for a PubMed PMID."""
@@ -740,14 +778,23 @@ def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
     out: List[Dict[str, str]] = []
     for p in recs[: int(top_n)]:
         ext = p.get("externalIds") or {}
+        pmid_val = str(ext.get("PubMed") or "").strip()
+        doi_val = str(ext.get("DOI") or "").strip()
+        pmcid_val = str(ext.get("PubMedCentral") or "").strip()
+
+        # S2 frequently omits the PubMed id for recent papers even when one
+        # exists; recover it from the DOI / PMC id so the result links to PubMed.
+        if not pmid_val and (doi_val or pmcid_val):
+            pmid_val = resolve_pmid_from_doi_or_pmcid(doi=doi_val, pmcid=pmcid_val)
+
         out.append(
             {
                 "title": (p.get("title") or "").strip(),
                 "url": (p.get("url") or "").strip(),
                 "paperId": (p.get("paperId") or "").strip(),
                 "year": str(p.get("year") or "").strip(),
-                "pmid": str(ext.get("PubMed") or "").strip(),
-                "doi": str(ext.get("DOI") or "").strip(),
+                "pmid": pmid_val,
+                "doi": doi_val,
             }
         )
     return out

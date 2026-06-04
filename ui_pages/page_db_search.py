@@ -278,16 +278,19 @@ def render() -> None:
                         title = (p.get("title") or "").strip() or (
                             p.get("pmid") or p.get("paperId") or "(no title)"
                         )
+                        pmid = (p.get("pmid") or "").strip()
                         url = (p.get("url") or "").strip()
-                        tag = ""
-                        if (p.get("pmid") or "").strip():
-                            tag = f" — `{p['pmid']}`"
-                        elif (p.get("paperId") or "").strip():
-                            tag = f" — `{p['paperId']}`"
-                        if url:
+                        if pmid:
+                            # Prefer a PubMed link when we have (or recovered) a PMID.
+                            st.markdown(
+                                f"- [{title}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/) — `{pmid}`"
+                            )
+                        elif url:
+                            paper_id = (p.get("paperId") or "").strip()
+                            tag = f" — `{paper_id}`" if paper_id else ""
                             st.markdown(f"- [{title}]({url}){tag}")
                         else:
-                            st.markdown(f"- {title}{tag}")
+                            st.markdown(f"- {title}")
             except Exception:
                 # Same precaution: don't leak request details (and the S2 config-hint
                 # message isn't useful to a public visitor).
