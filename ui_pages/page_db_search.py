@@ -226,10 +226,6 @@ def render() -> None:
         st.divider()
 
         # ----- PICO drill-down -----
-        st.caption(
-            "**PICO** — a structured summary: **P**atients (who was studied), "
-            "**I/C** (the intervention vs. its comparison), and **O**utcomes (what was measured and found)."
-        )
         st.markdown("### P — Population")
         _render_bullets(rec.get("patient_details") or "", empty_hint="—")
 
