@@ -283,28 +283,28 @@ def _get_with_retries(
     url: str,
     params: Optional[Dict[str, str]] = None,
     headers: Optional[Dict[str, str]] = None,
-    timeout: int = 25,
-    max_attempts: int = 5,
+    timeout: int = 15,
+    max_attempts: int = 3,
 ) -> requests.Response:
-    """GET with exponential backoff on rate-limit / transient errors (429, 500,
-    502, 503, 504), honoring a Retry-After header when present. Mirrors
-    _post_with_retries. Used for NCBI E-utilities and Semantic Scholar, both of
-    which intermittently 429 under load."""
+    """GET with a SHORT, bounded retry on rate-limit / transient errors (429,
+    500, 502, 503, 504). These power interactive expanders, so it's kept fast
+    and few on purpose: a quick retry rescues a momentary blip, but we fail fast
+    rather than hang the UI on a persistent error. Worst case adds ~1-2s, not
+    the ~30s a long exponential backoff would. Retry-After is honored but capped."""
     sess = _requests_session()
     last_exc: Optional[Exception] = None
 
     attempts = max(1, int(max_attempts))
     for attempt in range(attempts):
+        is_last = attempt == attempts - 1
         try:
             r = sess.get(url, params=params, headers=headers, timeout=timeout)
 
-            if r.status_code in (429, 500, 502, 503, 504):
+            if r.status_code in (429, 500, 502, 503, 504) and not is_last:
                 retry_after = r.headers.get("Retry-After", "").strip()
-                ra = int(retry_after) if retry_after.isdigit() else None
-
-                backoff = (2 ** attempt) + random.random()
-                sleep_s = ra if ra is not None else min(backoff, 10)
-                time.sleep(max(0.5, float(sleep_s)))
+                ra = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else None
+                backoff = min(0.4 * (2 ** attempt) + random.random() * 0.3, 1.5)
+                time.sleep(min(ra, 3.0) if ra is not None else backoff)
                 continue
 
             r.raise_for_status()
@@ -312,8 +312,9 @@ def _get_with_retries(
 
         except Exception as e:
             last_exc = e
-            backoff = (2 ** attempt) + random.random()
-            time.sleep(min(backoff, 10))
+            if is_last:
+                break
+            time.sleep(min(0.4 * (2 ** attempt) + random.random() * 0.3, 1.5))
 
     if last_exc:
         raise last_exc
