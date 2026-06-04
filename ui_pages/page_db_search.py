@@ -360,3 +360,11 @@ def render() -> None:
                 st.markdown(disp_colored, unsafe_allow_html=True)
         else:
             st.info("No clinician-friendly recommendations display saved for this guideline yet.")
+
+    if is_public_mode() and st.session_state.get("public_study_overlay"):
+        st.divider()
+        if st.button("← Back to studies", key="db_search_back_bottom"):
+            st.session_state["public_study_overlay"] = False
+            st.session_state.pop("db_search_open_pmid", None)
+            st.session_state.pop("db_search_open_gid", None)
+            st.rerun()
