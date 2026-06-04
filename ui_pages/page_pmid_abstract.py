@@ -366,10 +366,10 @@ def render() -> None:
                                 n.get("title") or n.get("pmid") or "",
                                 source="PubMed related",
                             )
-                except requests.HTTPError as e:
-                    st.error(f"Neighbors lookup failed: {e}")
-                except Exception as e:
-                    st.error(f"Neighbors lookup error: {e}")
+                except Exception:
+                    # Never surface the raw exception — it contains the request URL,
+                    # which includes the NCBI api_key.
+                    st.info("PubMed related articles are temporarily unavailable — try again later.")
 
             with st.expander("Semantic Scholar similar papers (top 5)"):
                 try:
@@ -398,11 +398,10 @@ def render() -> None:
                             else:
                                 st.markdown(f"- {title}{tag}")
                 except ValueError as e:
+                    # Config hint (missing API key) — no secret in this message.
                     st.warning(str(e))
-                except requests.HTTPError as e:
-                    st.error(f"Semantic Scholar lookup failed: {e}")
-                except Exception as e:
-                    st.error(f"Semantic Scholar lookup error: {e}")
+                except Exception:
+                    st.info("Semantic Scholar recommendations are temporarily unavailable — try again later.")
 
             _render_related_tray()
 

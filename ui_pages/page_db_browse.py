@@ -51,6 +51,29 @@ def _added_week_start_key(item: Dict[str, str]) -> str:
     return (d - timedelta(days=d.weekday())).isoformat()
 
 
+def _ordinal(n: int) -> str:
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _format_week_range(monday_iso: str) -> str:
+    """Render a Monday-anchored week as a date range, e.g.
+    'June 1st - June 7th, 2026' (or spanning months/years as needed)."""
+    try:
+        start = datetime.strptime(monday_iso, "%Y-%m-%d").date()
+    except ValueError:
+        return "Unknown"
+    end = start + timedelta(days=6)
+    start_str = f"{start.strftime('%B')} {_ordinal(start.day)}"
+    end_str = f"{end.strftime('%B')} {_ordinal(end.day)}"
+    if start.year != end.year:
+        return f"{start_str}, {start.year} - {end_str}, {end.year}"
+    return f"{start_str} - {end_str}, {end.year}"
+
+
 _MONTH_NAMES = [
     "", "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -292,11 +315,11 @@ def _render_browse_body() -> None:
         weeks = sorted([w for w in by_week if w], reverse=True)
         weeks += [w for w in by_week if not w]  # undated bucket, if any, goes last
 
-        for idx, wk in enumerate(weeks):
-            label = f"Week of {_format_added_date(wk)}" if wk else "Date added unknown"
+        for wk in weeks:
+            label = _format_week_range(wk) if wk else "Date added unknown"
             rows = sorted(by_week.get(wk, []), key=lambda it: (it.get("title") or "").lower())
             rows.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
-            with st.expander(label, expanded=bool(q) or idx == 0):
+            with st.expander(label, expanded=bool(q)):
                 for it in rows:
                     _render_browse_item(
                         it, show_pub_date=True, allow_delete=can_delete, key_ns=f"week_{wk or 'na'}"
