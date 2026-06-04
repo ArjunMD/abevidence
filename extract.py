@@ -236,9 +236,33 @@ def _itertext(el: Optional[ET.Element]) -> str:
     return "".join(el.itertext()).strip() if el is not None else ""
 
 
+def _ncbi_api_key() -> str:
+    """NCBI E-utilities API key. Checks st.secrets first, then the NCBI_API_KEY
+    environment variable (so Render and similar hosts can supply it without a
+    secrets.toml file), then the module default. A key raises the NCBI rate
+    limit from 3 to 10 requests/second."""
+    try:
+        if "NCBI_API_KEY" in st.secrets:
+            return str(st.secrets["NCBI_API_KEY"]).strip()
+    except Exception:
+        pass
+    return os.environ.get("NCBI_API_KEY", NCBI_API_KEY).strip()
+
+
+def _ncbi_email() -> str:
+    """Contact email sent to NCBI E-utilities (recommended by their usage
+    policy). Checks st.secrets, then the NCBI_EMAIL env var, then the default."""
+    try:
+        if "NCBI_EMAIL" in st.secrets:
+            return str(st.secrets["NCBI_EMAIL"]).strip()
+    except Exception:
+        pass
+    return os.environ.get("NCBI_EMAIL", NCBI_EMAIL).strip()
+
+
 def _ncbi_params_base() -> Dict[str, str]:
-    params = {"tool": NCBI_TOOL, "email": (NCBI_EMAIL or "").strip()}
-    k = (NCBI_API_KEY or "").strip()
+    params = {"tool": NCBI_TOOL, "email": _ncbi_email()}
+    k = _ncbi_api_key()
     if k:
         params["api_key"] = k
     return params
@@ -247,12 +271,53 @@ def _ncbi_params_base() -> Dict[str, str]:
 @st.cache_resource
 def _requests_session() -> requests.Session:
     s = requests.Session()
-    email = (NCBI_EMAIL or "").strip()
+    email = _ncbi_email()
     ua = "streamlit-pmid-abstract/1.0"
     if email:
         ua += f" ({email})"
     s.headers.update({"User-Agent": ua})
     return s
+
+
+def _get_with_retries(
+    url: str,
+    params: Optional[Dict[str, str]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = 25,
+    max_attempts: int = 5,
+) -> requests.Response:
+    """GET with exponential backoff on rate-limit / transient errors (429, 500,
+    502, 503, 504), honoring a Retry-After header when present. Mirrors
+    _post_with_retries. Used for NCBI E-utilities and Semantic Scholar, both of
+    which intermittently 429 under load."""
+    sess = _requests_session()
+    last_exc: Optional[Exception] = None
+
+    attempts = max(1, int(max_attempts))
+    for attempt in range(attempts):
+        try:
+            r = sess.get(url, params=params, headers=headers, timeout=timeout)
+
+            if r.status_code in (429, 500, 502, 503, 504):
+                retry_after = r.headers.get("Retry-After", "").strip()
+                ra = int(retry_after) if retry_after.isdigit() else None
+
+                backoff = (2 ** attempt) + random.random()
+                sleep_s = ra if ra is not None else min(backoff, 10)
+                time.sleep(max(0.5, float(sleep_s)))
+                continue
+
+            r.raise_for_status()
+            return r
+
+        except Exception as e:
+            last_exc = e
+            backoff = (2 ** attempt) + random.random()
+            time.sleep(min(backoff, 10))
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("GET failed after retries")
 
 # ---------------- NCBI fetch + parse ----------------
 
@@ -375,8 +440,8 @@ def parse_title(xml_text: str) -> str:
 # ---------------- Neighbors (ELink) ----------------
 
 @st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_neighbors_elink_xml(pmid: str, retmax: int = 50) -> str:
-    sess = _requests_session()
     params = {
         "dbfrom": "pubmed",
         "db": "pubmed",
@@ -387,8 +452,7 @@ def fetch_neighbors_elink_xml(pmid: str, retmax: int = 50) -> str:
         "retmax": str(int(retmax)),
         **_ncbi_params_base(),
     }
-    r = sess.get(NCBI_ELINK_URL, params=params, timeout=25)
-    r.raise_for_status()
+    r = _get_with_retries(NCBI_ELINK_URL, params=params)
     return r.text
 
 
@@ -463,10 +527,8 @@ def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> List[str]:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_pubmed_esummary_xml(pmids_csv: str) -> str:
-    sess = _requests_session()
     params = {"db": "pubmed", "id": pmids_csv, "retmode": "xml", **_ncbi_params_base()}
-    r = sess.get(NCBI_ESUMMARY_URL, params=params, timeout=25)
-    r.raise_for_status()
+    r = _get_with_retries(NCBI_ESUMMARY_URL, params=params)
     return r.text
 
 
@@ -513,7 +575,6 @@ def search_pubmed_pmids_page(
     if not md or not xd:
         return {"pmids": [], "total_count": 0}
 
-    sess = _requests_session()
     params = {
         "db": "pubmed",
         "term": q,
@@ -526,8 +587,7 @@ def search_pubmed_pmids_page(
         "maxdate": xd,
         **_ncbi_params_base(),
     }
-    r = sess.get(NCBI_ESEARCH_URL, params=params, timeout=25)
-    r.raise_for_status()
+    r = _get_with_retries(NCBI_ESEARCH_URL, params=params)
 
     payload = r.json() or {}
     esearch = payload.get("esearchresult") or {}
@@ -671,9 +731,7 @@ def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
     }
     headers = {"x-api-key": api_key}
 
-    sess = _requests_session()
-    r = sess.get(url, params=params, headers=headers, timeout=30)
-    r.raise_for_status()
+    r = _get_with_retries(url, params=params, headers=headers, timeout=30)
 
     payload = r.json() or {}
     recs = payload.get("recommendedPapers") or []
