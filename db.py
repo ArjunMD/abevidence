@@ -711,6 +711,34 @@ def ensure_guidelines_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_guidelines_uploaded_at ON guidelines(uploaded_at);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_guidelines_pub_year ON guidelines(pub_year);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_guidelines_specialty ON guidelines(specialty);")
+        # Per-recommendation subsection labels for grouped sections (Medicines, Labs,
+        # Imaging, Diagnostic procedures, Therapeutic procedures). rec_num is the original
+        # (stored) recommendation number in the display markdown, which is globally unique
+        # within a guideline and stable across edits/deletes, so it's a durable key.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guideline_rec_labels (
+                guideline_id TEXT NOT NULL,
+                rec_num INTEGER NOT NULL,
+                section TEXT NOT NULL DEFAULT '',
+                label TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (guideline_id, rec_num)
+            );
+            """
+        )
+        # Migrate the legacy medicine-only table into the generic one, then drop it.
+        _tbls = {r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table';"
+        ).fetchall()}
+        if "guideline_med_labels" in _tbls:
+            conn.execute(
+                "INSERT OR IGNORE INTO guideline_rec_labels "
+                "(guideline_id, rec_num, section, label, updated_at) "
+                "SELECT guideline_id, rec_num, 'Medicines', medicine, updated_at "
+                "FROM guideline_med_labels;"
+            )
+            conn.execute("DROP TABLE guideline_med_labels;")
 
 
 def find_guideline_by_hash(sha256: str) -> Optional[Dict[str, str]]:
@@ -885,6 +913,48 @@ def update_guideline_recommendations_display(guideline_id: str, markdown: str) -
             """,
             (md, now, gid),
         )
+
+
+def get_guideline_rec_labels(guideline_id: str) -> Dict[int, str]:
+    """Return {rec_num: label} for the guideline's grouped-section subsection labels.
+    rec_num is globally unique within a guideline, so the flat map is unambiguous."""
+    gid = (guideline_id or "").strip()
+    if not gid:
+        return {}
+    with _connect_db() as conn:
+        rows = conn.execute(
+            "SELECT rec_num, label FROM guideline_rec_labels WHERE guideline_id=?;",
+            (gid,),
+        ).fetchall()
+    out: Dict[int, str] = {}
+    for r in rows:
+        lab = (r["label"] or "").strip()
+        if lab:
+            out[int(r["rec_num"])] = lab
+    return out
+
+
+def set_guideline_rec_labels(guideline_id: str, rows: List[Tuple[int, str, str]]) -> None:
+    """Replace all subsection labels for a guideline.
+    rows: iterable of (rec_num, section, label)."""
+    gid = (guideline_id or "").strip()
+    if not gid:
+        return
+    now = _utc_iso_z()
+    cleaned = [
+        (gid, int(n), (section or "").strip(), str(label).strip(), now)
+        for (n, section, label) in (rows or [])
+        if str(label or "").strip()
+    ]
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM guideline_rec_labels WHERE guideline_id=?;", (gid,))
+        if cleaned:
+            conn.executemany(
+                "INSERT OR REPLACE INTO guideline_rec_labels "
+                "(guideline_id, rec_num, section, label, updated_at) VALUES (?, ?, ?, ?, ?);",
+                cleaned,
+            )
+
 
 # ---------------- Guideline recommendations + review state ----------------
 

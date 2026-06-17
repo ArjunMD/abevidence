@@ -7,6 +7,7 @@ import streamlit as st
 
 from db import (
     get_guideline_meta,
+    get_guideline_rec_labels,
     get_guideline_recommendations_display,
     get_record,
     search_guidelines,
@@ -18,105 +19,14 @@ from pages_shared import (
     SEARCH_MAX_DEFAULT,
     _delete_recs_from_guideline_md,
     _fmt_search_item,
-    _guideline_md_with_delete_links,
     _parse_rec_nums,
     _render_bullets,
     _render_plain_text,
     _tags_to_md,
     display_journal,
     is_public_mode,
+    render_guideline_display,
 )
-
-
-_GUIDELINE_ATTR_SEGMENT_RE = re.compile(
-    r"(?P<label>\b(?:Strength|Evidence)\b\s*:\s*)(?P<value>[^;\)\n]+)",
-    flags=re.IGNORECASE,
-)
-_GUIDELINE_PSEUDO_ATTR_VALUE_RE = re.compile(
-    r"(?i)^\s*(?:we\s+)?(?:recommend|suggest|consider|avoid|do\s+not|don't|should)\b"
-)
-# Matches parenthetical text containing clinical grading keywords (inline grading)
-_GUIDELINE_INLINE_GRADE_RE = re.compile(
-    r"\(("
-    r"[^)]*"
-    r"\b(?:"
-    r"(?:strong|weak|conditional)\s+recommendation"
-    r"|good\s+practice\s+statement"
-    r"|class\s*(?:[ivx]+|\d+[a-z]?)"
-    r"|grade\s*(?:[a-d]|\d+[a-z]?)"
-    r"|level\s*(?:of\s+evidence\s*)?[a-d](?:-[a-z]+)?"
-    r"|(?:very\s+low|low|moderate|high)\s+(?:certainty|quality)"
-    r")\b"
-    r"[^)]*"
-    r")\)",
-    flags=re.IGNORECASE,
-)
-_GUIDELINE_ATTR_BLUE_HEX = "#2F8CFF"
-
-
-def _clean_guideline_display(md: str) -> str:
-    """Display-time cleanup for stored guideline markdown (idempotent)."""
-    s = (md or "").strip()
-    if not s:
-        return ""
-    # Remove redundant ## Recommendations heading
-    s = re.sub(r"^##\s+Recommendations\s*\n+", "", s)
-    # Fix PDF line-break hyphens: "comprehen- sive" → "comprehensive"
-    s = re.sub(r"(\w)- (\w)", r"\1\2", s)
-    # Strip inline citation numbers after periods: "PE.1,2" → "PE."
-    s = re.sub(r"(?<=[a-zA-Z])\.(\d+(?:[,\-–]\s*\d+)*)", ".", s)
-    # Strip parenthetical citation numbers: "(42, 47, 48)" → ""
-    s = re.sub(r"\s*\(\d+(?:[,\s\-–]+\d+)*\)", "", s)
-    # Strip footnote markers: "algorithm*" → "algorithm"
-    s = re.sub(r"(?<=[a-zA-Z])[*†‡§]+(?=[\s,;.\)]|$)", "", s)
-    # Strip leading transitional words from each recommendation line
-    def _strip_transition(m: re.Match) -> str:
-        prefix = m.group(1)  # e.g. "- **3.** "
-        body = re.sub(
-            r"^(Thus|However|Therefore|Accordingly|Furthermore|Moreover|Hence|Consequently|In addition|Additionally),?\s*",
-            "", m.group(2), flags=re.IGNORECASE,
-        )
-        if body:
-            body = body[0].upper() + body[1:]
-        return prefix + body
-    s = re.sub(r"(^\s*(?:-\s+)?\*\*(?:Rec\s+)?\d+\.\*\*\s*)(.*)", _strip_transition, s, flags=re.MULTILINE)
-    return s.strip()
-
-
-def _highlight_guideline_strength_evidence(md: str) -> str:
-    s = md or ""
-    if not s:
-        return ""
-
-    def _norm_alnum(raw: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "", (raw or "").lower())
-
-    def _repl(m: re.Match) -> str:
-        label = (m.group("label") or "").strip()
-        value = (m.group("value") or "").strip()
-        if _GUIDELINE_PSEUDO_ATTR_VALUE_RE.search(value):
-            return m.group(0)
-
-        line_start = s.rfind("\n", 0, m.start()) + 1
-        prefix = s[line_start : m.start()]
-        value_norm = _norm_alnum(value)
-        if len(value_norm) >= 4 and value_norm in _norm_alnum(prefix):
-            return m.group(0)
-
-        txt = f"{label} {value}".strip()
-        return f"<span style='color: {_GUIDELINE_ATTR_BLUE_HEX};'>{html.escape(txt)}</span>"
-
-    result = _GUIDELINE_ATTR_SEGMENT_RE.sub(_repl, s)
-
-    # Second pass: highlight inline grading inside parentheses
-    # e.g. "(conditional recommendation, moderate certainty of evidence)"
-    def _inline_repl(m: re.Match) -> str:
-        content = m.group(1)
-        if "<span" in content:
-            return m.group(0)
-        return f"(<span style='color: {_GUIDELINE_ATTR_BLUE_HEX};'>{html.escape(content)}</span>)"
-
-    return _GUIDELINE_INLINE_GRADE_RE.sub(_inline_repl, result)
 
 
 def render() -> None:
@@ -336,8 +246,6 @@ def render() -> None:
                         st.info("No matching recommendation numbers found.")
 
         disp = (get_guideline_recommendations_display(gid) or "").strip()
-        disp = _clean_guideline_display(disp)
-        disp_colored = _highlight_guideline_strength_evidence(disp)
 
         if public:
             edit_mode = False
@@ -355,13 +263,12 @@ def render() -> None:
                         "Click 🗑️ to delete a recommendation permanently. Recommendations can also be edited in the Guidelines page."
                     )
 
-        if disp:
-            if edit_mode:
-                st.markdown(_guideline_md_with_delete_links(disp_colored, gid), unsafe_allow_html=True)
-            else:
-                st.markdown(disp_colored, unsafe_allow_html=True)
-        else:
-            st.info("No clinician-friendly recommendations display saved for this guideline yet.")
+        render_guideline_display(
+            disp,
+            gid,
+            edit_mode=edit_mode,
+            rec_labels=get_guideline_rec_labels(gid),
+        )
 
     if is_public_mode() and st.session_state.get("public_study_overlay"):
         st.divider()

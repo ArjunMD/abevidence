@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 # ---- imports from db layer (must exist in db.py) ----
 from db import (
     get_guideline_meta,
+    set_guideline_rec_labels,
     update_guideline_metadata,
     update_guideline_recommendations_display,
 )
@@ -1035,6 +1036,193 @@ def _truncate_for_prompt(text: str, max_chars: int) -> str:
     if len(s) <= lim:
         return s
     return s[:lim].rstrip() + "…"
+
+
+_GUIDELINE_REC_LINE_RE = re.compile(r"^\s*(?:-\s+)?\*\*(?:Rec\s+)?(\d+)\.\*\*\s*(.*)$")
+
+# Sections whose recommendations are grouped into subsections by a primary entity
+# (drug / test / modality / procedure). Keyed by the exact section title; each entry
+# describes the entity and gives in-context examples for the labeling prompt.
+GUIDELINE_GROUPED_SECTIONS: Dict[str, Dict[str, str]] = {
+    "Medicines": {
+        "entity": "primary medicine",
+        "noun": "medicine or drug-class name",
+        "examples": "'Aspirin', 'Heparin', 'Beta blockers', 'P2Y12 inhibitors', "
+                    "'Empiric antibiotics', 'Insulin', 'Corticosteroids'",
+        "rules": (
+            "- If a recommendation names one specific drug, use that drug's generic name.\n"
+            "- If it concerns a drug class generically (no single agent), use the class name.\n"
+            "- If a recommendation primarily contrasts two agents, label it by its main subject drug.\n"
+            "- Do not include dosing, route, or condition."
+        ),
+    },
+    "Labs": {
+        "entity": "primary laboratory test",
+        "noun": "lab test or panel name",
+        "examples": "'CBC', 'Lactate', 'Blood cultures', 'Procalcitonin', "
+                    "'Liver function tests', 'Troponin', 'Coagulation studies'",
+        "rules": (
+            "- Name the specific test or panel the recommendation is primarily about.\n"
+            "- Merge obvious synonyms (e.g. 'CBC' and 'complete blood count')."
+        ),
+    },
+    "Imaging": {
+        "entity": "primary imaging study",
+        "noun": "imaging modality or study name",
+        "examples": "'CT', 'MRI', 'Ultrasound', 'Chest X-ray', 'Echocardiography', "
+                    "'CT angiography', 'Nuclear imaging'",
+        "rules": (
+            "- Name the imaging modality or study the recommendation is primarily about.\n"
+            "- Merge obvious synonyms (e.g. 'echo' and 'echocardiography')."
+        ),
+    },
+    "Diagnostic procedures": {
+        "entity": "primary diagnostic test or procedure",
+        "noun": "diagnostic test or procedure name",
+        "examples": "'Endoscopy', 'Coronary angiography', 'Biopsy', 'FFR/iFR', "
+                    "'IVUS', 'Lumbar puncture', 'Electrophysiology study'",
+        "rules": (
+            "- Name the diagnostic procedure or test the recommendation is primarily about."
+        ),
+    },
+    "Therapeutic procedures": {
+        "entity": "primary therapeutic procedure or intervention",
+        "noun": "therapeutic procedure or intervention name",
+        "examples": "'PCI', 'CABG', 'Thrombectomy', 'Stenting', 'Ablation', "
+                    "'Cardiac rehabilitation', 'Drainage'",
+        "rules": (
+            "- Name the procedure or intervention the recommendation is primarily about."
+        ),
+    },
+}
+
+
+def section_recs_from_display(md: str, section_title: str) -> List[Dict]:
+    """Parse [{'num': int, 'text': str}] for the recommendation lines under the
+    given section title in a guideline's display markdown."""
+    want = (section_title or "").strip().lower()
+    text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
+    in_sec = False
+    recs: List[Dict] = []
+    for ln in text.split("\n"):
+        if ln.startswith("### "):
+            in_sec = ln[4:].strip().lower() == want
+            continue
+        if not in_sec:
+            continue
+        m = _GUIDELINE_REC_LINE_RE.match(ln)
+        if m:
+            body = re.sub(r"<br\s*/?>\s*$", "", m.group(2)).strip()
+            if body:
+                recs.append({"num": int(m.group(1)), "text": body})
+    return recs
+
+
+# Back-compat alias (Medicines was the first grouped section).
+def medicines_recs_from_display(md: str) -> List[Dict]:
+    return section_recs_from_display(md, "Medicines")
+
+
+def label_and_store_guideline_subsections(guideline_id: str, display_md: str) -> Dict[str, int]:
+    """Label every grouped section (Medicines, Labs, Imaging, Diagnostic procedures,
+    Therapeutic procedures) of a guideline's display and persist all labels at once.
+    Returns {section: count_labeled}. Replaces any existing labels for the guideline."""
+    gid = (guideline_id or "").strip()
+    if not gid:
+        return {}
+    rows: List[Tuple[int, str, str]] = []
+    counts: Dict[str, int] = {}
+    for section in GUIDELINE_GROUPED_SECTIONS:
+        recs = section_recs_from_display(display_md, section)
+        if not recs:
+            continue
+        labels = label_guideline_section(recs, section)
+        for num, lab in labels.items():
+            rows.append((num, section, lab))
+        counts[section] = len(labels)
+    set_guideline_rec_labels(gid, rows)
+    return counts
+
+
+def label_guideline_section(section_recs: List[Dict], section: str) -> Dict[int, str]:
+    """Label each recommendation in a grouped section with a short subsection name
+    (a drug / test / modality / procedure), so the display can group them.
+
+    Input:  section_recs = [{"num": <int>, "text": <str>}, ...]
+    Output: {num: "Label"}
+
+    Operates only on the already-extracted recommendation text ("in post"), not the
+    source PDF. Synonyms are merged under one consistent label across the section.
+    """
+    cfg = GUIDELINE_GROUPED_SECTIONS.get((section or "").strip())
+    if not cfg:
+        return {}
+
+    items = [
+        {"num": int(r.get("num")), "text": (r.get("text") or "").strip()}
+        for r in (section_recs or [])
+        if str(r.get("text") or "").strip() and r.get("num") is not None
+    ]
+    if not items:
+        return {}
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    out: Dict[int, str] = {}
+    chunk_size = 40
+    for start in range(0, len(items), chunk_size):
+        chunk = items[start : start + chunk_size]
+
+        instructions = (
+            f"You label clinical-guideline recommendations by their {cfg['entity']}.\n"
+            f"For each recommendation, return a SHORT {cfg['noun']} suitable as a section "
+            f"header (Title Case), e.g. {cfg['examples']}.\n"
+            "Rules:\n"
+            "- Use the SAME label for the same item everywhere in this list (merge synonyms "
+            "and brand/generic variants).\n"
+            f"{cfg['rules']}\n"
+            "- If none is identifiable, use 'Other'.\n"
+            "- Keep labels to 1-3 words.\n"
+            'Return ONLY JSON of the form {"labels": {"<num>": "<Label>", ...}} covering every num.'
+        )
+        lines = "\n".join(f"[{it['num']}] {it['text']}" for it in chunk)
+        payload = {
+            "model": _openai_model(),
+            "instructions": instructions,
+            "input": f"Recommendations:\n{lines}\n\nJSON:",
+            "reasoning": {"effort": "low"},
+            "text": {"verbosity": "low"},
+            "max_output_tokens": 4000,
+            "store": False,
+        }
+        r = _post_with_retries(
+            OPENAI_RESPONSES_URL,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = _parse_json_from_model(_extract_output_text(r.json()))
+        labels = data.get("labels") if isinstance(data, dict) else None
+        if isinstance(labels, dict):
+            valid = {it["num"] for it in chunk}
+            for k, v in labels.items():
+                try:
+                    n = int(str(k).strip())
+                except Exception:
+                    continue
+                lab = str(v or "").strip()
+                if n in valid and lab:
+                    out[n] = lab
+
+    return out
+
+
+# Back-compat alias.
+def label_guideline_medicines(med_recs: List[Dict]) -> Dict[int, str]:
+    return label_guideline_section(med_recs, "Medicines")
 
 
 def _cap_prior_repeat_context(
@@ -2452,6 +2640,18 @@ def extract_and_store_guideline_recommendations_azure(guideline_id: str, pdf_byt
 
     _progress(0, 0, msg="Step 4/4 — Saving display…", detail="Writing final Markdown to database")
     update_guideline_recommendations_display(gid, disp_md)
+
+    # Label the grouped sections (Medicines, Labs, Imaging, Diagnostic/Therapeutic
+    # procedures) so the display can show per-entity subsections.
+    # Best-effort: a labeling failure must not fail the upload.
+    try:
+        _progress(0, 0, msg="Step 4/4 — Labeling subsections…", detail="Grouping Labs, Imaging, procedures, and Medicines")
+        counts = label_and_store_guideline_subsections(gid, disp_md)
+        if counts:
+            total_lab = sum(counts.values())
+            _progress(0, 0, msg="Step 4/4 — Labeling subsections…", detail=f"Labeled {total_lab} recommendation(s) across {len(counts)} section(s)")
+    except Exception:
+        pass
 
     _progress(0, 0, msg="Done.", detail=f"Saved {len(recs)} recommendation(s)")
     return len(recs)

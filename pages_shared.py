@@ -280,6 +280,258 @@ def _guideline_md_with_delete_links(md: str, gid: str) -> str:
     return pat.sub(repl, base)
 
 
+# ---------------- Guideline display: cleanup, colorization, sectioned render ----------------
+
+_GUIDELINE_ATTR_SEGMENT_RE = re.compile(
+    r"(?P<label>\b(?:Strength|Evidence)\b\s*:\s*)(?P<value>[^;\)\n]+)",
+    flags=re.IGNORECASE,
+)
+_GUIDELINE_PSEUDO_ATTR_VALUE_RE = re.compile(
+    r"(?i)^\s*(?:we\s+)?(?:recommend|suggest|consider|avoid|do\s+not|don't|should)\b"
+)
+# Matches parenthetical text containing clinical grading keywords (inline grading)
+_GUIDELINE_INLINE_GRADE_RE = re.compile(
+    r"\(("
+    r"[^)]*"
+    r"\b(?:"
+    r"(?:strong|weak|conditional)\s+recommendation"
+    r"|good\s+practice\s+statement"
+    r"|class\s*(?:[ivx]+|\d+[a-z]?)"
+    r"|grade\s*(?:[a-d]|\d+[a-z]?)"
+    r"|level\s*(?:of\s+evidence\s*)?[a-d](?:-[a-z]+)?"
+    r"|(?:very\s+low|low|moderate|high)\s+(?:certainty|quality)"
+    r")\b"
+    r"[^)]*"
+    r")\)",
+    flags=re.IGNORECASE,
+)
+_GUIDELINE_ATTR_BLUE_HEX = "#2F8CFF"
+
+
+def _clean_guideline_display(md: str) -> str:
+    """Display-time cleanup for stored guideline markdown (idempotent)."""
+    s = (md or "").strip()
+    if not s:
+        return ""
+    # Remove redundant ## Recommendations heading
+    s = re.sub(r"^##\s+Recommendations\s*\n+", "", s)
+    # Fix PDF line-break hyphens: "comprehen- sive" → "comprehensive"
+    s = re.sub(r"(\w)- (\w)", r"\1\2", s)
+    # Strip inline citation numbers after periods: "PE.1,2" → "PE."
+    s = re.sub(r"(?<=[a-zA-Z])\.(\d+(?:[,\-–]\s*\d+)*)", ".", s)
+    # Strip parenthetical citation numbers: "(42, 47, 48)" → ""
+    s = re.sub(r"\s*\(\d+(?:[,\s\-–]+\d+)*\)", "", s)
+    # Strip footnote markers: "algorithm*" → "algorithm"
+    s = re.sub(r"(?<=[a-zA-Z])[*†‡§]+(?=[\s,;.\)]|$)", "", s)
+    # Strip leading transitional words from each recommendation line
+    def _strip_transition(m: re.Match) -> str:
+        prefix = m.group(1)  # e.g. "- **3.** "
+        body = re.sub(
+            r"^(Thus|However|Therefore|Accordingly|Furthermore|Moreover|Hence|Consequently|In addition|Additionally),?\s*",
+            "", m.group(2), flags=re.IGNORECASE,
+        )
+        if body:
+            body = body[0].upper() + body[1:]
+        return prefix + body
+    s = re.sub(r"(^\s*(?:-\s+)?\*\*(?:Rec\s+)?\d+\.\*\*\s*)(.*)", _strip_transition, s, flags=re.MULTILINE)
+    return s.strip()
+
+
+def _highlight_guideline_strength_evidence(md: str) -> str:
+    s = md or ""
+    if not s:
+        return ""
+
+    def _norm_alnum(raw: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", (raw or "").lower())
+
+    def _repl(m: re.Match) -> str:
+        label = (m.group("label") or "").strip()
+        value = (m.group("value") or "").strip()
+        if _GUIDELINE_PSEUDO_ATTR_VALUE_RE.search(value):
+            return m.group(0)
+
+        line_start = s.rfind("\n", 0, m.start()) + 1
+        prefix = s[line_start : m.start()]
+        value_norm = _norm_alnum(value)
+        if len(value_norm) >= 4 and value_norm in _norm_alnum(prefix):
+            return m.group(0)
+
+        txt = f"{label} {value}".strip()
+        return f"<span style='color: {_GUIDELINE_ATTR_BLUE_HEX};'>{html.escape(txt)}</span>"
+
+    result = _GUIDELINE_ATTR_SEGMENT_RE.sub(_repl, s)
+
+    # Second pass: highlight inline grading inside parentheses
+    # e.g. "(conditional recommendation, moderate certainty of evidence)"
+    def _inline_repl(m: re.Match) -> str:
+        content = m.group(1)
+        if "<span" in content:
+            return m.group(0)
+        return f"(<span style='color: {_GUIDELINE_ATTR_BLUE_HEX};'>{html.escape(content)}</span>)"
+
+    return _GUIDELINE_INLINE_GRADE_RE.sub(_inline_repl, result)
+
+
+def _guideline_delete_icon(gid: str, num) -> str:
+    gid_q = quote_plus((gid or "").strip())
+    return (
+        f"<a href='?gid={gid_q}&delrec={num}' target='_self' "
+        f"title='Delete #{num}' "
+        f"style='text-decoration:none; opacity:0.35; margin-left:0.25rem;'>🗑️</a>"
+    )
+
+
+def _split_guideline_sections(md: str) -> List[Tuple[str, List[str]]]:
+    """Split cleaned display markdown into (section_title, lines) pairs.
+
+    Level-3 ('### ') headings start a new section. Any content before the first
+    heading is returned as a leading section with an empty title."""
+    text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
+    sections: List[Tuple[str, List[str]]] = []
+    cur_title = ""
+    cur_lines: List[str] = []
+
+    def _flush() -> None:
+        if cur_title or any(ln.strip() for ln in cur_lines):
+            sections.append((cur_title, cur_lines))
+
+    for ln in text.split("\n"):
+        if ln.startswith("### "):
+            _flush()
+            cur_title = ln[4:].strip()
+            cur_lines = []
+        else:
+            cur_lines.append(ln)
+    _flush()
+    return sections
+
+
+def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool) -> None:
+    """Render a section's lines, restarting recommendation numbering at 1.
+    Delete links keep the ORIGINAL stored number so deletion still targets the
+    right recommendation."""
+    out: List[str] = []
+    k = 0
+    for ln in lines:
+        m = _REC_LINE_RE.match(ln)
+        if m:
+            k += 1
+            icon = (_guideline_delete_icon(gid, m.group(1)) + " ") if edit_mode else ""
+            out.append(f"**{k}.** {icon}{m.group(2)}")
+        else:
+            out.append(ln)
+    body = "\n".join(out).strip()
+    if body:
+        st.markdown(body, unsafe_allow_html=True)
+
+
+# Sections whose recommendations are grouped into per-entity subsections, and the
+# order in which they are pinned to the top of the display (when present).
+GUIDELINE_TOP_SECTIONS: List[str] = [
+    "Labs",
+    "Imaging",
+    "Diagnostic procedures",
+    "Medicines",
+    "Therapeutic procedures",
+]
+_GUIDELINE_GROUPED_SECTIONS = {s.lower() for s in GUIDELINE_TOP_SECTIONS}
+_GUIDELINE_TOP_ORDER = {s.lower(): i for i, s in enumerate(GUIDELINE_TOP_SECTIONS)}
+
+
+def _render_guideline_grouped(
+    lines: List[str], gid: str, edit_mode: bool, rec_labels: Dict[int, str]
+) -> None:
+    """Render a grouped section (Medicines / Labs / Imaging / procedures) into bold
+    per-entity subsections. Numbering restarts at 1 for the section and runs across
+    the subsections in display order."""
+    rec_entries: List[Tuple[int, str]] = []
+    preamble: List[str] = []
+    for ln in lines:
+        m = _REC_LINE_RE.match(ln)
+        if m:
+            rec_entries.append((int(m.group(1)), ln))
+        elif ln.strip():
+            preamble.append(ln)
+
+    if preamble:
+        st.markdown("\n".join(preamble).strip(), unsafe_allow_html=True)
+
+    OTHER = "Other"
+    order: List[str] = []
+    groups: Dict[str, List[Tuple[int, str]]] = {}
+    for num, ln in rec_entries:
+        lab = (rec_labels.get(num) or "").strip() or OTHER
+        if lab not in groups:
+            groups[lab] = []
+            order.append(lab)
+        groups[lab].append((num, ln))
+
+    # Keep "Other" last so unlabeled items don't lead the section.
+    if OTHER in order:
+        order = [m for m in order if m != OTHER] + [OTHER]
+
+    k = 0
+    for lab in order:
+        st.markdown(f"**{lab}**")
+        out: List[str] = []
+        for num, ln in groups[lab]:
+            k += 1
+            body = _REC_LINE_RE.match(ln).group(2)
+            icon = (_guideline_delete_icon(gid, num) + " ") if edit_mode else ""
+            out.append(f"**{k}.** {icon}{body}")
+        st.markdown("\n".join(out).strip(), unsafe_allow_html=True)
+        st.markdown("")
+
+
+def _order_guideline_sections(
+    sections: List[Tuple[str, List[str]]]
+) -> List[Tuple[str, List[str]]]:
+    """Pin the grouped sections to the top in GUIDELINE_TOP_SECTIONS order (when
+    present); keep everything else in its original relative order afterward. Any
+    leading untitled preamble stays first."""
+    preamble = [s for s in sections if not s[0]]
+    titled = [s for s in sections if s[0]]
+    pinned = sorted(
+        [s for s in titled if s[0].strip().lower() in _GUIDELINE_TOP_ORDER],
+        key=lambda s: _GUIDELINE_TOP_ORDER[s[0].strip().lower()],
+    )
+    rest = [s for s in titled if s[0].strip().lower() not in _GUIDELINE_TOP_ORDER]
+    return preamble + pinned + rest
+
+
+def render_guideline_display(
+    raw_md: str,
+    gid: str,
+    *,
+    edit_mode: bool = False,
+    rec_labels: Dict[int, str] = None,
+    default_expanded: bool = False,
+) -> None:
+    """Render a guideline's clinician-friendly display: each section in its own
+    expander (the lab/imaging/procedure/medicine sections pinned to the top),
+    recommendation numbering restarted per section, and grouped sections split into
+    per-entity subsections when labels are available."""
+    disp = _clean_guideline_display(raw_md)
+    disp = _highlight_guideline_strength_evidence(disp)
+    if not disp.strip():
+        st.info("No clinician-friendly recommendations display saved for this guideline yet.")
+        return
+
+    rec_labels = rec_labels or {}
+    for title, lines in _order_guideline_sections(_split_guideline_sections(disp)):
+        if not title:
+            body = "\n".join(lines).strip()
+            if body:
+                st.markdown(body, unsafe_allow_html=True)
+            continue
+        with st.expander(title, expanded=default_expanded):
+            if title.strip().lower() in _GUIDELINE_GROUPED_SECTIONS and rec_labels:
+                _render_guideline_grouped(lines, gid, edit_mode, rec_labels)
+            else:
+                _render_guideline_rec_lines(lines, gid, edit_mode)
+
+
 def _qp_first(qp: dict, key: str) -> str:
     v = qp.get(key)
     if isinstance(v, list):

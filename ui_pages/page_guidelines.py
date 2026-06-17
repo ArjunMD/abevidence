@@ -1,6 +1,7 @@
 import streamlit as st
 
 from db import (
+    get_guideline_rec_labels,
     get_guideline_recommendations_display,
     list_guidelines,
     save_guideline_pdf,
@@ -13,7 +14,7 @@ from extract import (
     extract_and_store_guideline_metadata_azure,
     extract_and_store_guideline_recommendations_azure,
 )
-from pages_shared import GUIDELINES_MAX_LIST
+from pages_shared import GUIDELINES_MAX_LIST, render_guideline_display
 
 
 def render() -> None:
@@ -189,9 +190,14 @@ def render() -> None:
                 st.error(str(e))
 
     with c_c:
-        with st.expander("Preview (read-only)", expanded=False):
-            preview_md = (st.session_state.get("guideline_display_md") or "").strip()
-            if preview_md:
-                st.markdown(preview_md)
-            else:
-                st.markdown("—")
+        st.caption("Preview (read-only)")
+        preview_md = (st.session_state.get("guideline_display_md") or "").strip()
+        if preview_md:
+            render_guideline_display(
+                preview_md,
+                gid,
+                edit_mode=False,
+                rec_labels=get_guideline_rec_labels(gid),
+            )
+        else:
+            st.markdown("—")
