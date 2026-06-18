@@ -1,23 +1,20 @@
 import streamlit as st
 
 _ABOUT_MD = """
-This website started as a personal tool that lived on my laptop that helped me keep up with literature.
-Eventually I wanted access to it from anywhere, so I put it on the internet. It is still primarily a personal tool, 
-but you are welcome to check it out, and if you do, I hope you find it useful.
+This website started as a personal tool that lived on my laptop that helped me keep up with literature. It is essentially a collection of abstracts 
+that I have find interesting, important, and/or useful for hospital medicine. I wanted access to it from anywhere, so I put it on the internet. 
+It is still primarily a personal tool, but you are welcome to check it out, and if you do, I hope you find it useful.
 If you have suggestions for how to make it better, please let me know through the contact form (just type something in the "Suggest an article" page.). I would love that!
-If you want to see a description of how it works, scroll down to the section "My program/process" below.
 
-
-### My goal - why did I make this?
+### Why I built this
 
 I have always struggled to figure out the best way to keep up with the literature as a hospitalist. 
 I have tried a lot of different approaches, and I have never been satisfied with any of them.
-The main problem is partially unique to hospital medicine compared to other specialties which is that there is simply too much out there.
+The main problem is partially unique to hospital medicine compared to other specialties, which is that there is simply too much out there.
 The plain truth is unfortunately that we will never have time to read everything.
 I truly wish we could but unfortunately we can't. 
 My original question of "How do I read it all?" has been reframed to "how do I stay generally aware of what's going on without
 it consuming my whole life?"
-
 
 ### Current options
 
@@ -46,7 +43,7 @@ If the topic doesn't engage us, we are almost happy. We get to skip that episode
 The question "Does this change my practice?" is not "simple" at all. Two experts can
 read the exact same paper and walk away with completely opposite conclusions. So then what
 do you do? This central question most often does not lead anywhere clean. Every patient
-and every situation is a little different. And if the burden is on *me* to deeply analyze
+and every situation is a little different. And if the burden is on each physician to deeply analyze
 every paper, then we're right back in the fantasy land of infinite time, no hobbies, no
 responsibilities outside of work, and no burnout. 
 
@@ -59,7 +56,7 @@ when you incorporate time into the framework, it becomes a three-body-problem wi
 To optimize time, here are some leave-outs I've decided to make:
 
 - No commentary. If something genuinely grabs my interest, I can go find the commentary myself.
-But for topics that don't grab my attention, I still want to know a little about them.
+But for topics that don't grab my attention, *I still want to know a little about them.*
 - No worries about the whole paper. For example, for now, I don't care whether a drug company funded a trial. That is for a deep dive day.
 I really just want to know the key points in the abstracts. I know that abstracts lie, but for now, it is what it is.
 I want unscreened abstracts to get 5–10 seconds of my precious time.
@@ -68,28 +65,33 @@ I want unscreened abstracts to get 5–10 seconds of my precious time.
 
 A PubMed workflow for this starts out simple. Save a search that
 included every journal and filter I care about, run it
-periodically, and save the articles I liked into PubMed's own collections.
+periodically, and save the articles I like into PubMed's own collections.
 Conceptually, I was fine with this. But in execution, it's tougher than I would really like it to be.
 There is too much on the page, too many clicks, and organization isn't excellent. Overall, I would say it may not sound like much.
 But once I made my alternative, I liked it much better.
 
-### My program/process
+### About the app
 
 I'm happy to share the code with anybody - just ask. Drop me a note
 through the "Suggest an article" page in the sidebar and it'll reach me. I'm also happy to work with you if you want to set up a 
-personal version for yourself with your own filters.
+personal version for yourself with your own filters/specialty of interest.
 
 Basically, the program on the back-end does the following: it pulls a list of only trials and systematic reviews published across 50+ journals I
 care about. It then lets me triage fast based on title, whether I want to read the abstract, or mark it irrelevant so I never see
-it again. I then read the abstracts, and if I want to save it, I add it to my database. 
+it again. I then read the author's conclusion, and if I want to save it, I add it to my database. 
 
-The app does some other small things like split the abstract into a more digestible form built for rapid reading. Because there's no single stable abstract
-format across all these journals, there's a little AI involved here — which means there's some risk of inaccuracy. 
-However, I do ask the AI to always reproduce the author's conclusion verbatim. Having the abstracts in my database also allows for easy searching, sorting, and categorizing. 
-I also pull related articles based on PubMed's "Similar articles" list
-(top 5) and Semantic Scholar's. On the public-facing side, all you see is the database of abstracts. From any study you can
-jump straight to PubMed, or open a separate page inside the app with the extracted details.
+Saving the text of the abstract allows the app to do some other small things like split it into a more digestible form built for rapid reading. 
+No need to see all the author names, affiliations, copyright information, sidebar links, etc. 
+It turns out this is actually very helpful for browsing.  
+Further, having the abstracts in my database also allows for easy searching, sorting, and categorizing.
+From any study you can jump straight to PubMed, or open a separate page inside the app with the extracted details.
 Right now you can sort by year, by specialty, and by date added.
+I also pull related articles based on PubMed's "Similar articles" list
+(top 5) and Semantic Scholar's
+
+Because there's no single stable abstract format across all these journals, there's a little AI involved here — 
+which means there's some risk of inaccuracy. 
+However, I do ask the AI to always reproduce the author's conclusion verbatim. 
 
 The main caveats are 3-fold: First, I already touched on, is that some AI is involved. Ideally I would go over the extracted information and edit it.
 My app lets me do that. But to be honest in this development phase I haven't done that much at all. I may go back and clean up extracted information later. 
@@ -98,7 +100,7 @@ may reflect my bias. I generally make decisions rapidly based on topic, type of 
 Regarding topic and conclusions, sometimes I'll not include a paper if the topic is saturated already within the database, 
 if the conclusion is too antithetical to current practice, if the trial is a negative study of a new intervention, or if the trial is a positive study of an intervention that is already widely used.
 I am sure I have some other biases as well. Unfortunately this is unavoidable and I am hoping that I can do a good job of being self-aware about it. I also hope that
-at some point the "Suggest an article" page gets some good usage to help combat that and help me find blind spots. . Third, it has to be used for what it's meant to be:
+at some point the "Suggest an article" page gets some good usage to help combat that and help me find blind spots. Third, it has to be used for what it's meant to be:
 not a point-of-care tool or a deep-dive tool, but a screening tool that you can spend 5 minutes on whenever you have a little time or interest.
 Fourth and finally, things might change or even break as I continue to work on it. Once again, if anyone has ideas, or spots something
 broken, I would love to hear about it.
@@ -109,11 +111,17 @@ In addition to trials and systematic reviews, I have also incorporated guideline
 besides the breadth problem that I discussed above, is that guidelines are often written in a way that is very difficult to read. On the other hand,
 full-text guidelines are usually free to access in pdf form.
 
-I lean a little more into AI for this part. I do the following: I upload the pdf. 
-Then, the app reads the text out and extracts a list of recommendations and organizes them into categories. 
-I can clean up the output before it goes live, but again, I haven't done much of that yet.
-I like where I'm at currently and do think it is very useful. The app has helped me read a lot more guidelines than I used to.
-However, overall there are a number of technical challenges with working with guidelines and so it's not as perfect as I would like it to be yet.
+ I do the following: I upload the pdf. 
+Then, the app reads the text out and extracts a list of recommendations and organizes them into categories, 
+and for some categories (e.g. medicines), subcategories (e.g. aspirin).
+It also provides strength of evidence based on extracted information. 
+I can clean up the output before it goes live, but until now, I haven't done much of that yet.
+
+The above is difficult to standardize because guidelines from different organizations may have varying formats and structures. 
+So, I lean a little more into AI for this part. Therefore, the caveat above about AI and accuracy applies here as well, but even more so.
+
+I like where I'm at currently and do think it is very useful. The app has helped me read a lot more guidelines than I used to. 
+This remains a work in progress.
 
 """
 
