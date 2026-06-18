@@ -38,8 +38,8 @@ _PAGES = {
     "Search PubMed": render_search_pubmed,
     "Manage": render_delete,
     "Dashboard": render_dashboard,
-    "About": render_about,
     "Suggest an article": render_suggest,
+    "About": render_about,
 }
 
 # In public mode (ABEV_MODE=public — set on the hosted .com instance), only
