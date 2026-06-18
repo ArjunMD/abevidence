@@ -739,6 +739,19 @@ def ensure_guidelines_schema() -> None:
                 "FROM guideline_med_labels;"
             )
             conn.execute("DROP TABLE guideline_med_labels;")
+        # Acronym legend for each guideline's recommendations display.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guideline_acronyms (
+                guideline_id TEXT NOT NULL,
+                acronym TEXT NOT NULL,
+                expansion TEXT NOT NULL,
+                uncertain INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (guideline_id, acronym)
+            );
+            """
+        )
 
 
 def find_guideline_by_hash(sha256: str) -> Optional[Dict[str, str]]:
@@ -952,6 +965,48 @@ def set_guideline_rec_labels(guideline_id: str, rows: List[Tuple[int, str, str]]
             conn.executemany(
                 "INSERT OR REPLACE INTO guideline_rec_labels "
                 "(guideline_id, rec_num, section, label, updated_at) VALUES (?, ?, ?, ?, ?);",
+                cleaned,
+            )
+
+
+def get_guideline_acronyms(guideline_id: str) -> List[Tuple[str, str, bool]]:
+    """Return [(acronym, expansion, uncertain)] for a guideline's legend,
+    sorted case-insensitively by acronym."""
+    gid = (guideline_id or "").strip()
+    if not gid:
+        return []
+    with _connect_db() as conn:
+        rows = conn.execute(
+            "SELECT acronym, expansion, uncertain FROM guideline_acronyms WHERE guideline_id=?;",
+            (gid,),
+        ).fetchall()
+    out = [
+        ((r["acronym"] or "").strip(), (r["expansion"] or "").strip(), bool(r["uncertain"]))
+        for r in rows
+        if (r["acronym"] or "").strip() and (r["expansion"] or "").strip()
+    ]
+    out.sort(key=lambda t: t[0].lower())
+    return out
+
+
+def set_guideline_acronyms(guideline_id: str, rows: List[Tuple[str, str, bool]]) -> None:
+    """Replace all acronym entries for a guideline.
+    rows: iterable of (acronym, expansion, uncertain)."""
+    gid = (guideline_id or "").strip()
+    if not gid:
+        return
+    now = _utc_iso_z()
+    cleaned = [
+        (gid, (acr or "").strip(), str(exp).strip(), 1 if uncertain else 0, now)
+        for (acr, exp, uncertain) in (rows or [])
+        if (acr or "").strip() and str(exp or "").strip()
+    ]
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM guideline_acronyms WHERE guideline_id=?;", (gid,))
+        if cleaned:
+            conn.executemany(
+                "INSERT OR REPLACE INTO guideline_acronyms "
+                "(guideline_id, acronym, expansion, uncertain, updated_at) VALUES (?, ?, ?, ?, ?);",
                 cleaned,
             )
 

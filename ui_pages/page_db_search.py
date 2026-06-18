@@ -6,6 +6,7 @@ import requests
 import streamlit as st
 
 from db import (
+    get_guideline_acronyms,
     get_guideline_meta,
     get_guideline_rec_labels,
     get_guideline_recommendations_display,
@@ -247,27 +248,36 @@ def render() -> None:
 
         disp = (get_guideline_recommendations_display(gid) or "").strip()
 
-        if public:
-            edit_mode = False
-        else:
-            c_l, c_r = st.columns([6, 1], gap="small")
-            with c_r:
+        c_l, c_r = st.columns([6, 1], gap="small")
+        with c_r:
+            if public:
+                edit_mode = False
+            else:
                 edit_mode = st.toggle(
                     "Quick Delete",
                     value=False,
                     key=f"dbs_guideline_edit_{gid}",
                 )
-            with c_l:
-                if edit_mode:
-                    st.caption(
-                        "Click 🗑️ to delete a recommendation permanently. Recommendations can also be edited in the Guidelines page."
-                    )
+            # Level of evidence is hidden by default (kept in storage); this reveals it.
+            # Visible in both public and personal mode; sits below Quick Delete.
+            show_evidence = st.toggle(
+                "Show level of evidence",
+                value=False,
+                key="dbs_guideline_show_loe",
+            )
+        with c_l:
+            if edit_mode:
+                st.caption(
+                    "Click 🗑️ to delete a recommendation permanently. Recommendations can also be edited in the Guidelines page."
+                )
 
         render_guideline_display(
             disp,
             gid,
             edit_mode=edit_mode,
             rec_labels=get_guideline_rec_labels(gid),
+            acronyms=get_guideline_acronyms(gid),
+            show_evidence=show_evidence,
         )
 
     if is_public_mode() and st.session_state.get("public_study_overlay"):

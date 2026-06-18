@@ -1,6 +1,7 @@
 import streamlit as st
 
 from db import (
+    get_guideline_acronyms,
     get_guideline_rec_labels,
     get_guideline_recommendations_display,
     list_guidelines,
@@ -198,6 +199,7 @@ def render() -> None:
                 gid,
                 edit_mode=False,
                 rec_labels=get_guideline_rec_labels(gid),
+                acronyms=get_guideline_acronyms(gid),
             )
         else:
             st.markdown("—")

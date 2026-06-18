@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 # ---- imports from db layer (must exist in db.py) ----
 from db import (
     get_guideline_meta,
+    set_guideline_acronyms,
     set_guideline_rec_labels,
     update_guideline_metadata,
     update_guideline_recommendations_display,
@@ -1223,6 +1224,148 @@ def label_guideline_section(section_recs: List[Dict], section: str) -> Dict[int,
 # Back-compat alias.
 def label_guideline_medicines(med_recs: List[Dict]) -> Dict[int, str]:
     return label_guideline_section(med_recs, "Medicines")
+
+
+# ---------------- Guideline acronym legend ----------------
+
+# Parenthetical clinical-grading annotations to strip before acronym detection, so
+# evidence codes (B-NR, C-EO, …) aren't mistaken for acronyms.
+_GUIDELINE_GRADE_PAREN_RE = re.compile(
+    r"\((?:[^)]*\b(?:strength|evidence|class|grade|level|recommendation|certainty|quality)\b[^)]*)\)",
+    re.IGNORECASE,
+)
+_ACRONYM_CAND_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9]*(?:[-/][A-Za-z0-9]+)*)\b")
+# Evidence-grade tokens and roman-numeral class fragments to ignore.
+_ACRONYM_GRADE_TOKENS = {
+    "A", "B", "C", "D", "B-NR", "B-R", "C-LD", "C-EO",
+    "I", "II", "III", "IV", "IIa", "IIb", "IIIa", "IIIb",
+}
+_ACRONYM_ROMAN_RE = re.compile(r"^[IVXivx]+[a-z]?$")
+# Common scaffolding prefixes whose base acronym is normally present on its own.
+_ACRONYM_PREFIX_RE = re.compile(r"^(?:non|pre|post|peri|anti|pro)-", re.IGNORECASE)
+
+
+def detect_guideline_acronyms(display_md: str) -> List[str]:
+    """Detect candidate acronyms used in a guideline's recommendation text, in order
+    of first appearance. Heuristic only (no LLM) — the expansion step blanks anything
+    that isn't a real acronym."""
+    text = (display_md or "").replace("\r\n", "\n").replace("\r", "\n")
+    bodies: List[str] = []
+    for ln in text.split("\n"):
+        m = _GUIDELINE_REC_LINE_RE.match(ln)
+        if m:
+            bodies.append(m.group(2))
+    body = _GUIDELINE_GRADE_PAREN_RE.sub(" ", " ".join(bodies))
+    body = re.sub(r"<br\s*/?>", " ", body)
+
+    seen: set = set()
+    out: List[str] = []
+    for tok in _ACRONYM_CAND_RE.findall(body):
+        if tok in _ACRONYM_GRADE_TOKENS or tok.isdigit():
+            continue
+        if _ACRONYM_PREFIX_RE.match(tok) or _ACRONYM_ROMAN_RE.match(tok):
+            continue
+        if sum(1 for ch in tok if ch.isupper()) < 2:
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+    return out
+
+
+def expand_guideline_acronyms(
+    acronyms: List[str], guideline_name: str = "", specialty: str = ""
+) -> List[Tuple[str, str, bool]]:
+    """Expand acronyms using medical knowledge, grounded in the guideline's topic.
+    Returns [(acronym, expansion, uncertain)] for the ones confidently/plausibly
+    expanded; non-acronyms are dropped (empty expansion). Best-effort: lower-confidence
+    expansions are flagged uncertain instead of omitted."""
+    acrs = [a for a in (acronyms or []) if (a or "").strip()]
+    if not acrs:
+        return []
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    ctx_bits = []
+    if (guideline_name or "").strip():
+        ctx_bits.append(f"guideline: {guideline_name.strip()}")
+    if (specialty or "").strip():
+        ctx_bits.append(f"specialty: {specialty.strip()}")
+    ctx = ("Context — " + "; ".join(ctx_bits) + ".\n") if ctx_bits else ""
+
+    out: List[Tuple[str, str, bool]] = []
+    chunk_size = 60
+    for start in range(0, len(acrs), chunk_size):
+        chunk = acrs[start : start + chunk_size]
+        instructions = (
+            "You expand medical acronyms as used in a specific clinical guideline.\n"
+            f"{ctx}"
+            "For each token, give the expansion that fits this guideline's clinical domain "
+            "(e.g. 'US' = ultrasound in a radiology/GI guideline, not United States).\n"
+            "Rules:\n"
+            "- Expand standard medical acronyms, named scores, and trial names when recognizable.\n"
+            "- If a token is NOT a real acronym (e.g. a drug name, a fragment), set expansion to \"\".\n"
+            "- Best effort: if you are not confident, still give your best expansion but set sure=false.\n"
+            "- expansion is lowercase except for proper nouns; no extra commentary.\n"
+            'Return ONLY JSON: {"items": {"<TOKEN>": {"exp": "<expansion>", "sure": true|false}, ...}} '
+            "covering every token."
+        )
+        payload = {
+            "model": _openai_model(),
+            "instructions": instructions,
+            "input": "Tokens:\n" + ", ".join(chunk) + "\n\nJSON:",
+            "reasoning": {"effort": "low"},
+            "text": {"verbosity": "low"},
+            "max_output_tokens": 6000,
+            "store": False,
+        }
+        r = _post_with_retries(
+            OPENAI_RESPONSES_URL,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = _parse_json_from_model(_extract_output_text(r.json()))
+        items = data.get("items") if isinstance(data, dict) else None
+        valid = set(chunk)
+        if isinstance(items, dict):
+            for tok, v in items.items():
+                tok = str(tok).strip()
+                if tok not in valid:
+                    continue
+                if isinstance(v, dict):
+                    exp = str(v.get("exp") or "").strip()
+                    sure = bool(v.get("sure", True))
+                else:
+                    exp = str(v or "").strip()
+                    sure = True
+                if exp:
+                    out.append((tok, exp, not sure))
+    return out
+
+
+def label_and_store_guideline_acronyms(guideline_id: str, display_md: str) -> int:
+    """Detect, expand, and persist the acronym legend for a guideline's display.
+    Returns the number of acronyms stored."""
+    gid = (guideline_id or "").strip()
+    if not gid:
+        return 0
+    acrs = detect_guideline_acronyms(display_md)
+    if not acrs:
+        set_guideline_acronyms(gid, [])
+        return 0
+    meta = get_guideline_meta(gid) or {}
+    rows = expand_guideline_acronyms(
+        acrs,
+        guideline_name=(meta.get("guideline_name") or "").strip(),
+        specialty=(meta.get("specialty") or "").strip(),
+    )
+    set_guideline_acronyms(gid, rows)
+    return len(rows)
 
 
 def _cap_prior_repeat_context(
@@ -2650,6 +2793,15 @@ def extract_and_store_guideline_recommendations_azure(guideline_id: str, pdf_byt
         if counts:
             total_lab = sum(counts.values())
             _progress(0, 0, msg="Step 4/4 — Labeling subsections…", detail=f"Labeled {total_lab} recommendation(s) across {len(counts)} section(s)")
+    except Exception:
+        pass
+
+    # Build the acronym legend from the recommendation text. Best-effort.
+    try:
+        _progress(0, 0, msg="Step 4/4 — Building acronym legend…", detail="Detecting and expanding abbreviations")
+        n_acr = label_and_store_guideline_acronyms(gid, disp_md)
+        if n_acr:
+            _progress(0, 0, msg="Step 4/4 — Building acronym legend…", detail=f"Added {n_acr} abbreviation(s)")
     except Exception:
         pass
 

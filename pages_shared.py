@@ -407,20 +407,145 @@ def _split_guideline_sections(md: str) -> List[Tuple[str, List[str]]]:
     return sections
 
 
-def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool) -> None:
-    """Render a section's lines, restarting recommendation numbering at 1.
-    Delete links keep the ORIGINAL stored number so deletion still targets the
-    right recommendation."""
-    out: List[str] = []
-    k = 0
+# Strength → colored dot (5-tier). The dot encodes the recommendation's strength;
+# Level of Evidence stays as text. Covers ACC/AHA COR, GRADE, and practice
+# statements. COR direction is explicit in the class; GRADE direction is inferred
+# from the recommendation text.
+_DOT_STRONG = "🟢"
+_DOT_MODERATE = "🟡"
+_DOT_WEAK = "🟠"
+_DOT_AGAINST = "🔴"
+_DOT_PRACTICE = "⚪"
+
+# Sort rank for ordering recommendations within a (sub)section: strongest first,
+# then negatives, then practice points, then ungraded.
+_DOT_ORDER = {_DOT_STRONG: 0, _DOT_MODERATE: 1, _DOT_WEAK: 2, _DOT_AGAINST: 3, _DOT_PRACTICE: 4}
+
+
+def _dot_rank(dot: str) -> int:
+    return _DOT_ORDER.get(dot, 5)
+
+_STRENGTH_VALUE_RE = re.compile(r"Strength:\s*([^;)\n<]+)", re.IGNORECASE)
+_GRADE_INLINE_RE = re.compile(
+    r"\b(strong recommendation|weak recommendation|conditional recommendation|"
+    r"good practice statement|best[- ]practice statement|clinical principle|expert opinion)\b",
+    re.IGNORECASE,
+)
+# A recommendation phrased AGAINST an action (used only for GRADE-style strengths).
+# Deliberately excludes a bare "do not", which matches patient-population descriptors
+# like "patients who do not have SIRS" rather than a recommendation direction.
+_AGAINST_RE = re.compile(
+    r"(?:recommend|suggest|advise)\w*\s+against|\bshould not\b|"
+    r"\bis not recommended\b|\bare not recommended\b|"
+    r"\bnot be (?:used|performed|administered|given|routinely)\b|"
+    r"\bwe recommend not\b|\bwe suggest not\b|\bnot offering\b|\bnot prescribing\b",
+    re.IGNORECASE,
+)
+
+
+def _guideline_strength_dot(body: str) -> str:
+    """Return the colored strength dot for a recommendation, or '' if ungraded."""
+    text = body or ""
+    m = _STRENGTH_VALUE_RE.search(text)
+    if m:
+        raw = m.group(1)
+    else:
+        gm = _GRADE_INLINE_RE.search(text)
+        raw = gm.group(1) if gm else ""
+    v = raw.strip().lower()
+    if not v:
+        return ""
+    against = bool(_AGAINST_RE.search(text))
+
+    # ACC/AHA COR — direction is explicit in the class, so no against-flip.
+    if re.search(r"(?:^|[^a-z0-9])(?:3|iii)(?:[^a-z0-9]|$)", v) or "harm" in v or "no benefit" in v or "no-benefit" in v:
+        return _DOT_AGAINST
+    if re.search(r"\b2a\b|\biia\b", v):
+        return _DOT_MODERATE
+    if re.search(r"\b2b\b|\biib\b", v):
+        return _DOT_WEAK
+    if re.search(r"(?:^|[^a-z0-9])(?:1|i)(?:[^a-z0-9]|$)", v) or re.search(r"grade\s*-?\s*1", v):
+        return _DOT_STRONG
+    # GRADE — direction inferred from the recommendation text.
+    if "strong" in v:
+        return _DOT_AGAINST if against else _DOT_STRONG
+    if "moderate" in v:
+        return _DOT_MODERATE
+    if "conditional" in v or "weak" in v:
+        return _DOT_AGAINST if against else _DOT_WEAK
+    # Practice statements / consensus.
+    if "practice" in v or "clinical principle" in v or "expert opinion" in v or "consensus" in v:
+        return _DOT_PRACTICE
+    return ""
+
+
+def _strip_strength_label(body: str) -> str:
+    """Remove the now-redundant 'Strength: X' text (a dot replaces it), keeping the
+    Level of Evidence."""
+    s = body or ""
+    # "(Strength: X; Evidence: Y)" -> "(Evidence: Y)"
+    s = re.sub(r"\(\s*Strength:\s*[^;)\n]+;\s*(Evidence:)", r"(\1", s, flags=re.IGNORECASE)
+    # "(Strength: X)" with no Evidence -> drop the parenthetical
+    s = re.sub(r"\s*\(\s*Strength:\s*[^)\n]+\)", "", s, flags=re.IGNORECASE)
+    # stray "Strength: X;" outside parentheses -> drop
+    s = re.sub(r"\s*Strength:\s*[^;)\n]+;\s*", " ", s, flags=re.IGNORECASE)
+    return s
+
+
+def _strip_evidence(body: str) -> str:
+    """Remove the Level-of-Evidence text (kept in storage, hidden by default in the
+    display). Drops '(Evidence: Y)' as well as inline grade parentheticals, since the
+    strength dot already conveys the recommendation class."""
+    s = body or ""
+    s = re.sub(r"\s*\(\s*Evidence:\s*[^)\n]*\)", "", s, flags=re.IGNORECASE)
+    s = _GUIDELINE_INLINE_GRADE_RE.sub("", s)
+    s = re.sub(r"\s*;\s*Evidence:\s*[^)\n;<]+", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"[ \t]+(<br\s*/?>)", r"\1", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return s.strip()
+
+
+def _format_guideline_rec_body(body: str, show_evidence: bool) -> Tuple[str, str]:
+    """Return (strength_dot, html_body) for a recommendation body: derive the dot,
+    strip the redundant Strength text, optionally hide the Level of Evidence, and
+    colorize whatever remains."""
+    dot = _guideline_strength_dot(body)
+    stripped = _strip_strength_label(body)
+    if not show_evidence:
+        stripped = _strip_evidence(stripped)
+    return dot, _highlight_guideline_strength_evidence(stripped)
+
+
+def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool, show_evidence: bool) -> None:
+    """Render a section's recommendations, ordered by strength dot (strongest first),
+    with numbering restarted at 1. Delete links keep the ORIGINAL stored number so
+    deletion still targets the right recommendation."""
+    rec_entries: List[Tuple[int, str]] = []
+    preamble: List[str] = []
     for ln in lines:
         m = _REC_LINE_RE.match(ln)
         if m:
-            k += 1
-            icon = (_guideline_delete_icon(gid, m.group(1)) + " ") if edit_mode else ""
-            out.append(f"**{k}.** {icon}{m.group(2)}")
-        else:
-            out.append(ln)
+            rec_entries.append((int(m.group(1)), ln))
+        elif ln.strip():
+            preamble.append(ln)
+
+    if preamble:
+        st.markdown(
+            "\n".join(_highlight_guideline_strength_evidence(p) for p in preamble).strip(),
+            unsafe_allow_html=True,
+        )
+
+    # Stable sort by strength tier (preserves original order within a tier).
+    rec_entries.sort(key=lambda e: _dot_rank(_guideline_strength_dot(_REC_LINE_RE.match(e[1]).group(2))))
+
+    out: List[str] = []
+    k = 0
+    for num, ln in rec_entries:
+        k += 1
+        icon = (_guideline_delete_icon(gid, num) + " ") if edit_mode else ""
+        dot, body = _format_guideline_rec_body(_REC_LINE_RE.match(ln).group(2), show_evidence)
+        prefix = f"{dot} " if dot else ""
+        out.append(f"{prefix}**{k}.** {icon}{body}")
     body = "\n".join(out).strip()
     if body:
         st.markdown(body, unsafe_allow_html=True)
@@ -440,7 +565,7 @@ _GUIDELINE_TOP_ORDER = {s.lower(): i for i, s in enumerate(GUIDELINE_TOP_SECTION
 
 
 def _render_guideline_grouped(
-    lines: List[str], gid: str, edit_mode: bool, rec_labels: Dict[int, str]
+    lines: List[str], gid: str, edit_mode: bool, rec_labels: Dict[int, str], show_evidence: bool
 ) -> None:
     """Render a grouped section (Medicines / Labs / Imaging / procedures) into bold
     per-entity subsections. Numbering restarts at 1 for the section and runs across
@@ -455,7 +580,10 @@ def _render_guideline_grouped(
             preamble.append(ln)
 
     if preamble:
-        st.markdown("\n".join(preamble).strip(), unsafe_allow_html=True)
+        st.markdown(
+            "\n".join(_highlight_guideline_strength_evidence(p) for p in preamble).strip(),
+            unsafe_allow_html=True,
+        )
 
     OTHER = "Other"
     order: List[str] = []
@@ -474,12 +602,18 @@ def _render_guideline_grouped(
     k = 0
     for lab in order:
         st.markdown(f"**{lab}**")
+        # Stable sort each subsection by strength tier (strongest first).
+        group = sorted(
+            groups[lab],
+            key=lambda e: _dot_rank(_guideline_strength_dot(_REC_LINE_RE.match(e[1]).group(2))),
+        )
         out: List[str] = []
-        for num, ln in groups[lab]:
+        for num, ln in group:
             k += 1
-            body = _REC_LINE_RE.match(ln).group(2)
+            dot, body = _format_guideline_rec_body(_REC_LINE_RE.match(ln).group(2), show_evidence)
             icon = (_guideline_delete_icon(gid, num) + " ") if edit_mode else ""
-            out.append(f"**{k}.** {icon}{body}")
+            prefix = f"{dot} " if dot else ""
+            out.append(f"{prefix}**{k}.** {icon}{body}")
         st.markdown("\n".join(out).strip(), unsafe_allow_html=True)
         st.markdown("")
 
@@ -500,36 +634,68 @@ def _order_guideline_sections(
     return preamble + pinned + rest
 
 
+def _render_guideline_acronym_legend(acronyms: List[Tuple[str, str, bool]]) -> None:
+    """Render the abbreviations legend as a collapsed expander at the top."""
+    rows = [a for a in (acronyms or []) if a and a[0] and a[1]]
+    if not rows:
+        return
+    with st.expander(f"Abbreviations ({len(rows)})", expanded=False):
+        lines = []
+        for acr, exp, uncertain in rows:
+            mark = " *(?)*" if uncertain else ""
+            lines.append(f"**{html.escape(acr)}** — {html.escape(exp)}{mark}")
+        st.markdown("  \n".join(lines), unsafe_allow_html=True)
+
+
+def _render_guideline_strength_legend(disp: str) -> None:
+    """Render the strength-dot key as a caption, only if any recommendation is graded."""
+    has_dot = any(
+        _REC_LINE_RE.match(ln) and _guideline_strength_dot(_REC_LINE_RE.match(ln).group(2))
+        for ln in disp.split("\n")
+    )
+    if not has_dot:
+        return
+    st.caption(
+        f"{_DOT_STRONG} Strong · {_DOT_MODERATE} Moderate · {_DOT_WEAK} Weak · "
+        f"{_DOT_AGAINST} Against / harm / no benefit · {_DOT_PRACTICE} Practice point"
+    )
+
+
 def render_guideline_display(
     raw_md: str,
     gid: str,
     *,
     edit_mode: bool = False,
     rec_labels: Dict[int, str] = None,
+    acronyms: List[Tuple[str, str, bool]] = None,
+    show_evidence: bool = False,
     default_expanded: bool = False,
 ) -> None:
-    """Render a guideline's clinician-friendly display: each section in its own
-    expander (the lab/imaging/procedure/medicine sections pinned to the top),
-    recommendation numbering restarted per section, and grouped sections split into
-    per-entity subsections when labels are available."""
+    """Render a guideline's clinician-friendly display: a collapsed abbreviations
+    legend at the top, then each section in its own expander (the lab/imaging/
+    procedure/medicine sections pinned to the top), recommendation numbering
+    restarted per section, and grouped sections split into per-entity subsections
+    when labels are available."""
     disp = _clean_guideline_display(raw_md)
-    disp = _highlight_guideline_strength_evidence(disp)
     if not disp.strip():
         st.info("No clinician-friendly recommendations display saved for this guideline yet.")
         return
 
+    _render_guideline_acronym_legend(acronyms)
+    _render_guideline_strength_legend(disp)
     rec_labels = rec_labels or {}
     for title, lines in _order_guideline_sections(_split_guideline_sections(disp)):
         if not title:
-            body = "\n".join(lines).strip()
+            body = "\n".join(_highlight_guideline_strength_evidence(l) for l in lines).strip()
             if body:
                 st.markdown(body, unsafe_allow_html=True)
             continue
-        with st.expander(title, expanded=default_expanded):
+        is_pinned = title.strip().lower() in _GUIDELINE_TOP_ORDER
+        with st.expander(title, expanded=default_expanded or is_pinned):
             if title.strip().lower() in _GUIDELINE_GROUPED_SECTIONS and rec_labels:
-                _render_guideline_grouped(lines, gid, edit_mode, rec_labels)
+                _render_guideline_grouped(lines, gid, edit_mode, rec_labels, show_evidence)
             else:
-                _render_guideline_rec_lines(lines, gid, edit_mode)
+                _render_guideline_rec_lines(lines, gid, edit_mode, show_evidence)
 
 
 def _qp_first(qp: dict, key: str) -> str:
