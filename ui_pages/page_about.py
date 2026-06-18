@@ -2,7 +2,7 @@ import streamlit as st
 
 _ABOUT_MD = """
 This website started as a personal tool that lived on my laptop that helped me keep up with literature. It is essentially a collection of abstracts 
-that I have find interesting, important, and/or useful for hospital medicine. I wanted access to it from anywhere, so I put it on the internet. 
+that are most useful for hospital medicine. I wanted access to it from anywhere, so I put it on the internet. 
 It is still primarily a personal tool, but you are welcome to check it out, and if you do, I hope you find it useful.
 If you have suggestions for how to make it better, please let me know through the contact form (just type something in the "Suggest an article" page.). I would love that!
 
