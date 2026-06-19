@@ -1,8 +1,6 @@
-import re
 import html
 from typing import Dict, List, Optional
 
-import requests
 import streamlit as st
 
 from db import (
@@ -24,7 +22,9 @@ from pages_shared import (
     _render_bullets,
     _render_plain_text,
     _tags_to_md,
+    clear_public_study_overlay,
     display_journal,
+    guideline_has_evidence,
     is_public_mode,
     render_guideline_display,
 )
@@ -33,9 +33,7 @@ from pages_shared import (
 def render() -> None:
     if is_public_mode() and st.session_state.get("public_study_overlay"):
         if st.button("← Back to studies", key="db_search_back"):
-            st.session_state["public_study_overlay"] = False
-            st.session_state.pop("db_search_open_pmid", None)
-            st.session_state.pop("db_search_open_gid", None)
+            clear_public_study_overlay()
             st.rerun()
 
     st.title("📚 Single-study view")
@@ -259,12 +257,17 @@ def render() -> None:
                     key=f"dbs_guideline_edit_{gid}",
                 )
             # Level of evidence is hidden by default (kept in storage); this reveals it.
-            # Visible in both public and personal mode; sits below Quick Delete.
-            show_evidence = st.toggle(
-                "Show level of evidence",
-                value=False,
-                key="dbs_guideline_show_loe",
-            )
+            # Visible in both public and personal mode; sits below Quick Delete. Only
+            # shown when this guideline actually carries evidence grading — guidelines
+            # like anaphylaxis have nothing to reveal, so the toggle is omitted.
+            if guideline_has_evidence(disp):
+                show_evidence = st.toggle(
+                    "Show level of evidence",
+                    value=False,
+                    key="dbs_guideline_show_loe",
+                )
+            else:
+                show_evidence = False
         with c_l:
             if edit_mode:
                 st.caption(
@@ -283,7 +286,5 @@ def render() -> None:
     if is_public_mode() and st.session_state.get("public_study_overlay"):
         st.divider()
         if st.button("← Back to studies", key="db_search_back_bottom"):
-            st.session_state["public_study_overlay"] = False
-            st.session_state.pop("db_search_open_pmid", None)
-            st.session_state.pop("db_search_open_gid", None)
+            clear_public_study_overlay()
             st.rerun()

@@ -23,21 +23,6 @@ from pages_shared import (
 )
 
 
-def _format_added_date(raw: str) -> str:
-    s = (raw or "").strip()
-    if not s:
-        return "Unknown"
-    try:
-        dt = datetime.strptime(s[:10], "%Y-%m-%d")
-    except ValueError:
-        return "Unknown"
-    return dt.strftime("%B %-d, %Y")
-
-
-def _added_day_key(item: Dict[str, str]) -> str:
-    return (item.get("uploaded_at") or "")[:10]
-
-
 def _added_week_start_key(item: Dict[str, str]) -> str:
     """ISO date (YYYY-MM-DD) of the Monday of the week an item was added, or ''
     if the added date is missing/invalid. The date-added view buckets by week
@@ -216,27 +201,55 @@ def _render_browse_item_body(
         st.caption(f"({meta})")
 
 
+# Browse controls whose state must survive the single-study overlay round-trip.
+# Streamlit drops widget-keyed state for widgets that aren't rendered on a run, and
+# in public mode the overlay replaces this whole page — so without shadowing, the
+# toggles and search box reset to defaults when the visitor clicks "Back to studies".
+_BROWSE_PERSIST_KEYS = (
+    "browse_sort_date_added",
+    "browse_by_specialty",
+    "browse_guidelines_only",
+    "db_browse_any",
+)
+
+
+def _restore_browse_controls() -> None:
+    """Copy shadowed values back into the widget keys before the widgets render."""
+    for k in _BROWSE_PERSIST_KEYS:
+        shadow = f"_keep_{k}"
+        if k not in st.session_state and shadow in st.session_state:
+            st.session_state[k] = st.session_state[shadow]
+
+
+def _shadow_browse_controls() -> None:
+    """Mirror the current widget values into non-widget keys that Streamlit won't
+    garbage-collect while this page is unmounted."""
+    for k in _BROWSE_PERSIST_KEYS:
+        if k in st.session_state:
+            st.session_state[f"_keep_{k}"] = st.session_state[k]
+
+
 @st.fragment
 def _render_browse_body() -> None:
+    _restore_browse_controls()
     can_delete = not is_public_mode()
     col_spec, col_guide, col_sort = st.columns(3)
     with col_sort:
+        # No `value=` here (and below): the default lives in session_state via the
+        # restore/shadow pair, and passing both would warn about a double-set default.
         sort_by_date_added = st.toggle(
             "Sort by date added",
-            value=False,
             key="browse_sort_date_added",
         )
     with col_spec:
         by_specialty = st.toggle(
             "Browse by specialty",
-            value=False,
             key="browse_by_specialty",
             disabled=sort_by_date_added,
         )
     with col_guide:
         guidelines_only = st.toggle(
             "Guidelines only",
-            value=False,
             key="browse_guidelines_only",
         )
     if sort_by_date_added:
@@ -247,6 +260,9 @@ def _render_browse_body() -> None:
         key="db_browse_any",
         help='Combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.',
     )
+    # Shadow immediately after the controls render, before any early st.stop() below,
+    # so the latest values are captured even when the list is empty / has no matches.
+    _shadow_browse_controls()
 
     items: List[Dict[str, str]] = []
     if guidelines_only:

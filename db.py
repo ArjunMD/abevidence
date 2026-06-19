@@ -658,32 +658,6 @@ def list_recent_records(limit: int) -> List[Dict[str, str]]:
     return out
 
 
-def list_abstracts_for_history(limit: int) -> List[Dict[str, str]]:
-    """Return abstracts with uploaded_at, newest first (NULL uploaded_at last)."""
-    with _connect_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT pmid, title, year, uploaded_at
-            FROM abstracts
-            ORDER BY uploaded_at DESC, pmid DESC
-            LIMIT ?;
-            """,
-            (int(limit),),
-        ).fetchall()
-
-    out: List[Dict[str, str]] = []
-    for r in rows:
-        out.append(
-            {
-                "pmid": (r["pmid"] or "").strip(),
-                "title": (r["title"] or "").strip(),
-                "year": (r["year"] or "").strip(),
-                "uploaded_at": (r["uploaded_at"] or "").strip() if r["uploaded_at"] else "",
-            }
-        )
-    return out
-
-
 # ---------------- Guidelines storage + schema ----------------
 
 def ensure_guidelines_schema() -> None:
@@ -799,7 +773,7 @@ def save_guideline_pdf(filename: str, pdf_bytes: bytes) -> Dict[str, str]:
 
     gid = uuid.uuid4().hex
     uploaded_at = _utc_iso_z()
-    nbytes = int(len(pdf_bytes))
+    nbytes = len(pdf_bytes)
 
     with _connect_db() as conn:
         conn.execute(
@@ -1153,27 +1127,6 @@ def dashboard_hidden_per_journal() -> List[Dict[str, object]]:
     return [{"journal": (r["journal"] or "").strip() or "Unknown", "count": int(r["cnt"])} for r in rows]
 
 
-def dashboard_saved_per_year_month() -> List[Dict[str, object]]:
-    with _connect_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT year, pub_month, COUNT(*) AS cnt
-            FROM abstracts
-            WHERE year IS NOT NULL AND year != ''
-            GROUP BY year, pub_month
-            ORDER BY year ASC, pub_month ASC;
-            """
-        ).fetchall()
-    return [
-        {
-            "year": (r["year"] or "").strip(),
-            "pub_month": (r["pub_month"] or "").strip(),
-            "count": int(r["cnt"]),
-        }
-        for r in rows
-    ]
-
-
 def dashboard_study_design_distribution() -> List[Dict[str, object]]:
     with _connect_db() as conn:
         rows = conn.execute(
@@ -1186,38 +1139,5 @@ def dashboard_saved_specialties() -> List[Dict[str, object]]:
     with _connect_db() as conn:
         rows = conn.execute("SELECT specialty FROM abstracts;").fetchall()
     return [{"specialty": (r["specialty"] or "").strip()} for r in rows]
-
-
-def dashboard_patient_n_values() -> List[Optional[int]]:
-    with _connect_db() as conn:
-        rows = conn.execute(
-            "SELECT patient_n FROM abstracts WHERE patient_n IS NOT NULL AND patient_n > 0;"
-        ).fetchall()
-    return [int(r["patient_n"]) for r in rows]
-
-
-def dashboard_recent_additions(days: int = 30) -> int:
-    with _connect_db() as conn:
-        row = conn.execute(
-            """
-            SELECT COUNT(*) AS cnt FROM abstracts
-            WHERE uploaded_at IS NOT NULL
-              AND uploaded_at >= datetime('now', ?);
-            """,
-            (f"-{int(days)} days",),
-        ).fetchone()
-    return int(row["cnt"]) if row else 0
-
-
-def dashboard_saved_per_year() -> List[Dict[str, object]]:
-    with _connect_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT year, COUNT(*) AS cnt FROM abstracts
-            WHERE year IS NOT NULL AND year != ''
-            GROUP BY year ORDER BY year ASC;
-            """
-        ).fetchall()
-    return [{"year": (r["year"] or "").strip(), "count": int(r["cnt"])} for r in rows]
 
 

@@ -431,7 +431,6 @@ def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
     rank_b: Dict[str, int] = {j["label"]: i for i, j in enumerate(list_b)}
 
     labels = [j["label"] for j in journals]
-    label_set = set(labels)
 
     # For each journal, store (rank_a, rank_b)
     pairs = {la: (rank_a[la], rank_b[la]) for la in labels}
@@ -467,15 +466,15 @@ def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
     best_score = float("inf")
     best_wxyz: Tuple[int, int, int, int] = (0, 0, 0, 0)
 
-    for W in range(0, N + 1):
-        for X in range(0, N + 1):
+    for W in range(N + 1):
+        for X in range(N + 1):
             # tier1 = rank_a < W AND rank_b < X
             t1 = _count_rect(0, W, 0, X)
             top_union = W + X - t1
             t2 = top_union - t1
 
-            for Y in range(0, N - W + 1):
-                for Z in range(0, N - X + 1):
+            for Y in range(N - W + 1):
+                for Z in range(N - X + 1):
                     # tier5 = rank_a >= N-Y AND rank_b >= N-Z
                     t5 = _count_rect(N - Y, N, N - Z, N)
                     bot_union = Y + Z - t5

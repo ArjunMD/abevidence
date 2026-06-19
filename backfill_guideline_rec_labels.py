@@ -40,7 +40,7 @@ def _display_md(gid: str) -> str:
 def main() -> None:
     ensure_guidelines_schema()
 
-    wanted = set(a.strip() for a in sys.argv[1:] if a.strip())
+    wanted = {a.strip() for a in sys.argv[1:] if a.strip()}
     rows = _all_guidelines()
     if wanted:
         rows = [r for r in rows if r[0] in wanted]

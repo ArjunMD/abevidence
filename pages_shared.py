@@ -1,8 +1,7 @@
 import html
 import os
 import re
-from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
 
 import streamlit as st
@@ -192,7 +191,7 @@ def _delete_recs_from_guideline_md(md: str, delete_nums: List[int]) -> Tuple[str
     text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
 
-    delete_set = set(int(n) for n in (delete_nums or []) if isinstance(n, int) and n > 0)
+    delete_set = {int(n) for n in (delete_nums or []) if isinstance(n, int) and n > 0}
     if not delete_set:
         return (md or "").strip(), []
 
@@ -260,24 +259,6 @@ def _delete_recs_from_guideline_md(md: str, delete_nums: List[int]) -> Tuple[str
         removed_ordered.append(n)
 
     return new_md, removed_ordered
-
-
-def _guideline_md_with_delete_links(md: str, gid: str) -> str:
-    base = md or ""
-    gid_q = quote_plus((gid or "").strip())
-
-    pat = re.compile(r"(?m)^(\s*(?:-\s+)?\*\*(?:Rec\s+)?(\d+)\.\*\*)(\s*)")
-
-    def repl(m: re.Match) -> str:
-        num = m.group(2)
-        icon = (
-            f"<a href='?gid={gid_q}&delrec={num}' target='_self' "
-            f"title='Delete #{num}' "
-            f"style='text-decoration:none; opacity:0.35; margin-left:0.25rem;'>🗑️</a>"
-        )
-        return f"{m.group(1)} {icon}{m.group(3)}"
-
-    return pat.sub(repl, base)
 
 
 # ---------------- Guideline display: cleanup, colorization, sectioned render ----------------
@@ -505,6 +486,25 @@ def _strip_evidence(body: str) -> str:
     return s.strip()
 
 
+# Level-of-Evidence text that the "Show level of evidence" toggle reveals: an
+# "(Evidence: …)" or "; Evidence: …" segment, or an inline grade parenthetical.
+# Checked against the strength-stripped text because the Strength label is removed
+# in both modes, so a "(Strength: strong recommendation)" parenthetical on its own
+# is not something the toggle reveals.
+_EVIDENCE_SEGMENT_RE = re.compile(r"\(\s*Evidence:|;\s*Evidence:", re.IGNORECASE)
+
+
+def guideline_has_evidence(md: str) -> bool:
+    """True if the guideline display has any Level-of-Evidence text the toggle would
+    reveal. Lets callers hide the toggle for guidelines (e.g. anaphylaxis) that carry
+    no evidence grading, so it only appears when there is something to reveal."""
+    disp = _clean_guideline_display(md)
+    if not disp:
+        return False
+    base = _strip_strength_label(disp)
+    return bool(_EVIDENCE_SEGMENT_RE.search(base) or _GUIDELINE_INLINE_GRADE_RE.search(base))
+
+
 def _format_guideline_rec_body(body: str, show_evidence: bool) -> Tuple[str, str]:
     """Return (strength_dot, html_body) for a recommendation body: derive the dot,
     strip the redundant Strength text, optionally hide the Level of Evidence, and
@@ -539,9 +539,7 @@ def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool, sho
     rec_entries.sort(key=lambda e: _dot_rank(_guideline_strength_dot(_REC_LINE_RE.match(e[1]).group(2))))
 
     out: List[str] = []
-    k = 0
-    for num, ln in rec_entries:
-        k += 1
+    for k, (num, ln) in enumerate(rec_entries, start=1):
         icon = (_guideline_delete_icon(gid, num) + " ") if edit_mode else ""
         dot, body = _format_guideline_rec_body(_REC_LINE_RE.match(ln).group(2), show_evidence)
         prefix = f"{dot} " if dot else ""
@@ -666,8 +664,8 @@ def render_guideline_display(
     gid: str,
     *,
     edit_mode: bool = False,
-    rec_labels: Dict[int, str] = None,
-    acronyms: List[Tuple[str, str, bool]] = None,
+    rec_labels: Optional[Dict[int, str]] = None,
+    acronyms: Optional[List[Tuple[str, str, bool]]] = None,
     show_evidence: bool = False,
     default_expanded: bool = False,
 ) -> None:
@@ -744,15 +742,10 @@ def _browse_manage_link(*, pmid: str = "", gid: str = "") -> str:
     return ""
 
 
-def _format_date_added(iso_str: str) -> str:
-    s = (iso_str or "").strip()
-    if not s:
-        return "—"
-    try:
-        if "T" in s:
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        else:
-            dt = datetime.strptime(s[:10], "%Y-%m-%d")
-        return dt.strftime("%b ") + str(dt.day) + dt.strftime(", %Y")
-    except Exception:
-        return s[:10] if len(s) >= 10 else s or "—"
+def clear_public_study_overlay() -> None:
+    """Reset the public single-study overlay back to the Browse list. Shared by
+    app.py (sidebar nav callback) and the Single-study view's "Back to studies"
+    buttons so the overlay state is torn down the same way in every place."""
+    st.session_state["public_study_overlay"] = False
+    st.session_state.pop("db_search_open_pmid", None)
+    st.session_state.pop("db_search_open_gid", None)

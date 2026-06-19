@@ -19,13 +19,6 @@ from db import (
 from extract import _parse_nonneg_int, _parse_tag_list, _parse_year4
 
 
-def _clip_text(value: str, max_len: int = 90) -> str:
-    s = (value or "").strip()
-    if len(s) <= int(max_len):
-        return s
-    return s[: max(0, int(max_len) - 1)].rstrip() + "…"
-
-
 def _init_edit_fields(rec: Dict[str, str], pmid: str) -> None:
     """Populate session-state edit keys from a record, only if not already set for this PMID."""
     marker = f"_manage_edit_loaded_{pmid}"

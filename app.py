@@ -13,6 +13,7 @@ from pages_shared import (
     _clear_query_params,
     _get_query_params,
     _qp_first,
+    clear_public_study_overlay,
     is_public_mode,
 )
 from ui_pages.page_about import render as render_about
@@ -92,12 +93,6 @@ def _scroll_main_to_top(token: str) -> None:
     )
 
 
-def _exit_public_study_overlay() -> None:
-    """Leave the single-study overlay when a public visitor picks a sidebar page."""
-    st.session_state["public_study_overlay"] = False
-    st.session_state.pop("db_search_open_pmid", None)
-    st.session_state.pop("db_search_open_gid", None)
-
 _qp = _get_query_params()
 _open_pmid = _clean_pmid(_qp_first(_qp, "pmid"))
 _open_gid = (_qp_first(_qp, "gid") or "").strip()
@@ -155,7 +150,7 @@ nav_page = st.sidebar.radio(
     _SIDEBAR_PAGES,
     index=_default_index,
     key="nav_page",
-    on_change=_exit_public_study_overlay if _IS_PUBLIC else None,
+    on_change=clear_public_study_overlay if _IS_PUBLIC else None,
 )
 
 # Keep the running count for the owner's own reference, but don't greet public

@@ -982,10 +982,7 @@ def _attr_value_present_in_reco_text(reco_text: str, attr_value: str) -> bool:
         return True
 
     toks = [t for t in re.findall(r"[a-z0-9]+", val) if len(t) >= 3]
-    if len(toks) >= 2 and all(re.search(rf"\b{re.escape(t)}\b", txt) for t in toks):
-        return True
-
-    return False
+    return len(toks) >= 2 and all(re.search(rf"\b{re.escape(t)}\b", txt) for t in toks)
 
 
 def _chunk_recs_for_classification(items: List[Dict], max_chars: int = 14000, max_items: int = 45) -> List[List[Dict]]:
@@ -1120,10 +1117,6 @@ def section_recs_from_display(md: str, section_title: str) -> List[Dict]:
 
 
 # Back-compat alias (Medicines was the first grouped section).
-def medicines_recs_from_display(md: str) -> List[Dict]:
-    return section_recs_from_display(md, "Medicines")
-
-
 def label_and_store_guideline_subsections(guideline_id: str, display_md: str) -> Dict[str, int]:
     """Label every grouped section (Medicines, Labs, Imaging, Diagnostic procedures,
     Therapeutic procedures) of a guideline's display and persist all labels at once.
@@ -1222,10 +1215,6 @@ def label_guideline_section(section_recs: List[Dict], section: str) -> Dict[int,
 
 
 # Back-compat alias.
-def label_guideline_medicines(med_recs: List[Dict]) -> Dict[int, str]:
-    return label_guideline_section(med_recs, "Medicines")
-
-
 # ---------------- Guideline acronym legend ----------------
 
 # Parenthetical clinical-grading annotations to strip before acronym detection, so
@@ -1780,7 +1769,7 @@ def gpt_generate_guideline_recommendations_display(
         keep_later_real: Dict[int, int] = {}
 
         for canon_i, later_list in canon_groups.items():
-            all_items = [canon_i] + sorted(later_list)
+            all_items = [canon_i, *sorted(later_list)]
 
             # Pick the best: prefer graded (has strength/evidence), then longest text
             def _dup_score(idx: int) -> tuple:
@@ -2690,7 +2679,7 @@ def extract_and_store_guideline_recommendations_azure(guideline_id: str, pdf_byt
             detail="Scanning section previews for directive/recommendation language",
         )
 
-    keep_set = set(int(x) for x in keep_sec_idxs if isinstance(x, int) or str(x).isdigit())
+    keep_set = {int(x) for x in keep_sec_idxs if isinstance(x, int) or str(x).isdigit()}
     if not keep_set:
         _progress(
             len(sections), len(sections),

@@ -145,7 +145,7 @@ def _infer_specialty_from_journal_label(journal_label: str) -> str:
     if not jl:
         return "—"
     for specialty, journals in SPECIALTY_JOURNAL_TERMS.items():
-        for label in journals.keys():
+        for label in journals:
             if jl == (label or "").strip().lower():
                 return specialty
     return "—"
@@ -240,7 +240,7 @@ def _latest_clearable_year_month(today) -> Optional[Tuple[int, int]]:
     """
     yy = int(today.year)
     mm = int(today.month)
-    for _ in range(0, 2400):
+    for _ in range(2400):
         ym = f"{yy:04d}-{mm:02d}"
         if _is_year_month_clearable(ym, today=today):
             return (yy, mm)
@@ -390,7 +390,7 @@ def _configured_journal_keys_for_specialty(specialty_key: str) -> set[str]:
         if skey == (specialty or "").strip().lower():
             return {
                 (label or "").strip().lower()
-                for label in journals.keys()
+                for label in journals
                 if (label or "").strip()
             }
     return set()
@@ -456,14 +456,14 @@ def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], tod
             int(prev_total) + _safe_int(row.get("_total_matches"), 0),
         )
 
-    specialty_keys = {spec for spec, _ in journal_months.keys()}
+    specialty_keys = {spec for spec, _ in journal_months}
     specialty_all_months: Dict[str, set[int]] = {}
     specialty_required_journals: Dict[str, set[str]] = {}
 
     for spec_key in specialty_keys:
         present_journals = {
             journal_key
-            for s_key, journal_key in journal_months.keys()
+            for s_key, journal_key in journal_months
             if s_key == spec_key
         }
         configured_journals = _configured_journal_keys_for_specialty(spec_key)
