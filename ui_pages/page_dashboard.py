@@ -2,7 +2,6 @@
 
 import re
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -23,7 +22,7 @@ _ACCENT = "#F58518"
 _PLOTLY_TEMPLATE = "plotly_white"
 
 # Consistent journal name normalization
-_JOURNAL_SHORT: Dict[str, str] = {
+_JOURNAL_SHORT: dict[str, str] = {
     "The New England journal of medicine": "NEJM",
     "Lancet (London, England)": "Lancet",
     "BMJ (Clinical research ed.)": "BMJ",
@@ -83,7 +82,7 @@ def _short_journal(name: str) -> str:
 
 
 # ── specialty explosion helper ──────────────────────────────────────
-def _explode_specialties(raw_rows: List[Dict]) -> Counter:
+def _explode_specialties(raw_rows: list[dict]) -> Counter:
     counts: Counter = Counter()
     for row in raw_rows:
         raw = (row.get("specialty") or "").strip()
@@ -99,7 +98,7 @@ def _explode_specialties(raw_rows: List[Dict]) -> Counter:
 
 
 # ── study design grouping ──────────────────────────────────────────
-def _group_study_designs(raw_rows: List[Dict]) -> Counter:
+def _group_study_designs(raw_rows: list[dict]) -> Counter:
     counts: Counter = Counter()
     for row in raw_rows:
         raw = (row.get("study_design") or "").strip().lower()
@@ -177,13 +176,13 @@ def render() -> None:
     # ════════════════════════════════════════════════════════════════
     # D. SAVE RATE BY JOURNAL (bar chart)
     # ════════════════════════════════════════════════════════════════
-    hidden_map: Dict[str, int] = {}
+    hidden_map: dict[str, int] = {}
     for r in hidden_per_journal:
         key = _short_journal(r["journal"])
         hidden_map[key] = hidden_map.get(key, 0) + int(r["count"])
 
-    journal_total_reviewed: Dict[str, int] = {}
-    saved_map: Dict[str, int] = {}
+    journal_total_reviewed: dict[str, int] = {}
+    saved_map: dict[str, int] = {}
     for r in saved_per_journal:
         key = _short_journal(r["journal"])
         saved_map[key] = saved_map.get(key, 0) + int(r["count"])
@@ -309,7 +308,7 @@ def render() -> None:
 
 # Mapping: Search PubMed display label → DB journal name (lowercase).
 # DB names come from PubMed XML <Journal><Title> and can differ from display labels.
-_LABEL_TO_DB_JOURNAL: Dict[str, str] = {
+_LABEL_TO_DB_JOURNAL: dict[str, str] = {
     "NEJM": "the new england journal of medicine",
     "JAMA": "jama",
     "Lancet": "lancet (london, england)",
@@ -367,7 +366,7 @@ _LABEL_TO_DB_JOURNAL: Dict[str, str] = {
 }
 
 
-def _get_journal_counts() -> Dict[str, Tuple[int, int]]:
+def _get_journal_counts() -> dict[str, tuple[int, int]]:
     """Return {display_label: (saved_count, hidden_count)} for Search PubMed journals."""
     with _connect_db() as conn:
         saved_rows = conn.execute(
@@ -379,10 +378,10 @@ def _get_journal_counts() -> Dict[str, Tuple[int, int]]:
             "WHERE journal IS NOT NULL GROUP BY j;"
         ).fetchall()
 
-    saved_by_db: Dict[str, int] = {r["j"]: int(r["cnt"]) for r in saved_rows}
-    hidden_by_db: Dict[str, int] = {r["j"]: int(r["cnt"]) for r in hidden_rows}
+    saved_by_db: dict[str, int] = {r["j"]: int(r["cnt"]) for r in saved_rows}
+    hidden_by_db: dict[str, int] = {r["j"]: int(r["cnt"]) for r in hidden_rows}
 
-    result: Dict[str, Tuple[int, int]] = {}
+    result: dict[str, tuple[int, int]] = {}
     for label, db_key in _LABEL_TO_DB_JOURNAL.items():
         s = saved_by_db.get(db_key, 0)
         # Hidden articles may be stored under the full DB name OR the short
@@ -396,7 +395,7 @@ def _get_journal_counts() -> Dict[str, Tuple[int, int]]:
     return result
 
 
-def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
+def _compute_journal_tiers() -> dict[int, list[dict]] | None:
     """Compute 5 tiers of journals using the W/X/Y/Z optimization algorithm.
 
     Returns {1: [...], 2: [...], 3: [...], 4: [...], 5: [...]} where each
@@ -410,7 +409,7 @@ def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
     target = N / 5.0
 
     # Build journal data
-    journals: List[Dict] = []
+    journals: list[dict] = []
     for label, (saved, hidden) in counts.items():
         reviewed = saved + hidden
         rate = (saved / reviewed) if reviewed > 0 else 0.0
@@ -427,8 +426,8 @@ def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
     list_b = sorted(journals, key=lambda j: (j["rate"], j["saved"]), reverse=True)
 
     # Assign ranks (0-indexed)
-    rank_a: Dict[str, int] = {j["label"]: i for i, j in enumerate(list_a)}
-    rank_b: Dict[str, int] = {j["label"]: i for i, j in enumerate(list_b)}
+    rank_a: dict[str, int] = {j["label"]: i for i, j in enumerate(list_a)}
+    rank_b: dict[str, int] = {j["label"]: i for i, j in enumerate(list_b)}
 
     labels = [j["label"] for j in journals]
 
@@ -464,7 +463,7 @@ def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
         )
 
     best_score = float("inf")
-    best_wxyz: Tuple[int, int, int, int] = (0, 0, 0, 0)
+    best_wxyz: tuple[int, int, int, int] = (0, 0, 0, 0)
 
     for W in range(N + 1):
         for X in range(N + 1):
@@ -520,7 +519,7 @@ def _compute_journal_tiers() -> Optional[Dict[int, List[Dict]]]:
     # Build lookup
     jdata = {j["label"]: j for j in journals}
 
-    def _tier_list(s: set) -> List[Dict]:
+    def _tier_list(s: set) -> list[dict]:
         return sorted(
             [jdata[la] for la in s],
             key=lambda j: (j["saved"], j["rate"]),

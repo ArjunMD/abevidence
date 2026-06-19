@@ -9,13 +9,12 @@ Usage:
     python3 backfill_guideline_acronyms.py <gid> ...  # specific guideline ids
 """
 import sys
-from typing import List, Tuple
 
 from db import _connect_db, ensure_guidelines_schema
 from extract import label_and_store_guideline_acronyms
 
 
-def _all_guidelines() -> List[Tuple[str, str]]:
+def _all_guidelines() -> list[tuple[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             "SELECT guideline_id, filename FROM guidelines "

@@ -1,5 +1,4 @@
 import html
-from typing import Dict, List, Optional
 
 import streamlit as st
 
@@ -38,7 +37,7 @@ def render() -> None:
 
     st.title("📚 Single-study view")
 
-    forced_selected: Optional[Dict[str, str]] = None
+    forced_selected: dict[str, str] | None = None
     open_pmid = (st.session_state.get("db_search_open_pmid") or "").strip()
     open_gid = (st.session_state.get("db_search_open_gid") or "").strip()
 
@@ -59,8 +58,8 @@ def render() -> None:
         st.session_state.pop("db_search_open_gid", None)
         forced_selected = None
 
-    rows: List[Dict[str, str]] = []
-    selected: Optional[Dict[str, str]] = None
+    rows: list[dict[str, str]] = []
+    selected: dict[str, str] | None = None
 
     if (q or "").strip():
         paper_rows = search_records(limit=SEARCH_MAX_DEFAULT, q=q)

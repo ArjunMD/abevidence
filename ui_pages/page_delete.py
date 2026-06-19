@@ -1,4 +1,3 @@
-from typing import Dict, List, Optional
 
 import streamlit as st
 
@@ -19,7 +18,7 @@ from db import (
 from extract import _parse_nonneg_int, _parse_tag_list, _parse_year4
 
 
-def _init_edit_fields(rec: Dict[str, str], pmid: str) -> None:
+def _init_edit_fields(rec: dict[str, str], pmid: str) -> None:
     """Populate session-state edit keys from a record, only if not already set for this PMID."""
     marker = f"_manage_edit_loaded_{pmid}"
     if st.session_state.get(marker):
@@ -58,7 +57,7 @@ def render() -> None:
             st.info("No saved papers found.")
         else:
 
-            def _paper_label(r: Dict[str, str]) -> str:
+            def _paper_label(r: dict[str, str]) -> str:
                 title = (r.get("title") or "").strip()
                 year = (r.get("year") or "").strip()
                 journal = (r.get("journal") or "").strip()
@@ -153,7 +152,7 @@ def render() -> None:
             with btn_left:
                 if st.button("Save changes", type="primary", width="stretch", key=f"btn_save_paper_{sel_pmid}"):
                     raw_n = (st.session_state.get(f"manage_patient_n_{sel_pmid}") or "").strip()
-                    parsed_n: Optional[int] = _parse_nonneg_int(raw_n)
+                    parsed_n: int | None = _parse_nonneg_int(raw_n)
 
                     raw_design = (st.session_state.get(f"manage_study_design_{sel_pmid}") or "").strip()
                     parsed_design = raw_design if raw_design else None
@@ -225,7 +224,7 @@ def render() -> None:
 
         raw_rows = search_guidelines(limit=200, q=gq) if (gq or "").strip() else list_guidelines(limit=200)
 
-        guidelines: List[Dict[str, str]] = []
+        guidelines: list[dict[str, str]] = []
         for r in raw_rows:
             gid = (r.get("guideline_id") or "").strip()
             if not gid:
@@ -236,7 +235,7 @@ def render() -> None:
             specialty = (r.get("specialty") or "").strip()
             guidelines.append({"guideline_id": gid, "title": title, "society": society, "year": year, "specialty": specialty})
 
-        def _guideline_label(r: Dict[str, str]) -> str:
+        def _guideline_label(r: dict[str, str]) -> str:
             title = (r.get("title") or "").strip()
             soc = (r.get("society") or "").strip()
             year = (r.get("year") or "").strip()

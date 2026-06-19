@@ -6,7 +6,6 @@ import sqlite3
 import hashlib
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Tuple
 
 DB_PATH = "data/papers.db"
 
@@ -123,14 +122,14 @@ def save_record(
     year: str,
     pub_month: str,
     journal: str,
-    patient_n: Optional[int],
-    study_design: Optional[str],
-    patient_details: Optional[str],
-    intervention_comparison: Optional[str],
-    authors_conclusions: Optional[str],
-    outcomes: Optional[str],
-    evidence_base: Optional[str],
-    specialty: Optional[str],
+    patient_n: int | None,
+    study_design: str | None,
+    patient_details: str | None,
+    intervention_comparison: str | None,
+    authors_conclusions: str | None,
+    outcomes: str | None,
+    evidence_base: str | None,
+    specialty: str | None,
 ) -> None:
     uploaded_at = _utc_iso_z()
     with _connect_db() as conn:
@@ -169,8 +168,8 @@ def is_saved(pmid: str) -> bool:
         return row is not None
 
 
-def get_saved_pmids(pmids: List[str]) -> Set[str]:
-    vals: List[str] = []
+def get_saved_pmids(pmids: list[str]) -> set[str]:
+    vals: list[str] = []
     seen = set()
     for raw in (pmids or []):
         p = str(raw or "").strip()
@@ -192,9 +191,9 @@ def get_saved_pmids(pmids: List[str]) -> Set[str]:
 
 def hide_pubmed_pmid(
     pmid: str,
-    journal: Optional[str] = None,
-    year: Optional[str] = None,
-    pub_month: Optional[str] = None,
+    journal: str | None = None,
+    year: str | None = None,
+    pub_month: str | None = None,
 ) -> None:
     p = (pmid or "").strip()
     if not p:
@@ -216,8 +215,8 @@ def hide_pubmed_pmid(
         )
 
 
-def get_hidden_pubmed_pmids(pmids: List[str]) -> Set[str]:
-    vals: List[str] = []
+def get_hidden_pubmed_pmids(pmids: list[str]) -> set[str]:
+    vals: list[str] = []
     seen = set()
     for raw in (pmids or []):
         p = str(raw or "").strip()
@@ -293,7 +292,7 @@ def upsert_search_pubmed_ledger(
         )
 
 
-def list_search_pubmed_ledger(limit: Optional[int] = None) -> List[Dict[str, str]]:
+def list_search_pubmed_ledger(limit: int | None = None) -> list[dict[str, str]]:
     with _connect_db() as conn:
         query = """
             SELECT
@@ -315,7 +314,7 @@ def list_search_pubmed_ledger(limit: Optional[int] = None) -> List[Dict[str, str
                 CAST(SUBSTR(year_month, 1, 4) AS INTEGER) DESC,
                 CAST(SUBSTR(year_month, 6, 2) AS INTEGER) ASC
         """
-        params: Tuple[object, ...] = ()
+        params: tuple[object, ...] = ()
         try:
             lim = int(limit) if limit is not None else 0
         except Exception:
@@ -326,7 +325,7 @@ def list_search_pubmed_ledger(limit: Optional[int] = None) -> List[Dict[str, str
         query += ";"
         rows = conn.execute(query, params).fetchall()
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in rows:
         out.append(
             {
@@ -366,7 +365,7 @@ def db_count_all() -> int:
     return papers + guidelines
 
 
-def _parse_search_query_groups(raw: str) -> List[List[str]]:
+def _parse_search_query_groups(raw: str) -> list[list[str]]:
     """
     Parse a free-text query into OR-groups of AND-terms.
     Supported syntax:
@@ -378,7 +377,7 @@ def _parse_search_query_groups(raw: str) -> List[List[str]]:
     if not s:
         return []
 
-    lex: List[Tuple[str, str]] = []
+    lex: list[tuple[str, str]] = []
     for m in re.finditer(r'"([^"]+)"|(\S+)', s):
         phrase = m.group(1)
         token = m.group(2)
@@ -406,8 +405,8 @@ def _parse_search_query_groups(raw: str) -> List[List[str]]:
     if not lex:
         return []
 
-    groups: List[List[str]] = []
-    current: List[str] = []
+    groups: list[list[str]] = []
+    current: list[str] = []
     pending_op = "AND"
     for kind, val in lex:
         if kind == "OP":
@@ -426,10 +425,10 @@ def _parse_search_query_groups(raw: str) -> List[List[str]]:
     if current:
         groups.append(current)
 
-    cleaned: List[List[str]] = []
+    cleaned: list[list[str]] = []
     for g in groups:
         seen = set()
-        out: List[str] = []
+        out: list[str] = []
         for raw_t in g:
             t = (raw_t or "").strip()
             if not t:
@@ -444,12 +443,12 @@ def _parse_search_query_groups(raw: str) -> List[List[str]]:
     return cleaned
 
 
-def _build_search_where_sql(groups: List[List[str]], cols: List[str]) -> Tuple[str, List[str]]:
-    where_parts: List[str] = []
-    params: List[str] = []
+def _build_search_where_sql(groups: list[list[str]], cols: list[str]) -> tuple[str, list[str]]:
+    where_parts: list[str] = []
+    params: list[str] = []
 
     for group in (groups or []):
-        and_parts: List[str] = []
+        and_parts: list[str] = []
         for term in (group or []):
             like = f"%{term}%"
             ors = " OR ".join([f"{c} LIKE ?" for c in cols])
@@ -460,7 +459,7 @@ def _build_search_where_sql(groups: List[List[str]], cols: List[str]) -> Tuple[s
 
     return " OR ".join(where_parts), params
 
-def search_records(limit: int, q: str) -> List[Dict[str, str]]:
+def search_records(limit: int, q: str) -> list[dict[str, str]]:
     raw = (q or "").strip()
     if not raw:
         return []
@@ -503,7 +502,7 @@ def search_records(limit: int, q: str) -> List[Dict[str, str]]:
             (*params, int(limit)),
         ).fetchall()
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in rows:
         out.append(
             {
@@ -519,7 +518,7 @@ def search_records(limit: int, q: str) -> List[Dict[str, str]]:
     return out
 
 
-def list_browse_items(limit: int) -> List[Dict[str, str]]:
+def list_browse_items(limit: int) -> list[dict[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             """
@@ -534,7 +533,7 @@ def list_browse_items(limit: int) -> List[Dict[str, str]]:
             (int(limit),),
         ).fetchall()
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in rows:
         out.append(
             {
@@ -552,7 +551,7 @@ def list_browse_items(limit: int) -> List[Dict[str, str]]:
     return out
 
 
-def get_record(pmid: str) -> Dict[str, str]:
+def get_record(pmid: str) -> dict[str, str]:
     with _connect_db() as conn:
         row = conn.execute(
             """
@@ -586,14 +585,14 @@ def get_record(pmid: str) -> Dict[str, str]:
 
 def update_record(
     pmid: str,
-    patient_n: Optional[int],
-    study_design: Optional[str],
-    patient_details: Optional[str],
-    intervention_comparison: Optional[str],
-    authors_conclusions: Optional[str],
-    outcomes: Optional[str],
-    evidence_base: Optional[str],
-    specialty: Optional[str],
+    patient_n: int | None,
+    study_design: str | None,
+    patient_details: str | None,
+    intervention_comparison: str | None,
+    authors_conclusions: str | None,
+    outcomes: str | None,
+    evidence_base: str | None,
+    specialty: str | None,
 ) -> None:
     with _connect_db() as conn:
         conn.execute(
@@ -628,7 +627,7 @@ def delete_record(pmid: str) -> None:
         conn.execute("DELETE FROM abstracts WHERE pmid=?;", (pmid,))
 
 
-def list_recent_records(limit: int) -> List[Dict[str, str]]:
+def list_recent_records(limit: int) -> list[dict[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             """
@@ -642,7 +641,7 @@ def list_recent_records(limit: int) -> List[Dict[str, str]]:
             (int(limit),),
         ).fetchall()
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in rows:
         out.append(
             {
@@ -728,7 +727,7 @@ def ensure_guidelines_schema() -> None:
         )
 
 
-def find_guideline_by_hash(sha256: str) -> Optional[Dict[str, str]]:
+def find_guideline_by_hash(sha256: str) -> dict[str, str] | None:
     s = (sha256 or "").strip()
     if not s:
         return None
@@ -761,7 +760,7 @@ def find_guideline_by_hash(sha256: str) -> Optional[Dict[str, str]]:
             "recommendations_display_updated_at": (row["recommendations_display_updated_at"] or "").strip(),
         }
 
-def save_guideline_pdf(filename: str, pdf_bytes: bytes) -> Dict[str, str]:
+def save_guideline_pdf(filename: str, pdf_bytes: bytes) -> dict[str, str]:
     if not pdf_bytes:
         raise ValueError("Empty PDF bytes.")
     fn = (filename or "").strip() or "guideline.pdf"
@@ -800,7 +799,7 @@ def save_guideline_pdf(filename: str, pdf_bytes: bytes) -> Dict[str, str]:
     }
 
 
-def list_guidelines(limit: int) -> List[Dict[str, str]]:
+def list_guidelines(limit: int) -> list[dict[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             """
@@ -813,7 +812,7 @@ def list_guidelines(limit: int) -> List[Dict[str, str]]:
             (int(limit),),
         ).fetchall()
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in rows:
         out.append(
             {
@@ -841,7 +840,7 @@ def delete_guideline(guideline_id: str) -> None:
 
 # ---------------- Guideline layout markdown cache ----------------
 
-def get_guideline_meta(guideline_id: str) -> Dict[str, str]:
+def get_guideline_meta(guideline_id: str) -> dict[str, str]:
     gid = (guideline_id or "").strip()
     if not gid:
         return {}
@@ -902,7 +901,7 @@ def update_guideline_recommendations_display(guideline_id: str, markdown: str) -
         )
 
 
-def get_guideline_rec_labels(guideline_id: str) -> Dict[int, str]:
+def get_guideline_rec_labels(guideline_id: str) -> dict[int, str]:
     """Return {rec_num: label} for the guideline's grouped-section subsection labels.
     rec_num is globally unique within a guideline, so the flat map is unambiguous."""
     gid = (guideline_id or "").strip()
@@ -913,7 +912,7 @@ def get_guideline_rec_labels(guideline_id: str) -> Dict[int, str]:
             "SELECT rec_num, label FROM guideline_rec_labels WHERE guideline_id=?;",
             (gid,),
         ).fetchall()
-    out: Dict[int, str] = {}
+    out: dict[int, str] = {}
     for r in rows:
         lab = (r["label"] or "").strip()
         if lab:
@@ -921,7 +920,7 @@ def get_guideline_rec_labels(guideline_id: str) -> Dict[int, str]:
     return out
 
 
-def set_guideline_rec_labels(guideline_id: str, rows: List[Tuple[int, str, str]]) -> None:
+def set_guideline_rec_labels(guideline_id: str, rows: list[tuple[int, str, str]]) -> None:
     """Replace all subsection labels for a guideline.
     rows: iterable of (rec_num, section, label)."""
     gid = (guideline_id or "").strip()
@@ -943,7 +942,7 @@ def set_guideline_rec_labels(guideline_id: str, rows: List[Tuple[int, str, str]]
             )
 
 
-def get_guideline_acronyms(guideline_id: str) -> List[Tuple[str, str, bool]]:
+def get_guideline_acronyms(guideline_id: str) -> list[tuple[str, str, bool]]:
     """Return [(acronym, expansion, uncertain)] for a guideline's legend,
     sorted case-insensitively by acronym."""
     gid = (guideline_id or "").strip()
@@ -963,7 +962,7 @@ def get_guideline_acronyms(guideline_id: str) -> List[Tuple[str, str, bool]]:
     return out
 
 
-def set_guideline_acronyms(guideline_id: str, rows: List[Tuple[str, str, bool]]) -> None:
+def set_guideline_acronyms(guideline_id: str, rows: list[tuple[str, str, bool]]) -> None:
     """Replace all acronym entries for a guideline.
     rows: iterable of (acronym, expansion, uncertain)."""
     gid = (guideline_id or "").strip()
@@ -989,10 +988,10 @@ def set_guideline_acronyms(guideline_id: str, rows: List[Tuple[str, str, bool]])
 
 def update_guideline_metadata(
     guideline_id: str,
-    guideline_name: Optional[str],
-    pub_year: Optional[str],
-    specialty: Optional[str],
-    society: Optional[str] = None,
+    guideline_name: str | None,
+    pub_year: str | None,
+    specialty: str | None,
+    society: str | None = None,
 ) -> None:
     gid = (guideline_id or "").strip()
     if not gid:
@@ -1017,7 +1016,7 @@ def update_guideline_metadata(
 
 # ---------------- Guideline browse/search ----------------
 
-def list_browse_guideline_items(limit: int) -> List[Dict[str, str]]:
+def list_browse_guideline_items(limit: int) -> list[dict[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             """
@@ -1038,7 +1037,7 @@ def list_browse_guideline_items(limit: int) -> List[Dict[str, str]]:
             (int(limit),),
         ).fetchall()
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in rows:
         out.append(
             {
@@ -1053,7 +1052,7 @@ def list_browse_guideline_items(limit: int) -> List[Dict[str, str]]:
         )
     return out
 
-def search_guidelines(limit: int, q: str) -> List[Dict[str, str]]:
+def search_guidelines(limit: int, q: str) -> list[dict[str, str]]:
     raw = (q or "").strip()
     if not raw:
         return []
@@ -1094,7 +1093,7 @@ def search_guidelines(limit: int, q: str) -> List[Dict[str, str]]:
             (*params, int(limit)),
         ).fetchall()
 
-    gout: List[Dict[str, str]] = []
+    gout: list[dict[str, str]] = []
     for r in rows:
         gout.append(
             {
@@ -1111,7 +1110,7 @@ def search_guidelines(limit: int, q: str) -> List[Dict[str, str]]:
 
 # ---------------- Dashboard queries ----------------
 
-def dashboard_saved_per_journal() -> List[Dict[str, object]]:
+def dashboard_saved_per_journal() -> list[dict[str, object]]:
     with _connect_db() as conn:
         rows = conn.execute(
             "SELECT journal, COUNT(*) AS cnt FROM abstracts GROUP BY journal ORDER BY cnt DESC;"
@@ -1119,7 +1118,7 @@ def dashboard_saved_per_journal() -> List[Dict[str, object]]:
     return [{"journal": (r["journal"] or "").strip() or "Unknown", "count": int(r["cnt"])} for r in rows]
 
 
-def dashboard_hidden_per_journal() -> List[Dict[str, object]]:
+def dashboard_hidden_per_journal() -> list[dict[str, object]]:
     with _connect_db() as conn:
         rows = conn.execute(
             "SELECT journal, COUNT(*) AS cnt FROM hidden_pubmed_pmids GROUP BY journal ORDER BY cnt DESC;"
@@ -1127,7 +1126,7 @@ def dashboard_hidden_per_journal() -> List[Dict[str, object]]:
     return [{"journal": (r["journal"] or "").strip() or "Unknown", "count": int(r["cnt"])} for r in rows]
 
 
-def dashboard_study_design_distribution() -> List[Dict[str, object]]:
+def dashboard_study_design_distribution() -> list[dict[str, object]]:
     with _connect_db() as conn:
         rows = conn.execute(
             "SELECT study_design, COUNT(*) AS cnt FROM abstracts GROUP BY study_design ORDER BY cnt DESC;"
@@ -1135,7 +1134,7 @@ def dashboard_study_design_distribution() -> List[Dict[str, object]]:
     return [{"study_design": (r["study_design"] or "").strip() or "Not specified", "count": int(r["cnt"])} for r in rows]
 
 
-def dashboard_saved_specialties() -> List[Dict[str, object]]:
+def dashboard_saved_specialties() -> list[dict[str, object]]:
     with _connect_db() as conn:
         rows = conn.execute("SELECT specialty FROM abstracts;").fetchall()
     return [{"specialty": (r["specialty"] or "").strip()} for r in rows]

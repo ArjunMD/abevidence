@@ -1,7 +1,6 @@
 import html
 import os
 import re
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
 
 import streamlit as st
@@ -57,12 +56,12 @@ def _clean_pmid(raw: str) -> str:
     return m.group(1) if m else ""
 
 
-def _split_specialties(raw: str) -> List[str]:
+def _split_specialties(raw: str) -> list[str]:
     s = (raw or "").strip()
     if not s:
         return ["Unspecified"]
     toks = re.split(r"[,\n;|]+", s)
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for t in toks:
         t = (t or "").strip().strip("-•").strip()
@@ -76,12 +75,12 @@ def _split_specialties(raw: str) -> List[str]:
     return out or ["Unspecified"]
 
 
-def _fmt_article(r: Dict[str, str]) -> str:
+def _fmt_article(r: dict[str, str]) -> str:
     title = (r.get("title") or "").strip() or "(no title)"
     journal = display_journal(r.get("journal") or "")
     year = (r.get("year") or "").strip()
 
-    bits: List[str] = []
+    bits: list[str] = []
     if journal:
         bits.append(journal)
     if year:
@@ -91,7 +90,7 @@ def _fmt_article(r: Dict[str, str]) -> str:
     return f"{title}{f' — {meta}' if meta else ''}"
 
 
-def _fmt_search_item(it: Dict[str, str]) -> str:
+def _fmt_search_item(it: dict[str, str]) -> str:
     if (it.get("type") or "") == "guideline":
         title = (it.get("title") or "").strip() or "(no name)"
         year = (it.get("year") or "").strip()
@@ -130,9 +129,9 @@ def _render_plain_text(text: str, empty_hint: str = "—") -> None:
     st.markdown(f"<div style='white-space: pre-wrap;'>{safe}</div>", unsafe_allow_html=True)
 
 
-def _filter_search_pubmed_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    valid_rows: List[Dict[str, str]] = []
-    pmids: List[str] = []
+def _filter_search_pubmed_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    valid_rows: list[dict[str, str]] = []
+    pmids: list[str] = []
     for r in (rows or []):
         if not isinstance(r, dict):
             continue
@@ -151,7 +150,7 @@ def _filter_search_pubmed_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str
     if not blocked:
         return valid_rows
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in valid_rows:
         pmid = (r.get("pmid") or "").strip()
         if pmid in blocked:
@@ -160,7 +159,7 @@ def _filter_search_pubmed_rows(rows: List[Dict[str, str]]) -> List[Dict[str, str
     return out
 
 
-def _year_sort_key(y: str) -> Tuple[int, str]:
+def _year_sort_key(y: str) -> tuple[int, str]:
     ys = (y or "").strip()
     if re.fullmatch(r"\d{4}", ys):
         return (0, ys)
@@ -169,11 +168,11 @@ def _year_sort_key(y: str) -> Tuple[int, str]:
     return (1, ys)
 
 
-def _parse_rec_nums(raw: str) -> List[int]:
+def _parse_rec_nums(raw: str) -> list[int]:
     s = (raw or "").strip()
     if not s:
         return []
-    nums: List[int] = []
+    nums: list[int] = []
     seen = set()
     for tok in re.findall(r"\d+", s):
         try:
@@ -187,7 +186,7 @@ def _parse_rec_nums(raw: str) -> List[int]:
     return nums
 
 
-def _delete_recs_from_guideline_md(md: str, delete_nums: List[int]) -> Tuple[str, List[int]]:
+def _delete_recs_from_guideline_md(md: str, delete_nums: list[int]) -> tuple[str, list[int]]:
     text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
 
@@ -195,8 +194,8 @@ def _delete_recs_from_guideline_md(md: str, delete_nums: List[int]) -> Tuple[str
     if not delete_set:
         return (md or "").strip(), []
 
-    removed: List[int] = []
-    filtered: List[str] = []
+    removed: list[int] = []
+    filtered: list[str] = []
 
     for ln in lines:
         m = _REC_LINE_RE.match(ln)
@@ -213,14 +212,14 @@ def _delete_recs_from_guideline_md(md: str, delete_nums: List[int]) -> Tuple[str
     if not removed:
         return (md or "").strip(), []
 
-    out: List[str] = []
+    out: list[str] = []
     i = 0
     while i < len(filtered):
         line = filtered[i]
         if line.startswith("### "):
             heading = line
             i += 1
-            block: List[str] = []
+            block: list[str] = []
             while i < len(filtered) and not filtered[i].startswith("### "):
                 block.append(filtered[i])
                 i += 1
@@ -251,7 +250,7 @@ def _delete_recs_from_guideline_md(md: str, delete_nums: List[int]) -> Tuple[str
             new_md = "_No recommendations remaining._"
 
     seen = set()
-    removed_ordered: List[int] = []
+    removed_ordered: list[int] = []
     for n in removed:
         if n in seen:
             continue
@@ -363,15 +362,15 @@ def _guideline_delete_icon(gid: str, num) -> str:
     )
 
 
-def _split_guideline_sections(md: str) -> List[Tuple[str, List[str]]]:
+def _split_guideline_sections(md: str) -> list[tuple[str, list[str]]]:
     """Split cleaned display markdown into (section_title, lines) pairs.
 
     Level-3 ('### ') headings start a new section. Any content before the first
     heading is returned as a leading section with an empty title."""
     text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
-    sections: List[Tuple[str, List[str]]] = []
+    sections: list[tuple[str, list[str]]] = []
     cur_title = ""
-    cur_lines: List[str] = []
+    cur_lines: list[str] = []
 
     def _flush() -> None:
         if cur_title or any(ln.strip() for ln in cur_lines):
@@ -505,7 +504,7 @@ def guideline_has_evidence(md: str) -> bool:
     return bool(_EVIDENCE_SEGMENT_RE.search(base) or _GUIDELINE_INLINE_GRADE_RE.search(base))
 
 
-def _format_guideline_rec_body(body: str, show_evidence: bool) -> Tuple[str, str]:
+def _format_guideline_rec_body(body: str, show_evidence: bool) -> tuple[str, str]:
     """Return (strength_dot, html_body) for a recommendation body: derive the dot,
     strip the redundant Strength text, optionally hide the Level of Evidence, and
     colorize whatever remains."""
@@ -516,12 +515,12 @@ def _format_guideline_rec_body(body: str, show_evidence: bool) -> Tuple[str, str
     return dot, _highlight_guideline_strength_evidence(stripped)
 
 
-def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool, show_evidence: bool) -> None:
+def _render_guideline_rec_lines(lines: list[str], gid: str, edit_mode: bool, show_evidence: bool) -> None:
     """Render a section's recommendations, ordered by strength dot (strongest first),
     with numbering restarted at 1. Delete links keep the ORIGINAL stored number so
     deletion still targets the right recommendation."""
-    rec_entries: List[Tuple[int, str]] = []
-    preamble: List[str] = []
+    rec_entries: list[tuple[int, str]] = []
+    preamble: list[str] = []
     for ln in lines:
         m = _REC_LINE_RE.match(ln)
         if m:
@@ -538,7 +537,7 @@ def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool, sho
     # Stable sort by strength tier (preserves original order within a tier).
     rec_entries.sort(key=lambda e: _dot_rank(_guideline_strength_dot(_REC_LINE_RE.match(e[1]).group(2))))
 
-    out: List[str] = []
+    out: list[str] = []
     for k, (num, ln) in enumerate(rec_entries, start=1):
         icon = (_guideline_delete_icon(gid, num) + " ") if edit_mode else ""
         dot, body = _format_guideline_rec_body(_REC_LINE_RE.match(ln).group(2), show_evidence)
@@ -551,7 +550,7 @@ def _render_guideline_rec_lines(lines: List[str], gid: str, edit_mode: bool, sho
 
 # Sections whose recommendations are grouped into per-entity subsections, and the
 # order in which they are pinned to the top of the display (when present).
-GUIDELINE_TOP_SECTIONS: List[str] = [
+GUIDELINE_TOP_SECTIONS: list[str] = [
     "Labs",
     "Imaging",
     "Diagnostic procedures",
@@ -563,13 +562,13 @@ _GUIDELINE_TOP_ORDER = {s.lower(): i for i, s in enumerate(GUIDELINE_TOP_SECTION
 
 
 def _render_guideline_grouped(
-    lines: List[str], gid: str, edit_mode: bool, rec_labels: Dict[int, str], show_evidence: bool
+    lines: list[str], gid: str, edit_mode: bool, rec_labels: dict[int, str], show_evidence: bool
 ) -> None:
     """Render a grouped section (Medicines / Labs / Imaging / procedures) into bold
     per-entity subsections. Numbering restarts at 1 for the section and runs across
     the subsections in display order."""
-    rec_entries: List[Tuple[int, str]] = []
-    preamble: List[str] = []
+    rec_entries: list[tuple[int, str]] = []
+    preamble: list[str] = []
     for ln in lines:
         m = _REC_LINE_RE.match(ln)
         if m:
@@ -584,8 +583,8 @@ def _render_guideline_grouped(
         )
 
     OTHER = "Other"
-    order: List[str] = []
-    groups: Dict[str, List[Tuple[int, str]]] = {}
+    order: list[str] = []
+    groups: dict[str, list[tuple[int, str]]] = {}
     for num, ln in rec_entries:
         lab = (rec_labels.get(num) or "").strip() or OTHER
         if lab not in groups:
@@ -605,7 +604,7 @@ def _render_guideline_grouped(
             groups[lab],
             key=lambda e: _dot_rank(_guideline_strength_dot(_REC_LINE_RE.match(e[1]).group(2))),
         )
-        out: List[str] = []
+        out: list[str] = []
         for num, ln in group:
             k += 1
             dot, body = _format_guideline_rec_body(_REC_LINE_RE.match(ln).group(2), show_evidence)
@@ -617,8 +616,8 @@ def _render_guideline_grouped(
 
 
 def _order_guideline_sections(
-    sections: List[Tuple[str, List[str]]]
-) -> List[Tuple[str, List[str]]]:
+    sections: list[tuple[str, list[str]]]
+) -> list[tuple[str, list[str]]]:
     """Pin the grouped sections to the top in GUIDELINE_TOP_SECTIONS order (when
     present); keep everything else in its original relative order afterward. Any
     leading untitled preamble stays first."""
@@ -632,7 +631,7 @@ def _order_guideline_sections(
     return preamble + pinned + rest
 
 
-def _render_guideline_acronym_legend(acronyms: List[Tuple[str, str, bool]]) -> None:
+def _render_guideline_acronym_legend(acronyms: list[tuple[str, str, bool]]) -> None:
     """Render the abbreviations legend as a collapsed expander at the top."""
     rows = [a for a in (acronyms or []) if a and a[0] and a[1]]
     if not rows:
@@ -664,8 +663,8 @@ def render_guideline_display(
     gid: str,
     *,
     edit_mode: bool = False,
-    rec_labels: Optional[Dict[int, str]] = None,
-    acronyms: Optional[List[Tuple[str, str, bool]]] = None,
+    rec_labels: dict[int, str] | None = None,
+    acronyms: list[tuple[str, str, bool]] | None = None,
     show_evidence: bool = False,
     default_expanded: bool = False,
 ) -> None:

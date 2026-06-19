@@ -1,5 +1,4 @@
 import html
-from typing import Dict, List
 
 import requests
 import streamlit as st
@@ -28,12 +27,12 @@ from pages_shared import _clean_pmid, _render_plain_text
 _RELATED_TRAY_KEY = "pmid_related_tray"
 
 
-def _get_related_tray() -> List[Dict[str, str]]:
+def _get_related_tray() -> list[dict[str, str]]:
     raw = st.session_state.get(_RELATED_TRAY_KEY)
     if not isinstance(raw, list):
         raw = []
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     seen = set()
     for it in raw:
         if not isinstance(it, dict):

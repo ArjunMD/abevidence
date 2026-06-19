@@ -1,6 +1,5 @@
 import calendar
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
@@ -161,10 +160,10 @@ def _run_search_page(
     start_date: str,
     end_date: str,
     journal_term: str,
-    publication_type_terms: List[str],
+    publication_type_terms: list[str],
     retmax: int,
     retstart: int,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     page = search_pubmed_by_date_filters_page(
         start_date=start_date,
         end_date=end_date,
@@ -181,7 +180,7 @@ def _run_search_page(
     return {"rows": rows, "total_count": max(0, total_count)}
 
 
-def _parse_year_month_parts(year_month: str) -> Dict[str, str]:
+def _parse_year_month_parts(year_month: str) -> dict[str, str]:
     ym = (year_month or "").strip()
     try:
         parts = ym.split("-")
@@ -195,7 +194,7 @@ def _parse_year_month_parts(year_month: str) -> Dict[str, str]:
     return {"year": ym or "—", "month": "—"}
 
 
-def _parse_year_month_key(year_month: str) -> Optional[Tuple[int, int]]:
+def _parse_year_month_key(year_month: str) -> tuple[int, int] | None:
     ym = (year_month or "").strip()
     try:
         parts = ym.split("-")
@@ -234,7 +233,7 @@ def _is_future_year_month(year_month: str, today) -> bool:
     return bool((int(ym[0]), int(ym[1])) > (int(today.year), int(today.month)))
 
 
-def _latest_clearable_year_month(today) -> Optional[Tuple[int, int]]:
+def _latest_clearable_year_month(today) -> tuple[int, int] | None:
     """
     Return the most recent (year, month) that is clearable under the 30-day rule.
     """
@@ -270,14 +269,14 @@ def _canonical_ledger_study_type(label: str) -> str:
     return ""
 
 
-def _merge_cleared_all_rows(table_rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+def _merge_cleared_all_rows(table_rows: list[dict[str, object]]) -> list[dict[str, object]]:
     """
     Rule priority:
     For the same specialty + journal + month, if Clinical Trial + Meta analysis + Systematic Review
     are all cleared, replace those rows with one cleared row labeled Study type = All.
     """
     required = {"clinical_trial", "meta_analysis", "systematic_review"}
-    grouped: Dict[Tuple[str, str, str], List[Tuple[int, Dict[str, object], str]]] = {}
+    grouped: dict[tuple[str, str, str], list[tuple[int, dict[str, object], str]]] = {}
 
     for idx, row in enumerate(table_rows):
         if (row.get("Status") or "") != "Cleared":
@@ -291,13 +290,13 @@ def _merge_cleared_all_rows(table_rows: List[Dict[str, object]]) -> List[Dict[st
         grouped.setdefault((specialty_key, journal_key, ym_key), []).append((idx, row, canonical))
 
     to_remove: set[int] = set()
-    merged_rows: List[Dict[str, object]] = []
+    merged_rows: list[dict[str, object]] = []
     for _, members in grouped.items():
         present = {canonical for _, _, canonical in members}
         if not required.issubset(present):
             continue
 
-        picked: Dict[str, Tuple[int, Dict[str, object]]] = {}
+        picked: dict[str, tuple[int, dict[str, object]]] = {}
         for idx, row, canonical in members:
             picked.setdefault(canonical, (idx, row))
 
@@ -327,7 +326,7 @@ def _merge_cleared_all_rows(table_rows: List[Dict[str, object]]) -> List[Dict[st
     if not merged_rows:
         return table_rows
 
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     for idx, row in enumerate(table_rows):
         if idx in to_remove:
             continue
@@ -336,11 +335,11 @@ def _merge_cleared_all_rows(table_rows: List[Dict[str, object]]) -> List[Dict[st
     return out
 
 
-def _month_idx_from_ym(ym: Tuple[int, int]) -> int:
+def _month_idx_from_ym(ym: tuple[int, int]) -> int:
     return int(ym[0]) * 12 + int(ym[1])
 
 
-def _ym_from_month_idx(month_idx: int) -> Tuple[int, int]:
+def _ym_from_month_idx(month_idx: int) -> tuple[int, int]:
     yy = int(month_idx) // 12
     mm = int(month_idx) % 12
     if mm == 0:
@@ -354,11 +353,11 @@ def _month_label_from_month_idx(month_idx: int) -> str:
     return f"{calendar.month_name[int(mm)]} {int(yy)}"
 
 
-def _month_ranges(month_values: set[int]) -> List[Tuple[int, int]]:
+def _month_ranges(month_values: set[int]) -> list[tuple[int, int]]:
     if not month_values:
         return []
     vals = sorted(int(v) for v in month_values)
-    out: List[Tuple[int, int]] = []
+    out: list[tuple[int, int]] = []
     start = vals[0]
     end = vals[0]
     for cur in vals[1:]:
@@ -372,7 +371,7 @@ def _month_ranges(month_values: set[int]) -> List[Tuple[int, int]]:
     return out
 
 
-def _month_range_label(start_month_idx: int, end_month_idx: int, latest_clearable_month_idx: Optional[int]) -> str:
+def _month_range_label(start_month_idx: int, end_month_idx: int, latest_clearable_month_idx: int | None) -> str:
     start_label = _month_label_from_month_idx(start_month_idx)
     if int(start_month_idx) == int(end_month_idx):
         return start_label
@@ -396,7 +395,7 @@ def _configured_journal_keys_for_specialty(specialty_key: str) -> set[str]:
     return set()
 
 
-def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], today) -> List[Dict[str, object]]:
+def _merge_consecutive_cleared_all_rows(table_rows: list[dict[str, object]], today) -> list[dict[str, object]]:
     """
     Consolidate cleared Study type=All rows in two passes:
     1) Merge consecutive months per specialty + journal.
@@ -406,8 +405,8 @@ def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], tod
     Journal-level rows are hidden only when their full month range is already covered by
     the specialty-level "All journals" range.
     """
-    passthrough_rows: List[Dict[str, object]] = []
-    month_rows: List[Dict[str, object]] = []
+    passthrough_rows: list[dict[str, object]] = []
+    month_rows: list[dict[str, object]] = []
 
     for row in table_rows:
         if (row.get("Status") or "") != "Cleared":
@@ -430,10 +429,10 @@ def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], tod
         _month_idx_from_ym(latest_clearable) if latest_clearable is not None else None
     )
 
-    spec_label_by_key: Dict[str, str] = {}
-    journal_label_by_key: Dict[Tuple[str, str], str] = {}
-    journal_months: Dict[Tuple[str, str], set[int]] = {}
-    journal_month_totals: Dict[Tuple[str, str, int], Tuple[int, int]] = {}
+    spec_label_by_key: dict[str, str] = {}
+    journal_label_by_key: dict[tuple[str, str], str] = {}
+    journal_months: dict[tuple[str, str], set[int]] = {}
+    journal_month_totals: dict[tuple[str, str, int], tuple[int, int]] = {}
 
     for row in month_rows:
         ym = _parse_year_month_key(str(row.get("_ym_raw") or ""))
@@ -457,8 +456,8 @@ def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], tod
         )
 
     specialty_keys = {spec for spec, _ in journal_months}
-    specialty_all_months: Dict[str, set[int]] = {}
-    specialty_required_journals: Dict[str, set[str]] = {}
+    specialty_all_months: dict[str, set[int]] = {}
+    specialty_required_journals: dict[str, set[str]] = {}
 
     for spec_key in specialty_keys:
         present_journals = {
@@ -474,7 +473,7 @@ def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], tod
             specialty_all_months[spec_key] = set()
             continue
 
-        common: Optional[set[int]] = None
+        common: set[int] | None = None
         for journal_key in required_journals:
             months = set(journal_months.get((spec_key, journal_key), set()))
             if common is None:
@@ -483,7 +482,7 @@ def _merge_consecutive_cleared_all_rows(table_rows: List[Dict[str, object]], tod
                 common = common.intersection(months)
         specialty_all_months[spec_key] = set(common or set())
 
-    merged_rows: List[Dict[str, object]] = []
+    merged_rows: list[dict[str, object]] = []
 
     for (spec_key, journal_key), month_set in journal_months.items():
         month_ranges = _month_ranges(month_set)
@@ -575,7 +574,7 @@ def _render_search_ledger() -> None:
         st.caption("No ledger entries yet.")
         return
 
-    table_rows: List[Dict[str, object]] = []
+    table_rows: list[dict[str, object]] = []
     for r in rows:
         ym_raw = (r.get("year_month") or "").strip()
         if _is_future_year_month(ym_raw, today=today):

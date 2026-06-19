@@ -1,6 +1,5 @@
 import html
 from datetime import datetime, timedelta
-from typing import Dict, List
 
 import streamlit as st
 
@@ -23,7 +22,7 @@ from pages_shared import (
 )
 
 
-def _added_week_start_key(item: Dict[str, str]) -> str:
+def _added_week_start_key(item: dict[str, str]) -> str:
     """ISO date (YYYY-MM-DD) of the Monday of the week an item was added, or ''
     if the added date is missing/invalid. The date-added view buckets by week
     (not by exact day) so it surfaces "what's new" without exposing precise
@@ -69,7 +68,7 @@ def _month_label(m: int) -> str:
     return _MONTH_NAMES[m] if 1 <= int(m) <= 12 else "Guidelines"
 
 
-def _month_sort_value(item: Dict[str, str]) -> int:
+def _month_sort_value(item: dict[str, str]) -> int:
     if (item.get("type") or "").strip().lower() == "guideline":
         return 0
     raw = (item.get("pub_month") or "").strip()
@@ -80,7 +79,7 @@ def _month_sort_value(item: Dict[str, str]) -> int:
     return 0
 
 
-def _browse_item_sort_key(item: Dict[str, str]) -> tuple:
+def _browse_item_sort_key(item: dict[str, str]) -> tuple:
     item_type = (item.get("type") or "").lower()
     title = (item.get("title") or "").lower()
     pmid = (item.get("pmid") or "").lower()
@@ -98,7 +97,7 @@ def _format_pub_year_month(year: str, pub_month: str) -> str:
     return y
 
 
-def _quick_delete_control(it: Dict[str, str], key_ns: str) -> None:
+def _quick_delete_control(it: dict[str, str], key_ns: str) -> None:
     """Backend-only popover to delete an abstract or guideline straight from the
     browse list. Two clicks (open popover → Confirm) to avoid accidental loss."""
     is_guideline = (it.get("type") or "").strip() == "guideline"
@@ -133,7 +132,7 @@ def _quick_delete_control(it: Dict[str, str], key_ns: str) -> None:
 
 
 def _render_browse_item(
-    it: Dict[str, str],
+    it: dict[str, str],
     show_pub_date: bool = False,
     allow_delete: bool = False,
     key_ns: str = "",
@@ -150,7 +149,7 @@ def _render_browse_item(
 
 
 def _render_browse_item_body(
-    it: Dict[str, str], show_pub_date: bool = False, allow_manage: bool = False
+    it: dict[str, str], show_pub_date: bool = False, allow_manage: bool = False
 ) -> None:
     if (it.get("type") or "") == "guideline":
         title = (it.get("title") or "").strip() or "(no name)"
@@ -264,7 +263,7 @@ def _render_browse_body() -> None:
     # so the latest values are captured even when the list is empty / has no matches.
     _shadow_browse_controls()
 
-    items: List[Dict[str, str]] = []
+    items: list[dict[str, str]] = []
     if guidelines_only:
         items.extend(list_browse_guideline_items(limit=BROWSE_MAX_ROWS))
     else:
@@ -324,7 +323,7 @@ def _render_browse_body() -> None:
         # first, each week in an expander like the by-year / by-specialty views.
         # Week-level granularity keeps the "what's new" signal without exposing
         # exact per-day activity.
-        by_week: Dict[str, List[Dict[str, str]]] = {}
+        by_week: dict[str, list[dict[str, str]]] = {}
         for it in items:
             by_week.setdefault(_added_week_start_key(it), []).append(it)
 
@@ -343,7 +342,7 @@ def _render_browse_body() -> None:
         return
 
     if by_specialty:
-        grouped: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
+        grouped: dict[str, dict[str, list[dict[str, str]]]] = {}
         for it in items:
             year = (it.get("year") or "").strip() or "Unknown"
             for spec in _split_specialties(it.get("specialty") or ""):
@@ -365,7 +364,7 @@ def _render_browse_body() -> None:
 
                     st.markdown("")
     else:
-        by_year: Dict[str, List[Dict[str, str]]] = {}
+        by_year: dict[str, list[dict[str, str]]] = {}
         for it in items:
             year = (it.get("year") or "").strip() or "Unknown"
             by_year.setdefault(year, []).append(it)
@@ -383,7 +382,7 @@ def _render_browse_body() -> None:
                 # Subdivide each year by publication month (newest first;
                 # guidelines and undated papers fall into "Guidelines" at the
                 # bottom).
-                by_month: Dict[int, List[Dict[str, str]]] = {}
+                by_month: dict[int, list[dict[str, str]]] = {}
                 for it in year_items:
                     by_month.setdefault(_month_sort_value(it), []).append(it)
 

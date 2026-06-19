@@ -5,7 +5,7 @@ import time
 import random
 import json
 import io
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import requests
 import streamlit as st
@@ -104,11 +104,11 @@ def _heading_level(line: str) -> int:
 def _heading_text(line: str) -> str:
     return (line or "").lstrip("#").strip()
 
-def _path_from_stack(stack: List[str]) -> str:
+def _path_from_stack(stack: list[str]) -> str:
     parts = [p.strip() for p in (stack or []) if p and p.strip()]
     return " > ".join(parts).strip()
 
-def _split_markdown_into_sections(md: str) -> List[Dict[str, str]]:
+def _split_markdown_into_sections(md: str) -> list[dict[str, str]]:
     """
     Turn markdown into sections keyed by a full heading-path.
     A new section begins at each heading and continues until the next heading.
@@ -116,12 +116,12 @@ def _split_markdown_into_sections(md: str) -> List[Dict[str, str]]:
     text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
 
-    sections: List[Dict[str, str]] = []
-    heading_stack: List[str] = []
+    sections: list[dict[str, str]] = []
+    heading_stack: list[str] = []
 
     current_path = ""
     current_level = 0
-    buf: List[str] = []
+    buf: list[str] = []
 
     def flush():
         nonlocal buf, current_path, current_level
@@ -168,7 +168,7 @@ def _split_markdown_into_sections(md: str) -> List[Dict[str, str]]:
             sections = [{"path": "(no heading)", "level": "0", "content": whole}]
 
     # assign stable sec_idx in traversal order
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for i, s in enumerate(sections, start=1):
         out.append(
             {
@@ -193,7 +193,7 @@ def _section_preview(section_text: str) -> str:
     tail = s[-max(0, SECTION_PREVIEW_TAIL_CHARS) :] if len(s) > SECTION_PREVIEW_TAIL_CHARS else ""
 
     # Hint lines: any line matching recommendation or grading regex
-    hint_lines: List[str] = []
+    hint_lines: list[str] = []
     for ln in s.splitlines():
         t = (ln or "").strip()
         if not t:
@@ -211,7 +211,7 @@ def _section_preview(section_text: str) -> str:
         parts.append("TAIL:\n" + tail)
     return "\n\n".join(parts).strip()
 
-def _split_large_section(text: str, max_chars: int, overlap: int) -> List[str]:
+def _split_large_section(text: str, max_chars: int, overlap: int) -> list[str]:
     """
     Split oversized sections into overlapping parts (best-effort, keeps context).
     """
@@ -221,7 +221,7 @@ def _split_large_section(text: str, max_chars: int, overlap: int) -> List[str]:
     if len(s) <= max_chars:
         return [s]
 
-    out: List[str] = []
+    out: list[str] = []
     start = 0
     while start < len(s):
         end = min(len(s), start + max_chars)
@@ -235,7 +235,7 @@ def _split_large_section(text: str, max_chars: int, overlap: int) -> List[str]:
 
 # ---------------- Core helpers ----------------
 
-def _itertext(el: Optional[ET.Element]) -> str:
+def _itertext(el: ET.Element | None) -> str:
     return "".join(el.itertext()).strip() if el is not None else ""
 
 
@@ -263,7 +263,7 @@ def _ncbi_email() -> str:
     return os.environ.get("NCBI_EMAIL", NCBI_EMAIL).strip()
 
 
-def _ncbi_params_base() -> Dict[str, str]:
+def _ncbi_params_base() -> dict[str, str]:
     params = {"tool": NCBI_TOOL, "email": _ncbi_email()}
     k = _ncbi_api_key()
     if k:
@@ -284,8 +284,8 @@ def _requests_session() -> requests.Session:
 
 def _get_with_retries(
     url: str,
-    params: Optional[Dict[str, str]] = None,
-    headers: Optional[Dict[str, str]] = None,
+    params: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
     timeout: int = 15,
     max_attempts: int = 3,
 ) -> requests.Response:
@@ -295,7 +295,7 @@ def _get_with_retries(
     rather than hang the UI on a persistent error. Worst case adds ~1-2s, not
     the ~30s a long exponential backoff would. Retry-After is honored but capped."""
     sess = _requests_session()
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
 
     attempts = max(1, int(max_attempts))
     for attempt in range(attempts):
@@ -337,7 +337,7 @@ def fetch_pubmed_xml(pmid: str) -> str:
 def parse_abstract(xml_text: str) -> str:
     root = ET.fromstring(xml_text)
     abstract_elems = root.findall(".//Abstract/AbstractText")
-    parts: List[str] = []
+    parts: list[str] = []
     for el in abstract_elems:
         label = el.attrib.get("Label") or el.attrib.get("NlmCategory") or ""
         txt = _itertext(el)
@@ -460,10 +460,10 @@ def fetch_neighbors_elink_xml(pmid: str, retmax: int = 50) -> str:
     return r.text
 
 
-def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> List[str]:
+def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> list[str]:
     root = ET.fromstring(elink_xml)
 
-    def _parse_score_any(s: str) -> Optional[float]:
+    def _parse_score_any(s: str) -> float | None:
         m = re.search(r"[-+]?\d*\.?\d+", (s or "").strip())
         if not m:
             return None
@@ -472,8 +472,8 @@ def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> List[str]:
         except Exception:
             return None
 
-    best: List[Tuple[str, Optional[float]]] = []
-    best_rank: Tuple[int, int, int] = (-1, -1, -1)
+    best: list[tuple[str, float | None]] = []
+    best_rank: tuple[int, int, int] = (-1, -1, -1)
 
     for lsdb in root.findall(".//LinkSetDb"):
         linkname = (_itertext(lsdb.find("LinkName")) or "").strip().lower()
@@ -481,7 +481,7 @@ def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> List[str]:
         if not links:
             continue
 
-        extracted: List[Tuple[str, Optional[float]]] = []
+        extracted: list[tuple[str, float | None]] = []
         has_scores = 0
 
         for link in links:
@@ -489,7 +489,7 @@ def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> List[str]:
             if not pid:
                 continue
 
-            score: Optional[float] = None
+            score: float | None = None
             for child in list(link):
                 if (child.tag or "").strip().lower() in ("score", "linkscore"):
                     score = _parse_score_any(_itertext(child))
@@ -515,7 +515,7 @@ def parse_neighbor_pmids(elink_xml: str, exclude_pmid: str = "") -> List[str]:
     if any(s is not None for _, s in best):
         best.sort(key=lambda t: (t[1] is None, -(t[1] or 0.0), t[0]))
 
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     ex = (exclude_pmid or "").strip()
     for pid, _ in best:
@@ -536,9 +536,9 @@ def fetch_pubmed_esummary_xml(pmids_csv: str) -> str:
     return r.text
 
 
-def parse_esummary_titles(esummary_xml: str) -> Dict[str, str]:
+def parse_esummary_titles(esummary_xml: str) -> dict[str, str]:
     root = ET.fromstring(esummary_xml)
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for docsum in root.findall(".//DocSum"):
         pid = _itertext(docsum.find("Id"))
         if not pid:
@@ -552,7 +552,7 @@ def parse_esummary_titles(esummary_xml: str) -> Dict[str, str]:
     return out
 
 
-def get_top_neighbors(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
+def get_top_neighbors(pmid: str, top_n: int = 5) -> list[dict[str, str]]:
     elink_xml = fetch_neighbors_elink_xml(pmid, retmax=max(50, int(top_n) * 10))
     pmids = parse_neighbor_pmids(elink_xml, exclude_pmid=pmid)[: int(top_n)]
     if not pmids:
@@ -569,7 +569,7 @@ def search_pubmed_pmids_page(
     maxdate: str,
     retmax: int = 200,
     retstart: int = 0,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     q = (term or "").strip()
     if not q:
         return {"pmids": [], "total_count": 0}
@@ -602,7 +602,7 @@ def search_pubmed_pmids_page(
     except Exception:
         total_count = 0
 
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for pid in idlist:
         p = str(pid or "").strip()
@@ -613,8 +613,8 @@ def search_pubmed_pmids_page(
     return {"pmids": out, "total_count": int(total_count)}
 
 
-def _fetch_pubmed_titles_for_pmids(pmids: List[str]) -> Dict[str, str]:
-    ids: List[str] = []
+def _fetch_pubmed_titles_for_pmids(pmids: list[str]) -> dict[str, str]:
+    ids: list[str] = []
     seen = set()
     for raw in (pmids or []):
         p = str(raw or "").strip()
@@ -626,7 +626,7 @@ def _fetch_pubmed_titles_for_pmids(pmids: List[str]) -> Dict[str, str]:
     if not ids:
         return {}
 
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     chunk_size = 200
     for i in range(0, len(ids), chunk_size):
         chunk = ids[i : i + chunk_size]
@@ -641,10 +641,10 @@ def search_pubmed_by_date_filters_page(
     start_date: str,
     end_date: str,
     journal_term: str,
-    publication_type_terms: List[str],
+    publication_type_terms: list[str],
     retmax: int = 200,
     retstart: int = 0,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """
     Return one page of PubMed results in a publication-date range using journal +
     publication-type terms. Date format expected: YYYY/MM/DD.
@@ -652,7 +652,7 @@ def search_pubmed_by_date_filters_page(
     journal_q = (journal_term or "").strip()
     pub_type_terms = [(t or "").strip() for t in (publication_type_terms or []) if (t or "").strip()]
 
-    term_bits: List[str] = []
+    term_bits: list[str] = []
     if journal_q:
         term_bits.append(journal_q)
     if pub_type_terms:
@@ -773,7 +773,7 @@ def resolve_pmid_for_paper(doi: str = "", pmcid: str = "", title: str = "") -> s
 
 
 @st.cache_data(show_spinner=False, ttl=60 * 60)
-def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
+def get_s2_similar_papers(pmid: str, top_n: int = 5) -> list[dict[str, str]]:
     """Return top Semantic Scholar recommendations for a PubMed PMID."""
     pmid = (pmid or "").strip()
     if not pmid:
@@ -801,7 +801,7 @@ def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
     payload = r.json() or {}
     recs = payload.get("recommendedPapers") or []
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for p in recs[: int(top_n)]:
         ext = p.get("externalIds") or {}
         pmid_val = str(ext.get("PubMed") or "").strip()
@@ -829,13 +829,13 @@ def get_s2_similar_papers(pmid: str, top_n: int = 5) -> List[Dict[str, str]]:
 
 def _post_with_retries(
     url: str,
-    headers: Dict[str, str],
-    json: Dict,
+    headers: dict[str, str],
+    json: dict,
     timeout: int = 30,
     max_attempts: int = 5,
 ) -> requests.Response:
     sess = _requests_session()
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
 
     attempts = max(1, int(max_attempts))
     for attempt in range(attempts):
@@ -864,11 +864,11 @@ def _post_with_retries(
     raise RuntimeError("POST failed after retries")
 
 
-def _extract_output_text(resp_json: Dict) -> str:
+def _extract_output_text(resp_json: dict) -> str:
     if isinstance(resp_json.get("output_text"), str) and resp_json["output_text"].strip():
         return resp_json["output_text"].strip()
 
-    parts: List[str] = []
+    parts: list[str] = []
     for item in (resp_json.get("output") or []):
         if not isinstance(item, dict):
             continue
@@ -985,13 +985,13 @@ def _attr_value_present_in_reco_text(reco_text: str, attr_value: str) -> bool:
     return len(toks) >= 2 and all(re.search(rf"\b{re.escape(t)}\b", txt) for t in toks)
 
 
-def _chunk_recs_for_classification(items: List[Dict], max_chars: int = 14000, max_items: int = 45) -> List[List[Dict]]:
+def _chunk_recs_for_classification(items: list[dict], max_chars: int = 14000, max_items: int = 45) -> list[list[dict]]:
     """
     Chunk items so each OpenAI call stays bounded.
     We classify using truncated rec text; full text is rendered later (guarantees completeness).
     """
-    chunks: List[List[Dict]] = []
-    cur: List[Dict] = []
+    chunks: list[list[dict]] = []
+    cur: list[dict] = []
     cur_chars = 0
 
     for it in items:
@@ -1010,7 +1010,7 @@ def _chunk_recs_for_classification(items: List[Dict], max_chars: int = 14000, ma
     return chunks
 
 
-def _parse_json_from_model(raw: str) -> Dict:
+def _parse_json_from_model(raw: str) -> dict:
     raw = (raw or "").strip()
     if not raw:
         return {}
@@ -1041,7 +1041,7 @@ _GUIDELINE_REC_LINE_RE = re.compile(r"^\s*(?:-\s+)?\*\*(?:Rec\s+)?(\d+)\.\*\*\s*
 # Sections whose recommendations are grouped into subsections by a primary entity
 # (drug / test / modality / procedure). Keyed by the exact section title; each entry
 # describes the entity and gives in-context examples for the labeling prompt.
-GUIDELINE_GROUPED_SECTIONS: Dict[str, Dict[str, str]] = {
+GUIDELINE_GROUPED_SECTIONS: dict[str, dict[str, str]] = {
     "Medicines": {
         "entity": "primary medicine",
         "noun": "medicine or drug-class name",
@@ -1095,13 +1095,13 @@ GUIDELINE_GROUPED_SECTIONS: Dict[str, Dict[str, str]] = {
 }
 
 
-def section_recs_from_display(md: str, section_title: str) -> List[Dict]:
+def section_recs_from_display(md: str, section_title: str) -> list[dict]:
     """Parse [{'num': int, 'text': str}] for the recommendation lines under the
     given section title in a guideline's display markdown."""
     want = (section_title or "").strip().lower()
     text = (md or "").replace("\r\n", "\n").replace("\r", "\n")
     in_sec = False
-    recs: List[Dict] = []
+    recs: list[dict] = []
     for ln in text.split("\n"):
         if ln.startswith("### "):
             in_sec = ln[4:].strip().lower() == want
@@ -1117,15 +1117,15 @@ def section_recs_from_display(md: str, section_title: str) -> List[Dict]:
 
 
 # Back-compat alias (Medicines was the first grouped section).
-def label_and_store_guideline_subsections(guideline_id: str, display_md: str) -> Dict[str, int]:
+def label_and_store_guideline_subsections(guideline_id: str, display_md: str) -> dict[str, int]:
     """Label every grouped section (Medicines, Labs, Imaging, Diagnostic procedures,
     Therapeutic procedures) of a guideline's display and persist all labels at once.
     Returns {section: count_labeled}. Replaces any existing labels for the guideline."""
     gid = (guideline_id or "").strip()
     if not gid:
         return {}
-    rows: List[Tuple[int, str, str]] = []
-    counts: Dict[str, int] = {}
+    rows: list[tuple[int, str, str]] = []
+    counts: dict[str, int] = {}
     for section in GUIDELINE_GROUPED_SECTIONS:
         recs = section_recs_from_display(display_md, section)
         if not recs:
@@ -1138,7 +1138,7 @@ def label_and_store_guideline_subsections(guideline_id: str, display_md: str) ->
     return counts
 
 
-def label_guideline_section(section_recs: List[Dict], section: str) -> Dict[int, str]:
+def label_guideline_section(section_recs: list[dict], section: str) -> dict[int, str]:
     """Label each recommendation in a grouped section with a short subsection name
     (a drug / test / modality / procedure), so the display can group them.
 
@@ -1164,7 +1164,7 @@ def label_guideline_section(section_recs: List[Dict], section: str) -> Dict[int,
     if not key:
         raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
 
-    out: Dict[int, str] = {}
+    out: dict[int, str] = {}
     chunk_size = 40
     for start in range(0, len(items), chunk_size):
         chunk = items[start : start + chunk_size]
@@ -1234,12 +1234,12 @@ _ACRONYM_ROMAN_RE = re.compile(r"^[IVXivx]+[a-z]?$")
 _ACRONYM_PREFIX_RE = re.compile(r"^(?:non|pre|post|peri|anti|pro)-", re.IGNORECASE)
 
 
-def detect_guideline_acronyms(display_md: str) -> List[str]:
+def detect_guideline_acronyms(display_md: str) -> list[str]:
     """Detect candidate acronyms used in a guideline's recommendation text, in order
     of first appearance. Heuristic only (no LLM) — the expansion step blanks anything
     that isn't a real acronym."""
     text = (display_md or "").replace("\r\n", "\n").replace("\r", "\n")
-    bodies: List[str] = []
+    bodies: list[str] = []
     for ln in text.split("\n"):
         m = _GUIDELINE_REC_LINE_RE.match(ln)
         if m:
@@ -1248,7 +1248,7 @@ def detect_guideline_acronyms(display_md: str) -> List[str]:
     body = re.sub(r"<br\s*/?>", " ", body)
 
     seen: set = set()
-    out: List[str] = []
+    out: list[str] = []
     for tok in _ACRONYM_CAND_RE.findall(body):
         if tok in _ACRONYM_GRADE_TOKENS or tok.isdigit():
             continue
@@ -1264,8 +1264,8 @@ def detect_guideline_acronyms(display_md: str) -> List[str]:
 
 
 def expand_guideline_acronyms(
-    acronyms: List[str], guideline_name: str = "", specialty: str = ""
-) -> List[Tuple[str, str, bool]]:
+    acronyms: list[str], guideline_name: str = "", specialty: str = ""
+) -> list[tuple[str, str, bool]]:
     """Expand acronyms using medical knowledge, grounded in the guideline's topic.
     Returns [(acronym, expansion, uncertain)] for the ones confidently/plausibly
     expanded; non-acronyms are dropped (empty expansion). Best-effort: lower-confidence
@@ -1285,7 +1285,7 @@ def expand_guideline_acronyms(
         ctx_bits.append(f"specialty: {specialty.strip()}")
     ctx = ("Context — " + "; ".join(ctx_bits) + ".\n") if ctx_bits else ""
 
-    out: List[Tuple[str, str, bool]] = []
+    out: list[tuple[str, str, bool]] = []
     chunk_size = 60
     for start in range(0, len(acrs), chunk_size):
         chunk = acrs[start : start + chunk_size]
@@ -1358,11 +1358,11 @@ def label_and_store_guideline_acronyms(guideline_id: str, display_md: str) -> in
 
 
 def _cap_prior_repeat_context(
-    items: List[Dict],
+    items: list[dict],
     max_chars: int = 26000,
     max_items: int = 170,
     head_keep: int = 45,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Keep a bounded prior context for repeat checks.
     Mixes early "anchor" items with recent items to preserve global order context.
@@ -1370,11 +1370,11 @@ def _cap_prior_repeat_context(
     if not items:
         return []
 
-    selected: List[Dict] = []
+    selected: list[dict] = []
     seen_i = set()
     total_chars = 0
 
-    def _try_add(it: Dict) -> bool:
+    def _try_add(it: dict) -> bool:
         nonlocal total_chars
         try:
             ii = int(it.get("i"))
@@ -1412,10 +1412,10 @@ def _cap_prior_repeat_context(
 
 
 def _openai_global_repeat_post_pass(
-    recs: List[Dict[str, str]],
-    i_to_section: Dict[int, str],
+    recs: list[dict[str, str]],
+    i_to_section: dict[int, str],
     progress_cb=None,
-) -> Dict[int, int]:
+) -> dict[int, int]:
     """
     Global post-pass for repeats:
     - works in original recommendation order (lower i appears earlier in source)
@@ -1427,7 +1427,7 @@ def _openai_global_repeat_post_pass(
     if not key:
         return {}
 
-    check_items: List[Dict] = []
+    check_items: list[dict] = []
     ii = 0
     for r in recs or []:
         txt = (r.get("recommendation_text") or "").strip()
@@ -1471,8 +1471,8 @@ def _openai_global_repeat_post_pass(
 
     batches = _chunk_recs_for_classification(check_items, max_chars=10000, max_items=28)
     total_batches = len(batches)
-    repeat_map: Dict[int, int] = {}
-    canonical_prior: List[Dict] = []
+    repeat_map: dict[int, int] = {}
+    canonical_prior: list[dict] = []
 
     _progress(
         0,
@@ -1526,7 +1526,7 @@ def _openai_global_repeat_post_pass(
             "store": False,
         }
 
-        obj: Dict = {}
+        obj: dict = {}
         try:
             r = _post_with_retries(
                 OPENAI_RESPONSES_URL,
@@ -1558,7 +1558,7 @@ def _openai_global_repeat_post_pass(
                 continue
 
         valid_context_ids = prior_i_set | batch_i_set
-        proposed: Dict[int, int] = {}
+        proposed: dict[int, int] = {}
 
         for oi in out_items:
             if not isinstance(oi, dict):
@@ -1598,8 +1598,8 @@ def _openai_global_repeat_post_pass(
 
 
 def gpt_generate_guideline_recommendations_display(
-    recs: List[Dict[str, str]],
-    meta: Optional[Dict[str, str]] = None,
+    recs: list[dict[str, str]],
+    meta: dict[str, str] | None = None,
     progress_cb=None,
 ) -> str:
     """
@@ -1616,7 +1616,7 @@ def gpt_generate_guideline_recommendations_display(
     gname = (meta.get("guideline_name") or meta.get("filename") or "Guideline").strip()
 
     # Build items in stable display order
-    items: List[Dict] = []
+    items: list[dict] = []
     for i, r in enumerate(recs or [], start=1):
         txt = (r.get("recommendation_text") or "").strip()
         if not txt:
@@ -1634,7 +1634,7 @@ def gpt_generate_guideline_recommendations_display(
         return f"# {gname}\n\n_No recommendations found._"
 
     # Classify in chunks
-    i_to_section: Dict[int, str] = {}
+    i_to_section: dict[int, str] = {}
 
     instructions = (
         "You are categorizing clinical guideline recommendations into clinician-friendly sections.\n"
@@ -1716,7 +1716,7 @@ def gpt_generate_guideline_recommendations_display(
             detail=f"Finished batch {ci}/{total_chunks}",
         )
 
-    rec_has_grade_signal: Dict[int, bool] = {}
+    rec_has_grade_signal: dict[int, bool] = {}
     ii_grade = 0
     for r in recs or []:
         txt = (r.get("recommendation_text") or "").strip()
@@ -1727,13 +1727,13 @@ def gpt_generate_guideline_recommendations_display(
         evidence = _sanitize_guideline_attr_value(r.get("evidence_raw") or "")
         rec_has_grade_signal[ii_grade] = bool(strength or evidence)
 
-    repeat_overrides: Dict[int, int] = {}
+    repeat_overrides: dict[int, int] = {}
     try:
         repeat_overrides = _openai_global_repeat_post_pass(recs, i_to_section, progress_cb=_progress)
     except Exception:
         repeat_overrides = {}
 
-    drop_set: Set[int] = set()
+    drop_set: set[int] = set()
 
     if repeat_overrides:
         pre_repeat_sections = {
@@ -1742,7 +1742,7 @@ def gpt_generate_guideline_recommendations_display(
         }
 
         # Build text length map for completeness comparison
-        rec_text_len: Dict[int, int] = {}
+        rec_text_len: dict[int, int] = {}
         ii_len = 0
         for r in recs or []:
             txt_r = (r.get("recommendation_text") or "").strip()
@@ -1752,7 +1752,7 @@ def gpt_generate_guideline_recommendations_display(
             rec_text_len[ii_len] = len(txt_r)
 
         # Resolve chains: if A→B and B→C, resolve both to C's ultimate canonical
-        resolved: Dict[int, int] = {}
+        resolved: dict[int, int] = {}
         for later_i in repeat_overrides:
             canon = int(repeat_overrides[later_i])
             seen = {int(later_i)}
@@ -1762,11 +1762,11 @@ def gpt_generate_guideline_recommendations_display(
             resolved[int(later_i)] = canon
 
         # Group all duplicates by their ultimate canonical item
-        canon_groups: Dict[int, List[int]] = {}
+        canon_groups: dict[int, list[int]] = {}
         for later_i, canon_i in resolved.items():
             canon_groups.setdefault(canon_i, []).append(later_i)
 
-        keep_later_real: Dict[int, int] = {}
+        keep_later_real: dict[int, int] = {}
 
         for canon_i, later_list in canon_groups.items():
             all_items = [canon_i, *sorted(later_list)]
@@ -1820,7 +1820,7 @@ def gpt_generate_guideline_recommendations_display(
     )
 
     # Render recommendations (full text + strength/evidence/source), skipping dropped repeats
-    enriched: List[Dict] = []
+    enriched: list[dict] = []
     ii = 0
     for r in recs or []:
         txt = (r.get("recommendation_text") or "").strip()
@@ -1843,16 +1843,16 @@ def gpt_generate_guideline_recommendations_display(
         )
 
     # Group by section
-    grouped: Dict[str, List[Dict]] = {}
+    grouped: dict[str, list[dict]] = {}
     for e in enriched:
         grouped.setdefault(e["section"], []).append(e)
 
-    def _sec_sort_key(s: str) -> Tuple[int, str]:
+    def _sec_sort_key(s: str) -> tuple[int, str]:
         return (_GUIDELINE_SECTION_ORDER.get(s, 10_000), s.lower())
 
     sections_sorted = sorted(grouped.keys(), key=_sec_sort_key)
 
-    md_lines: List[str] = [""]
+    md_lines: list[str] = [""]
 
     display_num = 0
     for sec in sections_sorted:
@@ -1874,7 +1874,7 @@ def gpt_generate_guideline_recommendations_display(
             if rec_txt:
                 rec_txt = rec_txt[0].upper() + rec_txt[1:]
             rec_txt = rec_txt.strip()
-            extras: List[str] = []
+            extras: list[str] = []
             if e["strength"] and not _attr_value_present_in_reco_text(rec_txt, e["strength"]):
                 extras.append(f"Strength: {e['strength']}")
             if e["evidence"] and not _attr_value_present_in_reco_text(rec_txt, e["evidence"]):
@@ -1886,7 +1886,7 @@ def gpt_generate_guideline_recommendations_display(
     return "\n".join(md_lines).strip()
 
 
-def _parse_nonneg_int(raw: str) -> Optional[int]:
+def _parse_nonneg_int(raw: str) -> int | None:
     s = (raw or "").strip()
     if not s:
         return None
@@ -1909,7 +1909,7 @@ def _parse_tag_list(raw: str) -> str:
         return ""
 
     toks = re.split(r"[,\n;|]+", s)
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for t in toks:
         t = (t or "").strip().strip("-•").strip()
@@ -1928,7 +1928,7 @@ def _normalize_bullets(raw: str) -> str:
     if not out_text:
         return ""
     lines = [ln.strip() for ln in out_text.splitlines() if ln.strip()]
-    bullets: List[str] = []
+    bullets: list[str] = []
     for ln in lines:
         if ln.startswith("- "):
             bullets.append(ln)
@@ -1936,7 +1936,7 @@ def _normalize_bullets(raw: str) -> str:
             bullets.append("- " + ln.lstrip("-• ").strip())
 
     seen = set()
-    final: List[str] = []
+    final: list[str] = []
     for b in bullets:
         key = b.lower().strip()
         if key in seen:
@@ -2152,7 +2152,7 @@ def _bullets_from_list(value) -> str:
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def gpt_extract_pico(title: str, abstract: str, study_class: str) -> Dict[str, str]:
+def gpt_extract_pico(title: str, abstract: str, study_class: str) -> dict[str, str]:
     """Routed PICO+Outcomes extraction in a single JSON call.
 
     Returns a dict with keys: patient_details, intervention_comparison, outcomes,
@@ -2348,7 +2348,7 @@ def _azure_di_client() -> "DocumentIntelligenceClientType":
     return DocumentIntelligenceClient(endpoint=_azure_di_endpoint(), credential=AzureKeyCredential(_azure_di_key()))
 
 
-def analyze_pdf_to_markdown_azure(pdf_bytes: bytes, pages: str = "", timeout_s: Optional[float] = None) -> str:
+def analyze_pdf_to_markdown_azure(pdf_bytes: bytes, pages: str = "", timeout_s: float | None = None) -> str:
     client = _azure_di_client()
     body = io.BytesIO(pdf_bytes)
     kwargs = {}
@@ -2385,7 +2385,7 @@ def markdown_from_pdf_bytes(pdf_bytes: bytes) -> str:
 
 # ---------------- Guideline extraction: OpenAI recos from elements ----------------
 
-def _openai_triage_sections(sections: List[Dict[str, str]]) -> List[int]:
+def _openai_triage_sections(sections: list[dict[str, str]]) -> list[int]:
     """
     First pass: decide which sections likely contain formal recommendations.
     Returns a list of sec_idx (ints) to pursue.
@@ -2467,7 +2467,7 @@ Strictness mode is '{strictness}'. In 'strict', be more conservative.
     keep = obj.get("keep") or []
     maybe = obj.get("maybe") or []
 
-    out: List[int] = []
+    out: list[int] = []
     for arr in (keep, maybe):
         if not isinstance(arr, list):
             continue
@@ -2487,7 +2487,7 @@ Strictness mode is '{strictness}'. In 'strict', be more conservative.
         final.append(x)
     return final
 
-def _openai_extract_recos_from_section(section_text: str, heading_path: str) -> List[Dict[str, str]]:
+def _openai_extract_recos_from_section(section_text: str, heading_path: str) -> list[dict[str, str]]:
     """
     Second pass: extract recommendations from the full section text.
     """
@@ -2593,7 +2593,7 @@ Strictness mode: '{strictness}'
 
         return True
 
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -2663,7 +2663,7 @@ def extract_and_store_guideline_recommendations_azure(guideline_id: str, pdf_byt
         detail="Scanning section previews for directive/recommendation language",
     )
 
-    keep_sec_idxs: List[int] = []
+    keep_sec_idxs: list[int] = []
     for b0 in range(0, len(sections), SECTION_TRIAGE_BATCH):
         batch = sections[b0 : b0 + SECTION_TRIAGE_BATCH]
         try:
@@ -2688,7 +2688,7 @@ def extract_and_store_guideline_recommendations_azure(guideline_id: str, pdf_byt
         )
         return 0
 
-    keep_sections: List[Dict[str, str]] = []
+    keep_sections: list[dict[str, str]] = []
     for s in sections:
         try:
             sec_idx = int(s.get("sec_idx") or 0)
@@ -2704,7 +2704,7 @@ def extract_and_store_guideline_recommendations_azure(guideline_id: str, pdf_byt
     )
 
     # Build rec list in memory (no DB rec table)
-    recs: List[Dict[str, str]] = []
+    recs: list[dict[str, str]] = []
     seen = set()
 
     total_keep = len(keep_sections)
@@ -2847,7 +2847,7 @@ def gpt_extract_guideline_title_year(
     snippet: str,
     timeout_s: int = 60,
     max_attempts: int = 5,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     key = _openai_api_key()
     if not key:
         raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
@@ -2916,7 +2916,7 @@ def gpt_extract_guideline_title_year(
         "pub_year": (obj.get("pub_year") or "").strip(),
     }
 
-def extract_and_store_guideline_metadata_azure(guideline_id: str, pdf_bytes: bytes) -> Dict[str, str]:
+def extract_and_store_guideline_metadata_azure(guideline_id: str, pdf_bytes: bytes) -> dict[str, str]:
     gid = (guideline_id or "").strip()
     if not gid:
         return {}
