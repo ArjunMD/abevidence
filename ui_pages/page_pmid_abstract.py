@@ -126,8 +126,10 @@ def render() -> None:
     pmid = _clean_pmid(pmid_in)
 
     fetch_clicked = st.button("Fetch", type="primary", width="stretch")
+    # Auto-fetch once when arriving via a Search "Open abstract" deep-link.
+    auto_fetch = bool(st.session_state.pop("auto_fetch_abstract", False))
 
-    if fetch_clicked:
+    if fetch_clicked or auto_fetch:
         if not pmid:
             st.error("Please enter a valid numeric PMID.")
             st.stop()

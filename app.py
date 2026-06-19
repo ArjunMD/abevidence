@@ -104,6 +104,8 @@ _manage_gid = (_qp_first(_qp, "manage_gid") or "").strip()
 if _open_abs_pmid and not _IS_PUBLIC:
     st.session_state["nav_page"] = "Upload Abstract"
     st.session_state["pmid_input"] = _open_abs_pmid
+    # Deep-link from Search → auto-run the fetch on arrival (consumed once).
+    st.session_state["auto_fetch_abstract"] = True
     _clear_query_params()
 elif _manage_pmid and not _IS_PUBLIC:
     # Deep-link from Browse → Manage with this abstract pre-filtered/selected.

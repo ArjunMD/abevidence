@@ -9,7 +9,7 @@ from db import hide_pubmed_pmid, list_search_pubmed_ledger, upsert_search_pubmed
 from extract import search_pubmed_by_date_filters_page
 from pages_shared import _filter_search_pubmed_rows
 
-SEARCH_FETCH_LIMIT = 200
+SEARCH_FETCH_LIMIT = 500
 LEDGER_STUDY_TYPE_LABEL = "All"
 COMBINED_PUBLICATION_TYPE_TERMS = [
     '"Clinical Trial"[Publication Type]',
@@ -21,6 +21,37 @@ COMBINED_PUBLICATION_TYPE_TERMS = [
     '"Clinical Study"[Publication Type]',
     '"Validation Study"[Publication Type]',
 ]
+
+# Non-article publication types stripped out of the broad search below.
+EXCLUDED_PUBLICATION_TYPE_TERMS = [
+    "Editorial[pt]",
+    "Letter[pt]",
+    "Comment[pt]",
+    "News[pt]",
+    "Biography[pt]",
+    '"Published Erratum"[pt]',
+]
+
+# High-yield journals searched broadly (journal NOT the excluded types) so
+# original articles that carry no study-type tag are still surfaced. The narrow
+# study-type filter (COMBINED_PUBLICATION_TYPE_TERMS) is used for every other
+# journal. JAMA Network Open is deliberately NOT here — its volume is too high
+# for a broad sweep.
+BROAD_SEARCH_JOURNAL_LABELS = {
+    "NEJM",
+    "JAMA",
+    "Lancet",
+    "AIM",
+    "JAMA Internal Medicine",
+    "Journal of Hospital Medicine",
+    "American Journal of Medicine",
+    "Stroke",
+    "Intensive Care Medicine",
+    "Critical Care",
+    "Journal of the American College of Cardiology",
+    "European Heart Journal",
+    "Annals of Emergency Medicine",
+}
 SPECIALTY_JOURNAL_TERMS = {
     "General": {
         "NEJM": '"N Engl J Med"[jour]',
@@ -163,6 +194,8 @@ def _run_search_page(
     publication_type_terms: list[str],
     retmax: int,
     retstart: int,
+    exclude_publication_type_terms: list[str] | None = None,
+    exclude_review_unless_terms: list[str] | None = None,
 ) -> dict[str, object]:
     page = search_pubmed_by_date_filters_page(
         start_date=start_date,
@@ -171,6 +204,8 @@ def _run_search_page(
         publication_type_terms=publication_type_terms,
         retmax=int(retmax),
         retstart=int(retstart),
+        exclude_publication_type_terms=exclude_publication_type_terms,
+        exclude_review_unless_terms=exclude_review_unless_terms,
     )
     rows = [r for r in (page.get("rows") or []) if isinstance(r, dict)]
     try:
@@ -667,9 +702,25 @@ def _render_search_ledger() -> None:
     st.dataframe(styled, hide_index=True, width="stretch")
 
 
+def _ordered_specialties() -> list[str]:
+    return sorted(
+        SPECIALTY_JOURNAL_TERMS.keys(),
+        key=lambda s: (0 if str(s or "").strip().lower() == "general" else 1, str(s or "").lower()),
+    )
+
+
+def _all_journal_targets() -> list[tuple[str, str, str]]:
+    """(specialty_label, journal_label, journal_term) for every configured journal."""
+    targets: list[tuple[str, str, str]] = []
+    for specialty in _ordered_specialties():
+        for journal_label, journal_term in SPECIALTY_JOURNAL_TERMS.get(specialty, {}).items():
+            targets.append((specialty, journal_label, journal_term))
+    return targets
+
+
 def render() -> None:
     st.title("🔎 Search PubMed")
-    
+
     today = datetime.now(timezone.utc).date()
     default_month_date = today - timedelta(days=30)
     default_year = int(default_month_date.year)
@@ -701,59 +752,19 @@ def render() -> None:
             key="search_pubmed_month",
         )
 
-    c3, c4 = st.columns(2)
-    with c3:
-        specialty_options = sorted(
-            SPECIALTY_JOURNAL_TERMS.keys(),
-            key=lambda s: (0 if str(s or "").strip().lower() == "general" else 1, str(s or "").lower()),
-        )
-        sticky_specialty = (sticky.get("specialty") or "").strip()
-        specialty_default_idx = (
-            specialty_options.index(sticky_specialty)
-            if sticky_specialty in specialty_options
-            else 0
-        )
-        specialty_label = st.selectbox(
-            "Specialty",
-            options=specialty_options,
-            index=specialty_default_idx,
-            key="search_pubmed_specialty",
-        )
-    with c4:
-        journal_query_by_label = SPECIALTY_JOURNAL_TERMS.get(specialty_label, {})
-        journal_options = list(journal_query_by_label.keys())
-        if not journal_options:
-            st.error(f"No journal options configured for specialty: {specialty_label}")
-            st.stop()
-
-        sticky_journal = (sticky.get("journal") or "").strip()
-        journal_default_idx = (
-            journal_options.index(sticky_journal)
-            if sticky_journal in journal_options
-            else 0
-        )
-        journal_label = st.selectbox(
-            "Journal",
-            options=journal_options,
-            index=journal_default_idx,
-            key="search_pubmed_journal",
-        )
-
     st.session_state["search_pubmed_filters_sticky"] = {
         "year": int(selected_year),
         "month": int(selected_month),
-        "specialty": (specialty_label or "").strip(),
-        "journal": (journal_label or "").strip(),
     }
 
     b_search, b_clear = st.columns(2)
     with b_search:
-        search_clicked = st.button("Search", type="primary", width="stretch", key="search_pubmed_btn")
+        search_clicked = st.button("Search all journals", type="primary", width="stretch", key="search_pubmed_btn")
     with b_clear:
         clear_clicked = st.button("Clear search", width="stretch", key="search_pubmed_clear_btn")
 
     if clear_clicked:
-        for k in ["search_pubmed_rows", "search_pubmed_total_count", "search_pubmed_range", "search_pubmed_filters"]:
+        for k in ["search_pubmed_groups", "search_pubmed_range"]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -767,137 +778,171 @@ def render() -> None:
             st.stop()
 
         if (int(selected_year), int(selected_month)) > (int(today.year), int(today.month)):
-            for k in ["search_pubmed_rows", "search_pubmed_total_count", "search_pubmed_range", "search_pubmed_filters"]:
+            for k in ["search_pubmed_groups", "search_pubmed_range"]:
                 st.session_state.pop(k, None)
             st.error("Future months are not allowed in Search PubMed. Please choose the current month or earlier.")
         else:
             start_s = start_date.strftime("%Y/%m/%d")
             end_s = end_date.strftime("%Y/%m/%d")
-            journal_term = journal_query_by_label.get(journal_label, "")
             pub_terms = list(COMBINED_PUBLICATION_TYPE_TERMS)
+            targets = _all_journal_targets()
+            groups: list[dict[str, object]] = []
+            progress = st.progress(0.0, text="Searching PubMed…")
+            errored = False
             try:
-                with st.spinner("Searching PubMed…"):
+                for i, (specialty_label, journal_label, journal_term) in enumerate(targets):
+                    progress.progress(i / max(1, len(targets)), text=f"Searching {journal_label}…")
+                    broad = journal_label in BROAD_SEARCH_JOURNAL_LABELS
                     page = _run_search_page(
                         start_date=start_s,
                         end_date=end_s,
                         journal_term=journal_term,
-                        publication_type_terms=pub_terms,
+                        publication_type_terms=[] if broad else pub_terms,
                         retmax=int(SEARCH_FETCH_LIMIT),
                         retstart=0,
+                        exclude_publication_type_terms=EXCLUDED_PUBLICATION_TYPE_TERMS if broad else None,
+                        exclude_review_unless_terms=pub_terms if broad else None,
                     )
-                rows = [r for r in (page.get("rows") or []) if isinstance(r, dict)]
-                total_count = int(page.get("total_count") or 0)
-                st.session_state["search_pubmed_rows"] = rows
-                st.session_state["search_pubmed_total_count"] = total_count
+                    rows = [r for r in (page.get("rows") or []) if isinstance(r, dict)]
+                    groups.append(
+                        {
+                            "specialty": specialty_label,
+                            "journal": journal_label,
+                            "total_count": int(page.get("total_count") or 0),
+                            "rows": rows,
+                        }
+                    )
+            except requests.HTTPError as e:
+                errored = True
+                st.error(f"PubMed search failed: {e}")
+            except Exception as e:
+                errored = True
+                st.error(f"Unexpected search error: {e}")
+            finally:
+                progress.empty()
+
+            if not errored:
+                st.session_state["search_pubmed_groups"] = groups
                 st.session_state["search_pubmed_range"] = {
                     "start": start_s,
                     "end": end_s,
                     "year_month": f"{int(selected_year)}-{int(selected_month):02d}",
                     "year_month_label": f"{calendar.month_name[int(selected_month)]} {int(selected_year)}",
                 }
-                st.session_state["search_pubmed_filters"] = {
-                    "specialty": specialty_label,
-                    "journal": journal_label,
-                    "study_type": LEDGER_STUDY_TYPE_LABEL,
-                }
-            except requests.HTTPError as e:
-                st.error(f"PubMed search failed: {e}")
-            except Exception as e:
-                st.error(f"Unexpected search error: {e}")
 
-    if "search_pubmed_rows" not in st.session_state:
-        st.info("Choose a date range and click Search.")
+    if "search_pubmed_groups" not in st.session_state:
+        st.info("Choose a year and month, then click Search all journals.")
         st.divider()
         _render_search_ledger()
         return
 
-    total_count = int(st.session_state.get("search_pubmed_total_count") or 0)
-    rows = [r for r in (st.session_state.get("search_pubmed_rows") or []) if isinstance(r, dict)]
-    visible_rows = _filter_search_pubmed_rows(rows)
-
-    visible_count = len(visible_rows)
-    hidden_count = max(0, total_count - visible_count)
+    groups = [g for g in (st.session_state.get("search_pubmed_groups") or []) if isinstance(g, dict)]
     rng = st.session_state.get("search_pubmed_range") or {}
-    start_s = (rng.get("start") or "").strip()
-    end_s = (rng.get("end") or "").strip()
+    ym_key = (rng.get("year_month") or "").strip()
     ym_label = (rng.get("year_month_label") or "").strip()
-    filters = st.session_state.get("search_pubmed_filters") or {}
-    specialty_label = (filters.get("specialty") or "").strip()
-    journal_label = (filters.get("journal") or "").strip()
-    study_type_label = (filters.get("study_type") or "").strip()
+    is_future = _is_future_year_month(ym_key, today=today)
+    is_time_clearable = _is_year_month_clearable(ym_key, today=today)
+
+    grand_total = sum(
+        len([r for r in (g.get("rows") or []) if isinstance(r, dict)]) for g in groups
+    )
     header_bits = []
     if ym_label:
         header_bits.append(f"Month: {ym_label}")
-    elif start_s and end_s:
-        header_bits.append(f"Range: {start_s} to {end_s}")
-    if specialty_label or journal_label:
-        header_bits.append(f"Filters: {specialty_label or '—'} • {journal_label or '—'}")
-    if header_bits:
-        st.caption(" | ".join(header_bits))
-    st.caption(f"{total_count} matches ({visible_count} visible, {hidden_count} hidden)")
+    header_bits.append(f"{len(groups)} journals searched")
+    header_bits.append(f"{grand_total} matches")
+    st.caption(" | ".join(header_bits))
 
-    ym_key = (rng.get("year_month") or "").strip()
-    is_verified = total_count <= int(SEARCH_FETCH_LIMIT)
-    is_time_clearable = _is_year_month_clearable(ym_key, today=today)
-    is_cleared = bool(visible_count == 0 and is_verified and is_time_clearable)
-    if not _is_future_year_month(ym_key, today=today):
-        upsert_search_pubmed_ledger(
-            year_month=ym_key,
-            specialty_label=specialty_label,
-            journal_label=journal_label,
-            study_type_label=study_type_label or LEDGER_STUDY_TYPE_LABEL,
-            total_matches=total_count,
-            visible_matches=visible_count,
-            hidden_matches=hidden_count,
-            is_cleared=is_cleared,
-            is_verified=is_verified,
-        )
+    any_visible = False
+    current_specialty: str | None = None
+    for gi, g in enumerate(groups):
+        specialty_label = (g.get("specialty") or "").strip()
+        journal_label = (g.get("journal") or "").strip()
+        # raw_count is PubMed's esearch match count (includes items later dropped
+        # for lacking a real abstract); used only for the >200 truncation check.
+        # fetched_count is the accurate number of real-research articles we hold.
+        raw_count = int(g.get("total_count") or 0)
+        rows = [r for r in (g.get("rows") or []) if isinstance(r, dict)]
+        fetched_count = len(rows)
+        visible_rows = _filter_search_pubmed_rows(rows)
+        visible_count = len(visible_rows)
+        hidden_count = max(0, fetched_count - visible_count)
+        is_verified = raw_count <= int(SEARCH_FETCH_LIMIT)
+        is_cleared = bool(visible_count == 0 and is_verified and is_time_clearable)
 
-    if total_count > int(SEARCH_FETCH_LIMIT):
-        st.warning(
-            f"Failsafe: this monthly query returned {total_count} matches (> {SEARCH_FETCH_LIMIT}). "
-            f"Only the first {SEARCH_FETCH_LIMIT} were fetched."
-        )
+        if not is_future:
+            upsert_search_pubmed_ledger(
+                year_month=ym_key,
+                specialty_label=specialty_label,
+                journal_label=journal_label,
+                study_type_label=LEDGER_STUDY_TYPE_LABEL,
+                total_matches=fetched_count,
+                visible_matches=visible_count,
+                hidden_matches=hidden_count,
+                is_cleared=is_cleared,
+                is_verified=is_verified,
+            )
 
-    if not visible_rows:
-        st.info("No visible results for this month and filter selection.")
-        st.divider()
-        _render_search_ledger()
-        return
+        # Always surface truncation, even when this journal has no visible rows —
+        # otherwise an over-cap journal that looks "empty" would hide the overflow.
+        if raw_count > int(SEARCH_FETCH_LIMIT):
+            st.warning(
+                f"Failsafe: {journal_label} returned {raw_count} matches (> {SEARCH_FETCH_LIMIT}). "
+                f"Only the first {SEARCH_FETCH_LIMIT} were fetched."
+            )
 
-    for r in visible_rows:
-        title = (r.get("title") or "").strip() or "(no title)"
-        pmid = (r.get("pmid") or "").strip() or "—"
-        c_left, c_right = st.columns([5, 3])
-        with c_left:
-            st.markdown(f"- {title} — `{pmid}`")
-        with c_right:
-            if pmid != "—":
-                b1, b2 = st.columns(2, gap="small")
-                with b1:
-                    if st.button(
-                        "Don't show again",
-                        key=f"search_pubmed_hide_{pmid}",
-                        use_container_width=True,
-                    ):
-                        _ym_parts = (ym_key or "").split("-")
-                        _hide_year = _ym_parts[0] if len(_ym_parts) >= 1 else ""
-                        _hide_month = _ym_parts[1] if len(_ym_parts) >= 2 else ""
-                        hide_pubmed_pmid(
-                            pmid,
-                            journal=journal_label,
-                            year=_hide_year,
-                            pub_month=_hide_month,
-                        )
-                        st.rerun()
-                with b2:
-                    if st.button(
-                        "Open abstract",
-                        key=f"search_pubmed_open_abstract_{pmid}",
-                        use_container_width=True,
-                    ):
-                        st.query_params["open_abs_pmid"] = pmid
-                        st.rerun()
+        if not visible_rows:
+            continue
+        any_visible = True
+
+        if specialty_label != current_specialty:
+            current_specialty = specialty_label
+            st.markdown(f"### {specialty_label}")
+        st.markdown(f"**{journal_label}**")
+
+        for r in visible_rows:
+            title = (r.get("title") or "").strip() or "(no title)"
+            pmid = (r.get("pmid") or "").strip() or "—"
+            c_left, c_right = st.columns([5, 3])
+            with c_left:
+                st.markdown(f"- {title}")
+                pub_types = [
+                    str(t).strip()
+                    for t in (r.get("pub_types") or [])
+                    if str(t).strip() and str(t).strip().lower() != "journal article"
+                ]
+                if pub_types:
+                    st.caption(" · ".join(pub_types))
+            with c_right:
+                if pmid != "—":
+                    b1, b2 = st.columns(2, gap="small")
+                    with b1:
+                        if st.button(
+                            "Don't show again",
+                            key=f"search_pubmed_hide_{gi}_{pmid}",
+                            use_container_width=True,
+                        ):
+                            _ym_parts = (ym_key or "").split("-")
+                            _hide_year = _ym_parts[0] if len(_ym_parts) >= 1 else ""
+                            _hide_month = _ym_parts[1] if len(_ym_parts) >= 2 else ""
+                            hide_pubmed_pmid(
+                                pmid,
+                                journal=journal_label,
+                                year=_hide_year,
+                                pub_month=_hide_month,
+                            )
+                            st.rerun()
+                    with b2:
+                        if st.button(
+                            "Open abstract",
+                            key=f"search_pubmed_open_abstract_{gi}_{pmid}",
+                            use_container_width=True,
+                        ):
+                            st.query_params["open_abs_pmid"] = pmid
+                            st.rerun()
+
+    if not any_visible:
+        st.info("No visible results across any journal for this month.")
 
     st.divider()
     _render_search_ledger()

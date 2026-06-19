@@ -5,6 +5,7 @@ import time
 import random
 import json
 import io
+import threading
 from typing import TYPE_CHECKING
 
 import requests
@@ -282,6 +283,27 @@ def _requests_session() -> requests.Session:
     return s
 
 
+_ncbi_rate_lock = threading.Lock()
+_ncbi_last_request_ts = 0.0
+
+
+def _ncbi_throttle() -> None:
+    """Space NCBI requests to stay under the per-second cap (10/sec with an API
+    key, 3/sec without). NCBI counts all of a key's traffic together, so this
+    gate applies to every E-utilities call, not just the all-journals sweep.
+    A small client-side pace avoids 429s proactively rather than relying on the
+    reactive retry/backoff below."""
+    global _ncbi_last_request_ts
+    min_interval = 0.11 if _ncbi_api_key() else 0.34
+    with _ncbi_rate_lock:
+        now = time.monotonic()
+        wait = min_interval - (now - _ncbi_last_request_ts)
+        if wait > 0:
+            time.sleep(wait)
+            now = time.monotonic()
+        _ncbi_last_request_ts = now
+
+
 def _get_with_retries(
     url: str,
     params: dict[str, str] | None = None,
@@ -301,6 +323,7 @@ def _get_with_retries(
     for attempt in range(attempts):
         is_last = attempt == attempts - 1
         try:
+            _ncbi_throttle()
             r = sess.get(url, params=params, headers=headers, timeout=timeout)
 
             if r.status_code in (429, 500, 502, 503, 504) and not is_last:
@@ -593,7 +616,14 @@ def search_pubmed_pmids_page(
     }
     r = _get_with_retries(NCBI_ESEARCH_URL, params=params)
 
-    payload = r.json() or {}
+    try:
+        payload = r.json() or {}
+    except ValueError:
+        # NCBI esearch echoes the query back in `querytranslation`, and
+        # occasionally embeds a raw control character there that strict JSON
+        # rejects (manifesting as "Invalid control character at ..."). Re-parse
+        # leniently so a cosmetic quirk in NCBI's echo can't fail the search.
+        payload = json.loads(r.text, strict=False) or {}
     esearch = payload.get("esearchresult") or {}
     idlist = esearch.get("idlist") or []
     total_count_raw = str(esearch.get("count") or "").strip()
@@ -613,7 +643,56 @@ def search_pubmed_pmids_page(
     return {"pmids": out, "total_count": int(total_count)}
 
 
-def _fetch_pubmed_titles_for_pmids(pmids: list[str]) -> dict[str, str]:
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_pubmed_efetch_xml(pmids_csv: str) -> str:
+    params = {"db": "pubmed", "id": pmids_csv, "retmode": "xml", **_ncbi_params_base()}
+    r = _get_with_retries(NCBI_EFETCH_URL, params=params)
+    return r.text
+
+
+# PubMed substitutes this literal for a MathML formula/image it can't render as
+# text. Abstracts that are only labels + these placeholders (e.g. AIM's ACP
+# Journal Club rating tables) carry no readable content.
+_FORMULA_PLACEHOLDER = "[Formula: see text]"
+# Minimum meaningful words an abstract must have once placeholders are stripped.
+# Real abstracts run ~30-300 words; formula-only stubs collapse to <10, so this
+# sits in a wide gap and won't drop a genuine (even terse) abstract.
+_MIN_ABSTRACT_WORDS = 20
+
+
+def _abstract_has_real_text(abstract_el: ET.Element | None) -> bool:
+    """True if <Abstract> holds readable prose, not just labels + formula stubs."""
+    if abstract_el is None:
+        return False
+    raw = " ".join(_itertext(t) for t in abstract_el.findall("AbstractText"))
+    cleaned = raw.replace(_FORMULA_PLACEHOLDER, " ")
+    return len(re.findall(r"[A-Za-z]{3,}", cleaned)) >= _MIN_ABSTRACT_WORDS
+
+
+def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, object]]:
+    """{pmid: {title, has_real_abstract, pub_types}} from a batched efetch response.
+
+    ``has_real_abstract`` requires a genuine <Article><Abstract> with readable
+    text — NOT the <OtherAbstract> publisher blurbs (e.g. plain-language-summary)
+    that PubMed's `hasabstract` filter also matches (essays/news), and NOT
+    formula-only stubs that collapse to a few label words.
+    """
+    root = ET.fromstring(efetch_xml)
+    out: dict[str, dict[str, object]] = {}
+    for art in root.findall(".//PubmedArticle"):
+        pmid = _itertext(art.find(".//MedlineCitation/PMID"))
+        if not pmid:
+            continue
+        title = _itertext(art.find(".//ArticleTitle"))
+        has_real_abstract = _abstract_has_real_text(art.find(".//Article/Abstract"))
+        pub_types = [
+            t for t in (_itertext(pt) for pt in art.findall(".//PublicationTypeList/PublicationType")) if t
+        ]
+        out[pmid] = {"title": title, "has_real_abstract": has_real_abstract, "pub_types": pub_types}
+    return out
+
+
+def _fetch_pubmed_titles_and_abstract_flags(pmids: list[str]) -> dict[str, dict[str, object]]:
     ids: list[str] = []
     seen = set()
     for raw in (pmids or []):
@@ -626,14 +705,14 @@ def _fetch_pubmed_titles_for_pmids(pmids: list[str]) -> dict[str, str]:
     if not ids:
         return {}
 
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, object]] = {}
     chunk_size = 200
     for i in range(0, len(ids), chunk_size):
         chunk = ids[i : i + chunk_size]
         if not chunk:
             continue
-        esum_xml = fetch_pubmed_esummary_xml(",".join(chunk))
-        out.update(parse_esummary_titles(esum_xml))
+        efetch_xml = fetch_pubmed_efetch_xml(",".join(chunk))
+        out.update(_parse_titles_and_abstract_flags(efetch_xml))
     return out
 
 
@@ -644,13 +723,28 @@ def search_pubmed_by_date_filters_page(
     publication_type_terms: list[str],
     retmax: int = 200,
     retstart: int = 0,
+    exclude_publication_type_terms: list[str] | None = None,
+    exclude_review_unless_terms: list[str] | None = None,
 ) -> dict[str, object]:
     """
     Return one page of PubMed results in a publication-date range using journal +
     publication-type terms. Date format expected: YYYY/MM/DD.
+
+    When ``exclude_publication_type_terms`` is given, results are restricted with
+    ``NOT (term OR term ...)`` instead of (or in addition to) the positive
+    publication-type filter. Passing an empty ``publication_type_terms`` with an
+    exclusion list yields a broad "everything from this journal except these
+    types" query, which captures articles that carry no study-type tag.
+
+    When ``exclude_review_unless_terms`` is given, narrative reviews are dropped
+    via ``NOT (Review[pt] NOT (term OR term ...))`` — i.e. articles tagged Review
+    are removed unless they also carry one of these (study-type) terms, so a
+    systematic review tagged both Review and Systematic Review is kept.
     """
     journal_q = (journal_term or "").strip()
     pub_type_terms = [(t or "").strip() for t in (publication_type_terms or []) if (t or "").strip()]
+    exclude_terms = [(t or "").strip() for t in (exclude_publication_type_terms or []) if (t or "").strip()]
+    review_keep_terms = [(t or "").strip() for t in (exclude_review_unless_terms or []) if (t or "").strip()]
 
     term_bits: list[str] = []
     if journal_q:
@@ -665,6 +759,23 @@ def search_pubmed_by_date_filters_page(
         return {"rows": [], "total_count": 0}
 
     term = " AND ".join(term_bits)
+    if exclude_terms:
+        excl = exclude_terms[0] if len(exclude_terms) == 1 else "(" + " OR ".join(exclude_terms) + ")"
+        # PubMed's exclusion operator is a bare NOT, not "AND NOT" — the latter
+        # is mis-parsed, dropping the NOT and turning the clause into AND (which
+        # would return ONLY the excluded types). See querytranslation behavior.
+        term = f"{term} NOT {excl}"
+    if review_keep_terms:
+        keep = review_keep_terms[0] if len(review_keep_terms) == 1 else "(" + " OR ".join(review_keep_terms) + ")"
+        # Drop narrative reviews (tagged Review with no study-type tag), but keep
+        # reviews that also carry a positive type, e.g. systematic reviews.
+        term = f"{term} NOT (Review[pt] NOT {keep})"
+    # Require an indexed abstract. Substantive research always has one; this
+    # drops abstract-less perspectives/images/short pieces server-side. Note
+    # `hasabstract` is lenient — it also matches <OtherAbstract> publisher blurbs
+    # (plain-language-summaries on essays/news), so we additionally verify a real
+    # <Abstract> client-side below. Parenthesize so the filter spans the query.
+    term = f"({term}) AND hasabstract"
     page = search_pubmed_pmids_page(
         term=term,
         mindate=start_date,
@@ -676,8 +787,19 @@ def search_pubmed_by_date_filters_page(
     if not pmids:
         return {"rows": [], "total_count": int(page.get("total_count") or 0)}
 
-    titles = _fetch_pubmed_titles_for_pmids(pmids)
-    rows = [{"pmid": p, "title": titles.get(p, "").strip()} for p in pmids]
+    info = _fetch_pubmed_titles_and_abstract_flags(pmids)
+    rows = []
+    for p in pmids:
+        meta = info.get(p) or {}
+        if not meta.get("has_real_abstract"):
+            continue  # drop OtherAbstract-only items (essays/news, not research)
+        rows.append(
+            {
+                "pmid": p,
+                "title": (str(meta.get("title") or "")).strip(),
+                "pub_types": list(meta.get("pub_types") or []),
+            }
+        )
     return {"rows": rows, "total_count": int(page.get("total_count") or 0)}
 
 
