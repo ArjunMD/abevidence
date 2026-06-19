@@ -17,68 +17,7 @@ from db import (
 
 # ── colour palette ──────────────────────────────────────────────────
 _PALETTE = px.colors.qualitative.Set2
-_PRIMARY = "#4C78A8"
-_ACCENT = "#F58518"
 _PLOTLY_TEMPLATE = "plotly_white"
-
-# Consistent journal name normalization
-_JOURNAL_SHORT: dict[str, str] = {
-    "The New England journal of medicine": "NEJM",
-    "Lancet (London, England)": "Lancet",
-    "BMJ (Clinical research ed.)": "BMJ",
-    "Critical care (London, England)": "Critical Care",
-    "The Cochrane database of systematic reviews": "Cochrane",
-    "Clinical infectious diseases : an official publication of the Infectious Diseases Society of America": "Clin Infect Dis",
-    "Journal of clinical oncology : official journal of the American Society of Clinical Oncology": "J Clin Oncol",
-    "The Lancet. Oncology": "Lancet Oncol",
-    "The Lancet. Infectious diseases": "Lancet Infect Dis",
-    "The Lancet. Respiratory medicine": "Lancet Respir Med",
-    "The Lancet. Gastroenterology & hepatology": "Lancet Gastro Hepatol",
-    "The Lancet. Psychiatry": "Lancet Psychiatry",
-    "The Lancet. Haematology": "Lancet Haematol",
-    "The Lancet. Rheumatology": "Lancet Rheumatol",
-    "The Lancet. Diabetes & endocrinology": "Lancet Diabetes Endocrinol",
-    "The Journal of clinical endocrinology and metabolism": "J Clin Endocrinol Metab",
-    "Journal of the American College of Cardiology": "JACC",
-    "European heart journal": "Eur Heart J",
-    "Annals of internal medicine": "Ann Intern Med",
-    "JAMA internal medicine": "JAMA Intern Med",
-    "JAMA network open": "JAMA Netw Open",
-    "JAMA neurology": "JAMA Neurol",
-    "JAMA cardiology": "JAMA Cardiol",
-    "JAMA surgery": "JAMA Surg",
-    "JAMA psychiatry": "JAMA Psychiatry",
-    "JAMA oncology": "JAMA Oncol",
-    "Intensive care medicine": "Intensive Care Med",
-    "Annals of emergency medicine": "Ann Emerg Med",
-    "American journal of respiratory and critical care medicine": "Am J Respir Crit Care Med",
-    "Journal of the American Society of Nephrology : JASN": "JASN",
-    "Kidney international": "Kidney Int",
-    "Journal of hepatology": "J Hepatol",
-    "Annals of surgery": "Ann Surg",
-    "Annals of the rheumatic diseases": "Ann Rheum Dis",
-    "Journal of general internal medicine": "JGIM",
-    "Journal of hospital medicine": "J Hosp Med",
-    "American journal of medicine (The)": "Am J Med",
-    "Nature medicine": "Nat Med",
-    "Diabetes care": "Diabetes Care",
-    "Journal of pain and symptom management": "J Pain Symptom Manage",
-    "World psychiatry : official journal of the World Psychiatric Association (WPA)": "World Psychiatry",
-}
-
-
-def _short_journal(name: str) -> str:
-    s = (name or "").strip()
-    if not s:
-        return "Unknown"
-    low = s.lower()
-    for long, short in _JOURNAL_SHORT.items():
-        if long.lower() == low:
-            return short
-    # Fallback: title-case, truncate
-    if len(s) > 30:
-        return s[:27] + "..."
-    return s
 
 
 # ── specialty explosion helper ──────────────────────────────────────
@@ -144,85 +83,9 @@ def render() -> None:
     st.divider()
 
     # ════════════════════════════════════════════════════════════════
-    # B. SAVED PAPERS BY JOURNAL (horizontal bar)
+    # B. TOP JOURNALS TABLE
     # ════════════════════════════════════════════════════════════════
-    st.markdown("### Saved papers by journal")
-    top_n = 20
-    top_saved = saved_per_journal[:top_n]
-    if top_saved:
-        journals = [_short_journal(r["journal"]) for r in reversed(top_saved)]
-        counts = [r["count"] for r in reversed(top_saved)]
-        fig = go.Figure(
-            go.Bar(
-                x=counts,
-                y=journals,
-                orientation="h",
-                marker_color=_PRIMARY,
-                text=counts,
-                textposition="outside",
-            )
-        )
-        fig.update_layout(
-            template=_PLOTLY_TEMPLATE,
-            height=max(400, len(top_saved) * 28),
-            margin=dict(l=10, r=40, t=10, b=10),
-            xaxis_title="Papers saved",
-            yaxis=dict(tickfont=dict(size=12)),
-        )
-        st.plotly_chart(fig, width="stretch")
-
-    st.divider()
-
-    # ════════════════════════════════════════════════════════════════
-    # D. SAVE RATE BY JOURNAL (bar chart)
-    # ════════════════════════════════════════════════════════════════
-    hidden_map: dict[str, int] = {}
-    for r in hidden_per_journal:
-        key = _short_journal(r["journal"])
-        hidden_map[key] = hidden_map.get(key, 0) + int(r["count"])
-
-    journal_total_reviewed: dict[str, int] = {}
-    saved_map: dict[str, int] = {}
-    for r in saved_per_journal:
-        key = _short_journal(r["journal"])
-        saved_map[key] = saved_map.get(key, 0) + int(r["count"])
-
-    all_journals = set(saved_map.keys()) | set(hidden_map.keys())
-    for j in all_journals:
-        journal_total_reviewed[j] = saved_map.get(j, 0) + hidden_map.get(j, 0)
-    st.markdown("### Save rate by journal")
-    st.caption("Among journals with at least 10 reviewed articles")
-
-    rate_data = []
-    for j in all_journals:
-        s = saved_map.get(j, 0)
-        t = journal_total_reviewed.get(j, 0)
-        if t >= 10:
-            rate_data.append({"journal": j, "rate": s / t * 100, "saved": s, "total": t})
-
-    rate_data.sort(key=lambda x: x["rate"], reverse=True)
-    top_rates = rate_data[:20]
-
-    if top_rates:
-        fig3 = go.Figure(
-            go.Bar(
-                x=[r["rate"] for r in reversed(top_rates)],
-                y=[r["journal"] for r in reversed(top_rates)],
-                orientation="h",
-                marker_color=[_ACCENT if r["rate"] >= save_rate else "#93B7D6" for r in reversed(top_rates)],
-                text=[f'{r["rate"]:.0f}% ({r["saved"]}/{r["total"]})' for r in reversed(top_rates)],
-                textposition="outside",
-            )
-        )
-        fig3.update_layout(
-            template=_PLOTLY_TEMPLATE,
-            height=max(350, len(top_rates) * 28),
-            margin=dict(l=10, r=80, t=10, b=10),
-            xaxis_title="Save rate (%)",
-            xaxis=dict(range=[0, max(r["rate"] for r in top_rates) * 1.3]),
-            yaxis=dict(tickfont=dict(size=12)),
-        )
-        st.plotly_chart(fig3, width="stretch")
+    _render_top_journals_table()
 
     st.divider()
 
@@ -296,15 +159,8 @@ def render() -> None:
                 pct = count / total_saved * 100 if total_saved else 0
                 st.markdown(f"**{label}** — {count} ({pct:.1f}%)")
 
-    st.divider()
 
-    # ════════════════════════════════════════════════════════════════
-    # G. JOURNAL TIERS
-    # ════════════════════════════════════════════════════════════════
-    _render_journal_tiers()
-
-
-# ── Journal tier system ────────────────────────────────────────────
+# ── Top journals table ─────────────────────────────────────────────
 
 # Mapping: Search PubMed display label → DB journal name (lowercase).
 # DB names come from PubMed XML <Journal><Title> and can differ from display labels.
@@ -395,20 +251,20 @@ def _get_journal_counts() -> dict[str, tuple[int, int]]:
     return result
 
 
-def _compute_journal_tiers() -> dict[int, list[dict]] | None:
-    """Compute 5 tiers of journals using the W/X/Y/Z optimization algorithm.
+# Minimum reviewed articles for a journal to qualify on the save-rate ranking,
+# so a single saved paper can't produce a misleading 100% rate.
+_RATE_MIN_REVIEWED = 10
 
-    Returns {1: [...], 2: [...], 3: [...], 4: [...], 5: [...]} where each
-    value is a list of dicts with keys: label, saved, reviewed, rate.
-    """
+
+def _render_top_journals_table() -> None:
+    st.markdown("### Top journals")
+    st.caption(
+        "Journals in the top 10 by papers saved or by save rate "
+        f"(rate ranked among journals with at least {_RATE_MIN_REVIEWED} reviewed). "
+        "Sorted by papers saved."
+    )
+
     counts = _get_journal_counts()
-    if not counts:
-        return None
-
-    N = len(counts)
-    target = N / 5.0
-
-    # Build journal data
     journals: list[dict] = []
     for label, (saved, hidden) in counts.items():
         reviewed = saved + hidden
@@ -420,182 +276,30 @@ def _compute_journal_tiers() -> dict[int, list[dict]] | None:
             "rate": rate,
         })
 
-    # List A: ranked by saved count desc, tiebreaker: higher rate
-    list_a = sorted(journals, key=lambda j: (j["saved"], j["rate"]), reverse=True)
-    # List B: ranked by save rate desc, tiebreaker: higher saved count
-    list_b = sorted(journals, key=lambda j: (j["rate"], j["saved"]), reverse=True)
+    # Top 10 by papers saved (ignore journals with nothing saved).
+    by_saved = sorted(journals, key=lambda j: (j["saved"], j["rate"]), reverse=True)
+    top_saved = {j["label"] for j in by_saved[:10] if j["saved"] > 0}
 
-    # Assign ranks (0-indexed)
-    rank_a: dict[str, int] = {j["label"]: i for i, j in enumerate(list_a)}
-    rank_b: dict[str, int] = {j["label"]: i for i, j in enumerate(list_b)}
+    # Top 10 by save rate, among journals with enough reviewed articles.
+    eligible = [j for j in journals if j["reviewed"] >= _RATE_MIN_REVIEWED]
+    by_rate = sorted(eligible, key=lambda j: (j["rate"], j["saved"]), reverse=True)
+    top_rate = {j["label"] for j in by_rate[:10]}
 
-    labels = [j["label"] for j in journals]
+    selected = [j for j in journals if j["label"] in (top_saved | top_rate)]
+    selected.sort(key=lambda j: (j["saved"], j["rate"]), reverse=True)
 
-    # For each journal, store (rank_a, rank_b)
-    pairs = {la: (rank_a[la], rank_b[la]) for la in labels}
-
-    # Precompute 2D prefix sums for fast overlap counting.
-    # Grid cell [ra][rb] = 1 if a journal has that (rank_a, rank_b) pair.
-    grid = [[0] * (N + 2) for _ in range(N + 2)]
-    for la in labels:
-        ra, rb = pairs[la]
-        grid[ra + 1][rb + 1] = 1
-    # prefix[i][j] = count of journals with rank_a < i AND rank_b < j
-    prefix = [[0] * (N + 2) for _ in range(N + 2)]
-    for i in range(1, N + 2):
-        for j2 in range(1, N + 2):
-            prefix[i][j2] = (
-                grid[i][j2]
-                + prefix[i - 1][j2]
-                + prefix[i][j2 - 1]
-                - prefix[i - 1][j2 - 1]
-            )
-
-    def _count_rect(ra_lo: int, ra_hi: int, rb_lo: int, rb_hi: int) -> int:
-        """Count journals with ra_lo <= rank_a < ra_hi AND rb_lo <= rank_b < rb_hi."""
-        if ra_lo >= ra_hi or rb_lo >= rb_hi:
-            return 0
-        return (
-            prefix[ra_hi][rb_hi]
-            - prefix[ra_lo][rb_hi]
-            - prefix[ra_hi][rb_lo]
-            + prefix[ra_lo][rb_lo]
-        )
-
-    best_score = float("inf")
-    best_wxyz: tuple[int, int, int, int] = (0, 0, 0, 0)
-
-    for W in range(N + 1):
-        for X in range(N + 1):
-            # tier1 = rank_a < W AND rank_b < X
-            t1 = _count_rect(0, W, 0, X)
-            top_union = W + X - t1
-            t2 = top_union - t1
-
-            for Y in range(N - W + 1):
-                for Z in range(N - X + 1):
-                    # tier5 = rank_a >= N-Y AND rank_b >= N-Z
-                    t5 = _count_rect(N - Y, N, N - Z, N)
-                    bot_union = Y + Z - t5
-                    t4 = bot_union - t5
-
-                    # Cross-dimension overlap:
-                    # journals in top (rank_a<W OR rank_b<X) AND
-                    #   bot (rank_a>=N-Y OR rank_b>=N-Z)
-                    # Since W+Y<=N → rank_a<W and rank_a>=N-Y are disjoint.
-                    # Since X+Z<=N → rank_b<X and rank_b>=N-Z are disjoint.
-                    # Overlap = (rank_a<W AND rank_b>=N-Z)
-                    #         + (rank_b<X AND rank_a>=N-Y)
-                    cross = (
-                        _count_rect(0, W, N - Z, N)
-                        + _count_rect(N - Y, N, 0, X)
-                    )
-                    if cross > 0:
-                        continue
-
-                    t3 = N - top_union - bot_union
-                    if t3 < 0:
-                        continue
-
-                    sizes = [t1, t2, t3, t4, t5]
-                    score = sum((s - target) ** 2 for s in sizes)
-
-                    if score < best_score:
-                        best_score = score
-                        best_wxyz = (W, X, Y, Z)
-
-    W, X, Y, Z = best_wxyz
-    top_a = {la for la in labels if rank_a[la] < W}
-    top_b = {la for la in labels if rank_b[la] < X}
-    bot_a = {la for la in labels if rank_a[la] >= N - Y}
-    bot_b = {la for la in labels if rank_b[la] >= N - Z}
-
-    tier1 = top_a & top_b
-    tier2 = (top_a | top_b) - tier1
-    tier5 = bot_a & bot_b
-    tier4 = (bot_a | bot_b) - tier5
-    tier3 = set(labels) - (tier1 | tier2) - (tier4 | tier5)
-
-    # Build lookup
-    jdata = {j["label"]: j for j in journals}
-
-    def _tier_list(s: set) -> list[dict]:
-        return sorted(
-            [jdata[la] for la in s],
-            key=lambda j: (j["saved"], j["rate"]),
-            reverse=True,
-        )
-
-    return {
-        1: _tier_list(tier1),
-        2: _tier_list(tier2),
-        3: _tier_list(tier3),
-        4: _tier_list(tier4),
-        5: _tier_list(tier5),
-    }
-
-
-_TIER_COLORS = {
-    1: "#1a7431",  # dark green
-    2: "#4CAF50",  # green
-    3: "#757575",  # neutral grey
-    4: "#EF6C00",  # orange
-    5: "#C62828",  # red
-}
-
-_TIER_LABELS = {
-    1: "Tier 1",
-    2: "Tier 2",
-    3: "Tier 3",
-    4: "Tier 4",
-    5: "Tier 5",
-}
-
-
-def _render_journal_tiers() -> None:
-    st.markdown("### Journal tiers")
-    st.caption(
-        "Journals ranked into 5 tiers based on how many papers you save (volume) "
-        "and what fraction you save (rate). Tier 1 = highest on both dimensions."
-    )
-
-    if st.button("Compute tiers", key="dashboard_compute_tiers"):
-        with st.spinner("Computing journal tiers..."):
-            st.session_state["dashboard_journal_tiers"] = _compute_journal_tiers()
-
-    tiers = st.session_state.get("dashboard_journal_tiers")
-    if not tiers:
-        st.info("Click **Compute tiers** to generate journal tier rankings.")
+    if not selected:
+        st.info("No saved papers yet.")
         return
 
-    for tier_num in (1, 2, 3, 4, 5):
-        journals = tiers.get(tier_num, [])
-        color = _TIER_COLORS[tier_num]
-        label = _TIER_LABELS[tier_num]
-
-        st.markdown(
-            f"<div style='border-left: 4px solid {color}; padding-left: 12px; margin-bottom: 8px;'>"
-            f"<strong style='color: {color}; font-size: 1.1em;'>{label}</strong>"
-            f"<span style='color: #888; margin-left: 8px;'>({len(journals)} journals)</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-        if journals:
-            rows_md = []
-            for j in journals:
-                rate_str = f"{j['rate'] * 100:.1f}%" if j["reviewed"] > 0 else "—"
-                rows_md.append(
-                    f"| {j['label']} | {j['saved']} | {j['reviewed']} | {rate_str} |"
-                )
-            table = (
-                "| Journal | Saved | Reviewed | Save rate |\n"
-                "|:--------|------:|---------:|----------:|\n"
-                + "\n".join(rows_md)
-            )
-            st.markdown(table)
-        else:
-            st.caption("*(none)*")
-
-        st.markdown("")
+    rows_md = []
+    for j in selected:
+        rate_str = f"{j['rate'] * 100:.1f}%" if j["reviewed"] > 0 else "—"
+        rows_md.append(f"| {j['label']} | {j['saved']} | {j['reviewed']} | {rate_str} |")
+    table = (
+        "| Journal | Saved | Reviewed | Save rate |\n"
+        "|:--------|------:|---------:|----------:|\n"
+        + "\n".join(rows_md)
+    )
+    st.markdown(table)
 
