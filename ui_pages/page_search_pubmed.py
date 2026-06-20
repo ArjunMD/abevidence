@@ -293,83 +293,6 @@ def _safe_int(value, default: int) -> int:
         return int(default)
 
 
-def _canonical_ledger_study_type(label: str) -> str:
-    s = " ".join((label or "").strip().lower().replace("-", " ").replace("_", " ").split())
-    if s in ("clinical trial", "clinical trials"):
-        return "clinical_trial"
-    if s in ("meta analysis", "meta analyses"):
-        return "meta_analysis"
-    if s in ("systematic review", "systematic reviews"):
-        return "systematic_review"
-    return ""
-
-
-def _merge_cleared_all_rows(table_rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    """
-    Rule priority:
-    For the same specialty + journal + month, if Clinical Trial + Meta analysis + Systematic Review
-    are all cleared, replace those rows with one cleared row labeled Study type = All.
-    """
-    required = {"clinical_trial", "meta_analysis", "systematic_review"}
-    grouped: dict[tuple[str, str, str], list[tuple[int, dict[str, object], str]]] = {}
-
-    for idx, row in enumerate(table_rows):
-        if (row.get("Status") or "") != "Cleared":
-            continue
-        canonical = _canonical_ledger_study_type(str(row.get("Study type") or ""))
-        if canonical not in required:
-            continue
-        specialty_key = str(row.get("Specialty") or "").strip().lower()
-        journal_key = str(row.get("Journal") or "").strip().lower()
-        ym_key = str(row.get("_ym_raw") or "").strip()
-        grouped.setdefault((specialty_key, journal_key, ym_key), []).append((idx, row, canonical))
-
-    to_remove: set[int] = set()
-    merged_rows: list[dict[str, object]] = []
-    for _, members in grouped.items():
-        present = {canonical for _, _, canonical in members}
-        if not required.issubset(present):
-            continue
-
-        picked: dict[str, tuple[int, dict[str, object]]] = {}
-        for idx, row, canonical in members:
-            picked.setdefault(canonical, (idx, row))
-
-        chosen = [picked["clinical_trial"], picked["meta_analysis"], picked["systematic_review"]]
-        chosen_rows = [row for _, row in chosen]
-        to_remove.update(idx for idx, _ in chosen)
-
-        rep = chosen_rows[0]
-        visible_total = sum(_safe_int(r.get("_visible_matches"), 0) for r in chosen_rows)
-        match_total = sum(_safe_int(r.get("_total_matches"), 0) for r in chosen_rows)
-        merged_rows.append(
-            {
-                "Specialty": rep.get("Specialty") or "—",
-                "Journal": rep.get("Journal") or "—",
-                "Study type": "All",
-                "Month": rep.get("Month") or "—",
-                "Status": "Cleared",
-                "Visible / Total": f"{visible_total}/{match_total}",
-                "_status_rank": rep.get("_status_rank"),
-                "_ym_sort": rep.get("_ym_sort"),
-                "_ym_raw": rep.get("_ym_raw"),
-                "_visible_matches": visible_total,
-                "_total_matches": match_total,
-            }
-        )
-
-    if not merged_rows:
-        return table_rows
-
-    out: list[dict[str, object]] = []
-    for idx, row in enumerate(table_rows):
-        if idx in to_remove:
-            continue
-        out.append(row)
-    out.extend(merged_rows)
-    return out
-
-
 def _month_idx_from_ym(ym: tuple[int, int]) -> int:
     return int(ym[0]) * 12 + int(ym[1])
 
@@ -674,7 +597,6 @@ def _render_search_ledger() -> None:
             }
         )
 
-    table_rows = _merge_cleared_all_rows(table_rows)
     table_rows = _merge_consecutive_cleared_all_rows(table_rows, today=today)
 
     table_rows = sorted(
@@ -843,17 +765,15 @@ def render() -> None:
     is_future = _is_future_year_month(ym_key, today=today)
     is_time_clearable = _is_year_month_clearable(ym_key, today=today)
 
-    grand_total = sum(
+    grand_matches = sum(
         len([r for r in (g.get("rows") or []) if isinstance(r, dict)]) for g in groups
     )
-    header_bits = []
-    if ym_label:
-        header_bits.append(f"Month: {ym_label}")
-    header_bits.append(f"{len(groups)} journals searched")
-    header_bits.append(f"{grand_total} matches")
-    st.caption(" | ".join(header_bits))
+    # Filled after the loop so it can report shown vs hidden, which depend on the
+    # per-journal saved/hidden filtering done below.
+    header_slot = st.empty()
 
     any_visible = False
+    grand_shown = 0
     current_specialty: str | None = None
     for gi, g in enumerate(groups):
         specialty_label = (g.get("specialty") or "").strip()
@@ -866,6 +786,7 @@ def render() -> None:
         fetched_count = len(rows)
         visible_rows = _filter_search_pubmed_rows(rows)
         visible_count = len(visible_rows)
+        grand_shown += visible_count
         hidden_count = max(0, fetched_count - visible_count)
         is_verified = raw_count <= int(SEARCH_FETCH_LIMIT)
         is_cleared = bool(visible_count == 0 and is_verified and is_time_clearable)
@@ -906,13 +827,6 @@ def render() -> None:
             c_left, c_right = st.columns([5, 3])
             with c_left:
                 st.markdown(f"- {title}")
-                pub_types = [
-                    str(t).strip()
-                    for t in (r.get("pub_types") or [])
-                    if str(t).strip() and str(t).strip().lower() != "journal article"
-                ]
-                if pub_types:
-                    st.caption(" · ".join(pub_types))
             with c_right:
                 if pmid != "—":
                     b1, b2 = st.columns(2, gap="small")
@@ -940,6 +854,14 @@ def render() -> None:
                         ):
                             st.query_params["open_abs_pmid"] = pmid
                             st.rerun()
+
+    grand_hidden = max(0, grand_matches - grand_shown)
+    header_bits = []
+    if ym_label:
+        header_bits.append(f"Month: {ym_label}")
+    header_bits.append(f"{len(groups)} journals searched")
+    header_bits.append(f"{grand_matches} matches ({grand_shown} shown, {grand_hidden} hidden)")
+    header_slot.caption(" | ".join(header_bits))
 
     if not any_visible:
         st.info("No visible results across any journal for this month.")

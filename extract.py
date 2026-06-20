@@ -608,8 +608,13 @@ def search_pubmed_pmids_page(
         "retmode": "json",
         "retmax": str(max(1, int(retmax))),
         "retstart": str(max(0, int(retstart))),
-        "sort": "pub date",
-        "datetype": "pdat",
+        # Window/sort by Entrez date (when PubMed added the record), NOT pdat
+        # (journal publication date). pdat can land an article in a month you've
+        # already cleared (late indexing) → permanent miss; edat never migrates
+        # between months, so monthly sweeps stay complete and surface items as
+        # soon as PubMed has them. "most recent" sorts by edat descending.
+        "sort": "most recent",
+        "datetype": "edat",
         "mindate": md,
         "maxdate": xd,
         **_ncbi_params_base(),
@@ -670,7 +675,7 @@ def _abstract_has_real_text(abstract_el: ET.Element | None) -> bool:
 
 
 def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, object]]:
-    """{pmid: {title, has_real_abstract, pub_types}} from a batched efetch response.
+    """{pmid: {title, has_real_abstract}} from a batched efetch response.
 
     ``has_real_abstract`` requires a genuine <Article><Abstract> with readable
     text — NOT the <OtherAbstract> publisher blurbs (e.g. plain-language-summary)
@@ -685,10 +690,7 @@ def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, obj
             continue
         title = _itertext(art.find(".//ArticleTitle"))
         has_real_abstract = _abstract_has_real_text(art.find(".//Article/Abstract"))
-        pub_types = [
-            t for t in (_itertext(pt) for pt in art.findall(".//PublicationTypeList/PublicationType")) if t
-        ]
-        out[pmid] = {"title": title, "has_real_abstract": has_real_abstract, "pub_types": pub_types}
+        out[pmid] = {"title": title, "has_real_abstract": has_real_abstract}
     return out
 
 
@@ -797,7 +799,6 @@ def search_pubmed_by_date_filters_page(
             {
                 "pmid": p,
                 "title": (str(meta.get("title") or "")).strip(),
-                "pub_types": list(meta.get("pub_types") or []),
             }
         )
     return {"rows": rows, "total_count": int(page.get("total_count") or 0)}
