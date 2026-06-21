@@ -147,46 +147,6 @@ SPECIALTY_JOURNAL_TERMS = {
     },
 }
 
-SPECIALTY_LEDGER_BG_COLORS = {
-    "general": "#fff4d6",
-    "internal medicine": "#dff4ff",
-    "neurology": "#e6ebff",
-    "critical care": "#ffe2e2",
-    "cardiology": "#fde3ec",
-    "infectious disease": "#e5ffe8",
-    "pulmonology": "#dffaf5",
-    "surgery": "#ffe9db",
-    "psychiatry": "#f0e8ff",
-    "gastroenterology": "#fff1d9",
-    "emergency medicine": "#ffe8cc",
-    "nephrology": "#e5f0ff",
-    "endocrinology/diabetes": "#fff2c2",
-    "hematology": "#ffe7f0",
-    "oncology": "#ffe2ea",
-    "rheumatology": "#f3ecff",
-    "hepatology": "#fef3d7",
-    "open-access": "#e8f5e9",
-    "palliative care": "#f3e5f5",
-}
-
-
-def _infer_specialty_from_journal_label(journal_label: str) -> str:
-    jl = (journal_label or "").strip().lower()
-    if not jl:
-        return "—"
-    for specialty, journals in SPECIALTY_JOURNAL_TERMS.items():
-        for label in journals:
-            if jl == (label or "").strip().lower():
-                return specialty
-    return "—"
-
-
-def _specialty_cell_style(value: object) -> str:
-    specialty = str(value or "").strip().lower()
-    bg = SPECIALTY_LEDGER_BG_COLORS.get(specialty, "#f3f4f6")
-    return f"background-color: {bg}; color: #1f2937; font-weight: 600;"
-
-
 def _run_search_page(
     start_date: str,
     end_date: str,
@@ -268,24 +228,6 @@ def _is_future_year_month(year_month: str, today) -> bool:
     return bool((int(ym[0]), int(ym[1])) > (int(today.year), int(today.month)))
 
 
-def _latest_clearable_year_month(today) -> tuple[int, int] | None:
-    """
-    Return the most recent (year, month) that is clearable under the 30-day rule.
-    """
-    yy = int(today.year)
-    mm = int(today.month)
-    for _ in range(2400):
-        ym = f"{yy:04d}-{mm:02d}"
-        if _is_year_month_clearable(ym, today=today):
-            return (yy, mm)
-        if mm == 1:
-            yy -= 1
-            mm = 12
-        else:
-            mm -= 1
-    return None
-
-
 def _safe_int(value, default: int) -> int:
     try:
         return int(value)
@@ -293,285 +235,53 @@ def _safe_int(value, default: int) -> int:
         return int(default)
 
 
-def _month_idx_from_ym(ym: tuple[int, int]) -> int:
-    return int(ym[0]) * 12 + int(ym[1])
-
-
-def _ym_from_month_idx(month_idx: int) -> tuple[int, int]:
-    yy = int(month_idx) // 12
-    mm = int(month_idx) % 12
-    if mm == 0:
-        yy -= 1
-        mm = 12
-    return (yy, mm)
-
-
-def _month_label_from_month_idx(month_idx: int) -> str:
-    yy, mm = _ym_from_month_idx(month_idx)
-    return f"{calendar.month_name[int(mm)]} {int(yy)}"
-
-
-def _month_ranges(month_values: set[int]) -> list[tuple[int, int]]:
-    if not month_values:
-        return []
-    vals = sorted(int(v) for v in month_values)
-    out: list[tuple[int, int]] = []
-    start = vals[0]
-    end = vals[0]
-    for cur in vals[1:]:
-        if cur == (end + 1):
-            end = cur
-            continue
-        out.append((start, end))
-        start = cur
-        end = cur
-    out.append((start, end))
-    return out
-
-
-def _month_range_label(start_month_idx: int, end_month_idx: int, latest_clearable_month_idx: int | None) -> str:
-    start_label = _month_label_from_month_idx(start_month_idx)
-    if int(start_month_idx) == int(end_month_idx):
-        return start_label
-    if latest_clearable_month_idx is not None and int(end_month_idx) == int(latest_clearable_month_idx):
-        return f"{start_label} to present"
-    end_label = _month_label_from_month_idx(end_month_idx)
-    return f"{start_label} to {end_label}"
-
-
-def _configured_journal_keys_for_specialty(specialty_key: str) -> set[str]:
-    skey = (specialty_key or "").strip().lower()
-    if not skey:
-        return set()
-    for specialty, journals in SPECIALTY_JOURNAL_TERMS.items():
-        if skey == (specialty or "").strip().lower():
-            return {
-                (label or "").strip().lower()
-                for label in journals
-                if (label or "").strip()
-            }
-    return set()
-
-
-def _merge_consecutive_cleared_all_rows(table_rows: list[dict[str, object]], today) -> list[dict[str, object]]:
-    """
-    Consolidate cleared Study type=All rows in two passes:
-    1) Merge consecutive months per specialty + journal.
-    2) Add specialty-level "All journals" ranges where all configured journals in the
-       specialty are cleared for the same months.
-
-    Journal-level rows are hidden only when their full month range is already covered by
-    the specialty-level "All journals" range.
-    """
-    passthrough_rows: list[dict[str, object]] = []
-    month_rows: list[dict[str, object]] = []
-
-    for row in table_rows:
-        if (row.get("Status") or "") != "Cleared":
-            passthrough_rows.append(row)
-            continue
-        if str(row.get("Study type") or "").strip().lower() != "all":
-            passthrough_rows.append(row)
-            continue
-        ym = _parse_year_month_key(str(row.get("_ym_raw") or ""))
-        if ym is None:
-            passthrough_rows.append(row)
-            continue
-        month_rows.append(row)
-
-    if not month_rows:
-        return table_rows
-
-    latest_clearable = _latest_clearable_year_month(today=today)
-    latest_clearable_month_idx = (
-        _month_idx_from_ym(latest_clearable) if latest_clearable is not None else None
-    )
-
-    spec_label_by_key: dict[str, str] = {}
-    journal_label_by_key: dict[tuple[str, str], str] = {}
-    journal_months: dict[tuple[str, str], set[int]] = {}
-    journal_month_totals: dict[tuple[str, str, int], tuple[int, int]] = {}
-
-    for row in month_rows:
-        ym = _parse_year_month_key(str(row.get("_ym_raw") or ""))
-        if ym is None:
-            continue
-        month_idx = _month_idx_from_ym(ym)
-        spec_label = str(row.get("Specialty") or "—").strip() or "—"
-        journal_label = str(row.get("Journal") or "—").strip() or "—"
-        spec_key = spec_label.lower()
-        journal_key = journal_label.lower()
-
-        spec_label_by_key.setdefault(spec_key, spec_label)
-        journal_label_by_key.setdefault((spec_key, journal_key), journal_label)
-        journal_months.setdefault((spec_key, journal_key), set()).add(month_idx)
-
-        k = (spec_key, journal_key, month_idx)
-        prev_visible, prev_total = journal_month_totals.get(k, (0, 0))
-        journal_month_totals[k] = (
-            int(prev_visible) + _safe_int(row.get("_visible_matches"), 0),
-            int(prev_total) + _safe_int(row.get("_total_matches"), 0),
-        )
-
-    specialty_keys = {spec for spec, _ in journal_months}
-    specialty_all_months: dict[str, set[int]] = {}
-    specialty_required_journals: dict[str, set[str]] = {}
-
-    for spec_key in specialty_keys:
-        present_journals = {
-            journal_key
-            for s_key, journal_key in journal_months
-            if s_key == spec_key
-        }
-        configured_journals = _configured_journal_keys_for_specialty(spec_key)
-        required_journals = configured_journals if configured_journals else present_journals
-        specialty_required_journals[spec_key] = set(required_journals)
-
-        if not required_journals:
-            specialty_all_months[spec_key] = set()
-            continue
-
-        common: set[int] | None = None
-        for journal_key in required_journals:
-            months = set(journal_months.get((spec_key, journal_key), set()))
-            if common is None:
-                common = months
-            else:
-                common = common.intersection(months)
-        specialty_all_months[spec_key] = set(common or set())
-
-    merged_rows: list[dict[str, object]] = []
-
-    for (spec_key, journal_key), month_set in journal_months.items():
-        month_ranges = _month_ranges(month_set)
-        specialty_month_set = specialty_all_months.get(spec_key, set())
-        for start_month_idx, end_month_idx in month_ranges:
-            fully_covered = all(
-                int(mm) in specialty_month_set
-                for mm in range(int(start_month_idx), int(end_month_idx) + 1)
-            )
-            if fully_covered:
-                continue
-
-            visible_total = 0
-            match_total = 0
-            for mm in range(int(start_month_idx), int(end_month_idx) + 1):
-                vis, tot = journal_month_totals.get((spec_key, journal_key, int(mm)), (0, 0))
-                visible_total += int(vis)
-                match_total += int(tot)
-
-            end_ym = _ym_from_month_idx(end_month_idx)
-            month_label = _month_range_label(
-                start_month_idx=start_month_idx,
-                end_month_idx=end_month_idx,
-                latest_clearable_month_idx=latest_clearable_month_idx,
-            )
-            merged_rows.append(
-                {
-                    "Specialty": spec_label_by_key.get(spec_key, "—"),
-                    "Journal": journal_label_by_key.get((spec_key, journal_key), "—"),
-                    "Study type": "All",
-                    "Month": month_label,
-                    "Status": "Cleared",
-                    "Visible / Total": f"{visible_total}/{match_total}",
-                    "_status_rank": 2,
-                    "_ym_sort": int(end_ym[0]) * 100 + int(end_ym[1]),
-                    "_ym_raw": f"{int(end_ym[0])}-{int(end_ym[1]):02d}",
-                    "_visible_matches": visible_total,
-                    "_total_matches": match_total,
-                }
-            )
-
-    for spec_key, common_months in specialty_all_months.items():
-        required_journals = specialty_required_journals.get(spec_key, set())
-        if not common_months or not required_journals:
-            continue
-        month_ranges = _month_ranges(common_months)
-        for start_month_idx, end_month_idx in month_ranges:
-            visible_total = 0
-            match_total = 0
-            for mm in range(int(start_month_idx), int(end_month_idx) + 1):
-                for journal_key in required_journals:
-                    vis, tot = journal_month_totals.get((spec_key, journal_key, int(mm)), (0, 0))
-                    visible_total += int(vis)
-                    match_total += int(tot)
-
-            end_ym = _ym_from_month_idx(end_month_idx)
-            month_label = _month_range_label(
-                start_month_idx=start_month_idx,
-                end_month_idx=end_month_idx,
-                latest_clearable_month_idx=latest_clearable_month_idx,
-            )
-            merged_rows.append(
-                {
-                    "Specialty": spec_label_by_key.get(spec_key, "—"),
-                    "Journal": "All journals",
-                    "Study type": "All",
-                    "Month": month_label,
-                    "Status": "Cleared",
-                    "Visible / Total": f"{visible_total}/{match_total}",
-                    "_status_rank": 2,
-                    "_ym_sort": int(end_ym[0]) * 100 + int(end_ym[1]),
-                    "_ym_raw": f"{int(end_ym[0])}-{int(end_ym[1]):02d}",
-                    "_visible_matches": visible_total,
-                    "_total_matches": match_total,
-                }
-            )
-
-    out = list(passthrough_rows)
-    out.extend(merged_rows)
-    return out
-
-
 def _render_search_ledger() -> None:
     st.markdown("##### Ledger")
-    st.caption("Entries are eligible to clear 30 days after month-end.")
+    st.caption("One row per month searched (all journals together). Months clear 30 days after month-end.")
     today = datetime.now(timezone.utc).date()
     rows = list_search_pubmed_ledger()
     if not rows:
-        st.caption("No ledger entries yet.")
+        st.caption("No months searched yet.")
         return
 
-    table_rows: list[dict[str, object]] = []
+    # Aggregate by month so the ledger is robust to multiple rows per month
+    # (e.g. legacy per-journal rows): one display row per month, cleared only
+    # when every underlying row is cleared.
+    by_month: dict[str, dict[str, object]] = {}
     for r in rows:
         ym_raw = (r.get("year_month") or "").strip()
-        if _is_future_year_month(ym_raw, today=today):
+        if not ym_raw or _is_future_year_month(ym_raw, today=today):
             continue
+        agg = by_month.get(ym_raw)
+        if agg is None:
+            agg = {"still_shown": 0, "cleared": True, "verified": True, "last": ""}
+            by_month[ym_raw] = agg
+        agg["still_shown"] = int(agg["still_shown"]) + _safe_int(r.get("visible_matches"), 0)
+        agg["cleared"] = bool(agg["cleared"]) and ((r.get("is_cleared") or "0") == "1")
+        agg["verified"] = bool(agg["verified"]) and ((r.get("is_verified") or "0") == "1")
+        lc = (r.get("last_checked_at") or "").strip()
+        if lc > str(agg["last"]):
+            agg["last"] = lc
+
+    table_rows: list[dict[str, object]] = []
+    for ym_raw, agg in by_month.items():
         ym_parts = _parse_year_month_parts(ym_raw)
         ym_key = _parse_year_month_key(ym_raw)
         clearable = _is_year_month_clearable(ym_raw, today=today)
-
-        try:
-            total_matches = int(r.get("total_matches") or 0)
-        except Exception:
-            total_matches = 0
-        try:
-            visible_matches = int(r.get("visible_matches") or 0)
-        except Exception:
-            visible_matches = 0
-        is_cleared = (r.get("is_cleared") or "0") == "1"
-        is_verified = (r.get("is_verified") or "0") == "1"
+        still_shown = int(agg["still_shown"])
+        is_cleared = bool(agg["cleared"])
+        is_verified = bool(agg["verified"])
 
         if is_cleared and clearable:
-            status = "Cleared"
-            status_rank = 2
+            status = "✅ Cleared"
         elif not is_verified:
             status = "Unverified"
-            status_rank = 3
         elif not clearable:
             status = "Not clearable yet"
-            status_rank = 0
-        elif visible_matches > 0:
-            status = "Not cleared"
-            status_rank = 1
+        elif still_shown > 0:
+            status = "In progress"
         else:
             status = "Ready to clear"
-            status_rank = 1
-
-        if ym_key is not None:
-            ym_sort = int(ym_key[0]) * 100 + int(ym_key[1])
-        else:
-            ym_sort = -1
 
         year = (ym_parts.get("year") or "").strip()
         month = (ym_parts.get("month") or "").strip()
@@ -580,48 +290,27 @@ def _render_search_ledger() -> None:
         else:
             month_label = ym_raw or "—"
 
+        last_checked = str(agg["last"]).strip()
+        last_checked = last_checked[:10] if last_checked else "—"
+
+        ym_sort = int(ym_key[0]) * 100 + int(ym_key[1]) if ym_key is not None else -1
         table_rows.append(
             {
-                "Specialty": (r.get("specialty_label") or "").strip()
-                or _infer_specialty_from_journal_label((r.get("journal_label") or "").strip()),
-                "Journal": (r.get("journal_label") or "").strip() or "—",
-                "Study type": (r.get("study_type_label") or "").strip() or "—",
                 "Month": month_label,
+                "Still shown": still_shown,
                 "Status": status,
-                "Visible / Total": f"{visible_matches}/{total_matches}",
-                "_ym_raw": ym_raw,
-                "_total_matches": total_matches,
-                "_visible_matches": visible_matches,
-                "_status_rank": status_rank,
+                "Last checked": last_checked,
                 "_ym_sort": ym_sort,
             }
         )
 
-    table_rows = _merge_consecutive_cleared_all_rows(table_rows, today=today)
-
-    table_rows = sorted(
-        table_rows,
-        key=lambda x: (
-            -_safe_int(x.get("_ym_sort"), -1),
-            _safe_int(x.get("_status_rank"), 99),
-            str(x.get("Specialty") or "").lower(),
-            str(x.get("Journal") or "").lower(),
-            str(x.get("Study type") or "").lower(),
-        ),
-    )
-
-    display_rows = [r for r in table_rows if (r.get("Status") or "") == "Cleared"]
-
-    if not display_rows:
-        st.caption("No ledger entries to display.")
+    if not table_rows:
+        st.caption("No months to display.")
         return
 
-    cols = ["Specialty", "Journal", "Month"]
-    df = pd.DataFrame(display_rows)
-    if not df.empty:
-        df = df[cols]
-    styled = df.style.map(_specialty_cell_style, subset=["Specialty"])
-    st.dataframe(styled, hide_index=True, width="stretch")
+    table_rows.sort(key=lambda x: -_safe_int(x.get("_ym_sort"), -1))
+    df = pd.DataFrame(table_rows)[["Month", "Still shown", "Status", "Last checked"]]
+    st.dataframe(df, hide_index=True, width="stretch")
 
 
 def _ordered_specialties() -> list[str]:
@@ -774,35 +463,20 @@ def render() -> None:
 
     any_visible = False
     grand_shown = 0
+    all_verified = True
     current_specialty: str | None = None
     for gi, g in enumerate(groups):
         specialty_label = (g.get("specialty") or "").strip()
         journal_label = (g.get("journal") or "").strip()
         # raw_count is PubMed's esearch match count (includes items later dropped
-        # for lacking a real abstract); used only for the >200 truncation check.
-        # fetched_count is the accurate number of real-research articles we hold.
+        # for lacking a real abstract); used for the >200 truncation check and the
+        # month-level "all journals verified" roll-up.
         raw_count = int(g.get("total_count") or 0)
         rows = [r for r in (g.get("rows") or []) if isinstance(r, dict)]
-        fetched_count = len(rows)
         visible_rows = _filter_search_pubmed_rows(rows)
         visible_count = len(visible_rows)
         grand_shown += visible_count
-        hidden_count = max(0, fetched_count - visible_count)
-        is_verified = raw_count <= int(SEARCH_FETCH_LIMIT)
-        is_cleared = bool(visible_count == 0 and is_verified and is_time_clearable)
-
-        if not is_future:
-            upsert_search_pubmed_ledger(
-                year_month=ym_key,
-                specialty_label=specialty_label,
-                journal_label=journal_label,
-                study_type_label=LEDGER_STUDY_TYPE_LABEL,
-                total_matches=fetched_count,
-                visible_matches=visible_count,
-                hidden_matches=hidden_count,
-                is_cleared=is_cleared,
-                is_verified=is_verified,
-            )
+        all_verified = all_verified and (raw_count <= int(SEARCH_FETCH_LIMIT))
 
         # Always surface truncation, even when this journal has no visible rows —
         # otherwise an over-cap journal that looks "empty" would hide the overflow.
@@ -856,6 +530,23 @@ def render() -> None:
                             st.rerun()
 
     grand_hidden = max(0, grand_matches - grand_shown)
+
+    # One ledger row per month (all journals rolled into one). The month is
+    # cleared when nothing is left to show across every journal.
+    if not is_future:
+        month_cleared = bool(grand_shown == 0 and all_verified and is_time_clearable)
+        upsert_search_pubmed_ledger(
+            year_month=ym_key,
+            specialty_label="All",
+            journal_label="All",
+            study_type_label=LEDGER_STUDY_TYPE_LABEL,
+            total_matches=grand_matches,
+            visible_matches=grand_shown,
+            hidden_matches=grand_hidden,
+            is_cleared=month_cleared,
+            is_verified=all_verified,
+        )
+
     header_bits = []
     if ym_label:
         header_bits.append(f"Month: {ym_label}")
