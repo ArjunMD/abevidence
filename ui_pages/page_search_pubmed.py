@@ -1,16 +1,36 @@
 import calendar
+import re
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
 import streamlit as st
 
-from db import hide_pubmed_pmid, list_search_pubmed_ledger, upsert_search_pubmed_ledger
+from db import hide_pubmed_pmid, list_search_pubmed_ledger, unhide_pubmed_pmid, upsert_search_pubmed_ledger
 from extract import search_pubmed_by_date_filters_page
 from pages_shared import _filter_search_pubmed_rows
 
 SEARCH_FETCH_LIMIT = 500
 LEDGER_STUDY_TYPE_LABEL = "All"
+
+# Pediatric/adolescent studies are out of scope; drop any result whose title
+# mentions these (word-boundary matched so "adult" etc. is unaffected).
+PEDIATRIC_TITLE_PATTERN = re.compile(
+    r"\b("
+    r"child|children|childhood|"
+    r"pediatric|pediatrics|paediatric|paediatrics|"
+    r"adolescent|adolescents|adolescence|"
+    r"infant|infants|infancy|"
+    r"neonatal|neonate|neonates|neonatology|"
+    r"newborn|newborns"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_pediatric_title(title: str) -> bool:
+    return bool(PEDIATRIC_TITLE_PATTERN.search(title or ""))
+
 COMBINED_PUBLICATION_TYPE_TERMS = [
     '"Clinical Trial"[Publication Type]',
     '"Meta-Analysis"[Publication Type]',
@@ -375,7 +395,7 @@ def render() -> None:
         clear_clicked = st.button("Clear search", width="stretch", key="search_pubmed_clear_btn")
 
     if clear_clicked:
-        for k in ["search_pubmed_groups", "search_pubmed_range"]:
+        for k in ["search_pubmed_groups", "search_pubmed_range", "search_pubmed_last_hidden"]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -433,6 +453,7 @@ def render() -> None:
                 progress.empty()
 
             if not errored:
+                st.session_state.pop("search_pubmed_last_hidden", None)
                 st.session_state["search_pubmed_groups"] = groups
                 st.session_state["search_pubmed_range"] = {
                     "start": start_s,
@@ -461,6 +482,20 @@ def render() -> None:
     # per-journal saved/hidden filtering done below.
     header_slot = st.empty()
 
+    last_hidden = st.session_state.get("search_pubmed_last_hidden")
+    if isinstance(last_hidden, dict) and (last_hidden.get("pmid") or "").strip():
+        u_msg, u_btn = st.columns([6, 1])
+        with u_msg:
+            _hidden_title = (last_hidden.get("title") or "").strip() or str(last_hidden.get("pmid"))
+            if len(_hidden_title) > 70:
+                _hidden_title = _hidden_title[:70].rstrip() + "…"
+            st.caption(f"Hidden “{_hidden_title}”")
+        with u_btn:
+            if st.button("↩︎ Undo", key="search_pubmed_undo_hide", use_container_width=True):
+                unhide_pubmed_pmid(str(last_hidden.get("pmid") or ""))
+                st.session_state.pop("search_pubmed_last_hidden", None)
+                st.rerun()
+
     any_visible = False
     grand_shown = 0
     all_verified = True
@@ -474,6 +509,7 @@ def render() -> None:
         raw_count = int(g.get("total_count") or 0)
         rows = [r for r in (g.get("rows") or []) if isinstance(r, dict)]
         visible_rows = _filter_search_pubmed_rows(rows)
+        visible_rows = [r for r in visible_rows if not _is_pediatric_title(r.get("title"))]
         visible_count = len(visible_rows)
         grand_shown += visible_count
         all_verified = all_verified and (raw_count <= int(SEARCH_FETCH_LIMIT))
@@ -519,6 +555,10 @@ def render() -> None:
                                 year=_hide_year,
                                 pub_month=_hide_month,
                             )
+                            st.session_state["search_pubmed_last_hidden"] = {
+                                "pmid": pmid,
+                                "title": title,
+                            }
                             st.rerun()
                     with b2:
                         if st.button(

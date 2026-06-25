@@ -215,6 +215,14 @@ def hide_pubmed_pmid(
         )
 
 
+def unhide_pubmed_pmid(pmid: str) -> None:
+    p = (pmid or "").strip()
+    if not p:
+        return
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM hidden_pubmed_pmids WHERE pmid = ?;", (p,))
+
+
 def get_hidden_pubmed_pmids(pmids: list[str]) -> set[str]:
     vals: list[str] = []
     seen = set()
