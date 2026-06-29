@@ -950,6 +950,10 @@ def get_s2_similar_papers(pmid: str, top_n: int = 5) -> list[dict[str, str]]:
     return out
 
 
+class _NonRetryableError(RuntimeError):
+    """Raised for provider errors where retrying cannot help (e.g. quota)."""
+
+
 def _post_with_retries(
     url: str,
     headers: dict[str, str],
@@ -959,6 +963,8 @@ def _post_with_retries(
 ) -> requests.Response:
     sess = _requests_session()
     last_exc: Exception | None = None
+    last_status: int | None = None
+    last_body: str = ""
 
     attempts = max(1, int(max_attempts))
     for attempt in range(attempts):
@@ -966,6 +972,19 @@ def _post_with_retries(
             r = sess.post(url, headers=headers, json=json, timeout=timeout)
 
             if r.status_code in (429, 500, 502, 503, 504):
+                last_status = r.status_code
+                last_body = (r.text or "")[:500]
+
+                # Quota/billing exhaustion also returns 429, but retrying is
+                # futile — fail fast with the provider's message.
+                if r.status_code == 429 and "insufficient_quota" in last_body:
+                    raise _NonRetryableError(
+                        "OpenAI request failed: insufficient_quota. The API key's "
+                        "account is out of quota/credits — check your plan and "
+                        f"billing at platform.openai.com. Response: {last_body}"
+                    )
+
+                # Otherwise 429 is rate limiting (retry helps) — back off.
                 retry_after = r.headers.get("Retry-After", "").strip()
                 ra = int(retry_after) if retry_after.isdigit() else None
 
@@ -977,11 +996,18 @@ def _post_with_retries(
             r.raise_for_status()
             return r
 
+        except _NonRetryableError:
+            raise
         except Exception as e:
             last_exc = e
             backoff = (2 ** attempt) + random.random()
             time.sleep(min(backoff, 10))
 
+    if last_status is not None:
+        raise RuntimeError(
+            f"POST failed after {attempts} retries (HTTP {last_status}). "
+            f"Response: {last_body or '(empty body)'}"
+        )
     if last_exc:
         raise last_exc
     raise RuntimeError("POST failed after retries")
