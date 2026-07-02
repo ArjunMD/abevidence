@@ -370,29 +370,32 @@ def parse_abstract(xml_text: str) -> str:
     return "\n\n".join(parts).strip()
 
 
-def parse_year(xml_text: str) -> str:
-    root = ET.fromstring(xml_text)
-
-    year = _itertext(root.find(".//JournalIssue/PubDate/Year"))
+def _extract_year_el(el: ET.Element) -> str:
+    year = _itertext(el.find(".//JournalIssue/PubDate/Year"))
     if year:
         return year
 
-    year = _itertext(root.find(".//ArticleDate/Year"))
+    year = _itertext(el.find(".//ArticleDate/Year"))
     if year:
         return year
 
-    medline = _itertext(root.find(".//JournalIssue/PubDate/MedlineDate"))
+    medline = _itertext(el.find(".//JournalIssue/PubDate/MedlineDate"))
     if medline:
         m = re.search(r"(\d{4})", medline)
         if m:
             return m.group(1)
 
     for path in [".//DateCreated/Year", ".//DateCompleted/Year"]:
-        year = _itertext(root.find(path))
+        year = _itertext(el.find(path))
         if year:
             return year
 
     return ""
+
+
+def parse_year(xml_text: str) -> str:
+    root = ET.fromstring(xml_text)
+    return _extract_year_el(root)
 
 
 def _parse_pubmed_month_token(raw: str) -> str:
@@ -429,26 +432,29 @@ def _parse_pubmed_month_from_medline_date(raw: str) -> str:
     return _parse_pubmed_month_token(m.group(1))
 
 
-def parse_pub_month(xml_text: str) -> str:
-    root = ET.fromstring(xml_text)
-
+def _extract_month_el(el: ET.Element) -> str:
     for path in [
         ".//JournalIssue/PubDate/Month",
         ".//ArticleDate/Month",
         ".//DateCreated/Month",
         ".//DateCompleted/Month",
     ]:
-        month = _parse_pubmed_month_token(_itertext(root.find(path)))
+        month = _parse_pubmed_month_token(_itertext(el.find(path)))
         if month:
             return month
 
-    medline = _itertext(root.find(".//JournalIssue/PubDate/MedlineDate"))
+    medline = _itertext(el.find(".//JournalIssue/PubDate/MedlineDate"))
     if medline:
         month = _parse_pubmed_month_from_medline_date(medline)
         if month:
             return month
 
     return ""
+
+
+def parse_pub_month(xml_text: str) -> str:
+    root = ET.fromstring(xml_text)
+    return _extract_month_el(root)
 
 
 def parse_journal(xml_text: str) -> str:
@@ -675,12 +681,19 @@ def _abstract_has_real_text(abstract_el: ET.Element | None) -> bool:
 
 
 def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, object]]:
-    """{pmid: {title, has_real_abstract}} from a batched efetch response.
+    """{pmid: {title, has_real_abstract, journal_iso}} from a batched efetch response.
 
     ``has_real_abstract`` requires a genuine <Article><Abstract> with readable
     text — NOT the <OtherAbstract> publisher blurbs (e.g. plain-language-summary)
     that PubMed's `hasabstract` filter also matches (essays/news), and NOT
     formula-only stubs that collapse to a few label words.
+
+    ``journal_iso`` is the NLM ISO abbreviation (e.g. "N Engl J Med"); callers
+    use it to rank results by journal. Empty when PubMed omits it.
+
+    ``pub_year``/``pub_month`` come from the same efetch response already
+    fetched for title/abstract/journal, so surfacing them costs no extra
+    PubMed call.
     """
     root = ET.fromstring(efetch_xml)
     out: dict[str, dict[str, object]] = {}
@@ -690,7 +703,14 @@ def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, obj
             continue
         title = _itertext(art.find(".//ArticleTitle"))
         has_real_abstract = _abstract_has_real_text(art.find(".//Article/Abstract"))
-        out[pmid] = {"title": title, "has_real_abstract": has_real_abstract}
+        journal_iso = _itertext(art.find(".//Article/Journal/ISOAbbreviation"))
+        out[pmid] = {
+            "title": title,
+            "has_real_abstract": has_real_abstract,
+            "journal_iso": journal_iso,
+            "pub_year": _extract_year_el(art),
+            "pub_month": _extract_month_el(art),
+        }
     return out
 
 
@@ -799,6 +819,90 @@ def search_pubmed_by_date_filters_page(
             {
                 "pmid": p,
                 "title": (str(meta.get("title") or "")).strip(),
+            }
+        )
+    return {"rows": rows, "total_count": int(page.get("total_count") or 0)}
+
+
+def search_pubmed_by_term_page(
+    term_query: str,
+    publication_type_terms: list[str],
+    retmax: int = 200,
+    retstart: int = 0,
+    exclude_publication_type_terms: list[str] | None = None,
+    exclude_review_unless_terms: list[str] | None = None,
+    journal_term: str = "",
+    mindate: str = "1900/01/01",
+) -> dict[str, object]:
+    """
+    Free-text PubMed search across all journals and all years, filtered by the
+    same study-type machinery as the journal sweep (positive types and/or the
+    lenient exclude-only filter) and requiring a real abstract. Pass
+    ``journal_term`` (e.g. an OR of journal[jour] clauses) to restrict to a
+    journal set; leave it blank to search every journal.
+
+    Returns rows with ``pmid``, ``title``, ``journal_iso`` (NLM abbreviation, for
+    journal ranking), ``pub_year``/``pub_month`` (from the same efetch response,
+    no extra call) and ``recency_rank`` (0-based position in PubMed's "most
+    recent" ordering, so callers can sort by recency without parsing dates).
+    """
+    q = (term_query or "").strip()
+    if not q:
+        return {"rows": [], "total_count": 0}
+
+    pub_type_terms = [(t or "").strip() for t in (publication_type_terms or []) if (t or "").strip()]
+    exclude_terms = [(t or "").strip() for t in (exclude_publication_type_terms or []) if (t or "").strip()]
+    review_keep_terms = [(t or "").strip() for t in (exclude_review_unless_terms or []) if (t or "").strip()]
+    journal_q = (journal_term or "").strip()
+
+    # Search the term across title/abstract so a topic like "bacterial meningitis"
+    # matches without requiring an exact MeSH heading.
+    term_bits: list[str] = [f"({q})"]
+    if journal_q:
+        term_bits.append(journal_q)
+    if pub_type_terms:
+        if len(pub_type_terms) == 1:
+            term_bits.append(pub_type_terms[0])
+        else:
+            term_bits.append("(" + " OR ".join(pub_type_terms) + ")")
+
+    term = " AND ".join(term_bits)
+    if exclude_terms:
+        excl = exclude_terms[0] if len(exclude_terms) == 1 else "(" + " OR ".join(exclude_terms) + ")"
+        term = f"{term} NOT {excl}"
+    if review_keep_terms:
+        keep = review_keep_terms[0] if len(review_keep_terms) == 1 else "(" + " OR ".join(review_keep_terms) + ")"
+        term = f"{term} NOT (Review[pt] NOT {keep})"
+    term = f"({term}) AND hasabstract"
+
+    # esearch needs a date window; span from the caller's floor up to today.
+    md = (mindate or "").strip() or "1900/01/01"
+    maxdate = datetime.now().strftime("%Y/%m/%d")
+    page = search_pubmed_pmids_page(
+        term=term,
+        mindate=md,
+        maxdate=maxdate,
+        retmax=retmax,
+        retstart=retstart,
+    )
+    pmids = [str(p).strip() for p in (page.get("pmids") or []) if str(p).strip()]
+    if not pmids:
+        return {"rows": [], "total_count": int(page.get("total_count") or 0)}
+
+    info = _fetch_pubmed_titles_and_abstract_flags(pmids)
+    rows = []
+    for idx, p in enumerate(pmids):
+        meta = info.get(p) or {}
+        if not meta.get("has_real_abstract"):
+            continue  # drop OtherAbstract-only items (essays/news, not research)
+        rows.append(
+            {
+                "pmid": p,
+                "title": (str(meta.get("title") or "")).strip(),
+                "journal_iso": (str(meta.get("journal_iso") or "")).strip(),
+                "pub_year": (str(meta.get("pub_year") or "")).strip(),
+                "pub_month": (str(meta.get("pub_month") or "")).strip(),
+                "recency_rank": idx,
             }
         )
     return {"rows": rows, "total_count": int(page.get("total_count") or 0)}

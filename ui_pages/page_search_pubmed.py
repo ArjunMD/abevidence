@@ -7,8 +7,18 @@ import requests
 import streamlit as st
 
 from db import hide_pubmed_pmid, list_search_pubmed_ledger, unhide_pubmed_pmid, upsert_search_pubmed_ledger
-from extract import search_pubmed_by_date_filters_page
+from extract import search_pubmed_by_date_filters_page, search_pubmed_by_term_page
 from pages_shared import _filter_search_pubmed_rows
+
+TERM_SEARCH_FETCH_LIMIT = 500
+# Earliest publication year the topic search will reach back to.
+TERM_SEARCH_MIN_YEAR = 2000
+# Tier 1 (top journals) is NEVER display-capped — losing a top-journal hit would
+# defeat the point. Tiers 2 (other named journals) and 3 (the rest of PubMed)
+# each get their own cap, which doubles as a guaranteed minimum: because Tier 1
+# never eats into them, these tiers always appear (up to their cap).
+TERM_SEARCH_NAMED_DISPLAY_CAP = 40
+TERM_SEARCH_REST_DISPLAY_CAP = 30
 
 SEARCH_FETCH_LIMIT = 500
 LEDGER_STUDY_TYPE_LABEL = "All"
@@ -195,6 +205,23 @@ def _run_search_page(
     return {"rows": rows, "total_count": max(0, total_count)}
 
 
+def _format_pub_date(pub_year: object, pub_month: object) -> str:
+    """"Month Year" (or just "Year") for display next to a journal name.
+    ``pub_month`` is the "MM" token extract.py already parses out of the
+    efetch XML — no extra PubMed call needed."""
+    year = (str(pub_year or "")).strip()
+    if not year:
+        return ""
+    month_raw = (str(pub_month or "")).strip()
+    try:
+        m = int(month_raw)
+        if 1 <= m <= 12:
+            return f"{calendar.month_name[m]} {year}"
+    except Exception:
+        pass
+    return year
+
+
 def _parse_year_month_parts(year_month: str) -> dict[str, str]:
     ym = (year_month or "").strip()
     try:
@@ -349,6 +376,238 @@ def _all_journal_targets() -> list[tuple[str, str, str]]:
     return targets
 
 
+def _journal_label_map() -> dict[str, str]:
+    """Map an NLM ISO abbreviation (lowercased) → display label for every
+    configured journal, so results show a friendly name. The abbreviation is
+    pulled from the quoted name in each journal term (e.g. '"N Engl J Med"[jour]'
+    → "n engl j med")."""
+    out: dict[str, str] = {}
+    for (_specialty, label, term) in _all_journal_targets():
+        m = re.match(r'\s*"([^"]+)"', term or "")
+        if m:
+            out[m.group(1).strip().lower()] = label
+    return out
+
+
+def _broad_journals_or_term() -> str:
+    """OR of the [jour] clauses for the 'top journals' — the BROAD_SEARCH subset
+    that gets the lenient study-type filter in the monthly sweep. Used to pull
+    those journals into their own section of the topic-search results."""
+    terms = [
+        term
+        for (_specialty, label, term) in _all_journal_targets()
+        if (term or "").strip() and label in BROAD_SEARCH_JOURNAL_LABELS
+    ]
+    if not terms:
+        return ""
+    return "(" + " OR ".join(terms) + ")"
+
+
+def _named_journals_or_term() -> str:
+    """OR of every configured journal's [jour] clause (top + the rest of the
+    named list), for the second tier of the topic search."""
+    terms = [term for (_specialty, _label, term) in _all_journal_targets() if (term or "").strip()]
+    if not terms:
+        return ""
+    return "(" + " OR ".join(terms) + ")"
+
+
+def _render_term_search() -> None:
+    """Free-text PubMed search (any journal, year >= TERM_SEARCH_MIN_YEAR),
+    mutually exclusive with the month-by-month journal sweep above. Uses the
+    lenient study-type filter for everything, and excludes trials already in the
+    DB. Results are split into three tiers — top journals (BROAD_SEARCH subset,
+    shown in full), the rest of the named journals, then every other PubMed
+    journal (each of the latter two capped) — newest first within each. 'Don't
+    show again' hides a PMID (shared with the sweep's hidden list); there's no
+    ledger — searches themselves aren't saved."""
+    st.markdown("##### Search by topic")
+    st.caption(
+        f"Search any term across all journals, {TERM_SEARCH_MIN_YEAR}–present "
+        "(e.g. “Bacterial meningitis”). Top journals first, then your other named "
+        "journals, then the rest of PubMed — newest first in each. Trials already "
+        "in your database are skipped."
+    )
+
+    c_in, c_btn = st.columns([5, 1])
+    with c_in:
+        query = st.text_input(
+            "Search term",
+            key="search_pubmed_term_query",
+            label_visibility="collapsed",
+            placeholder="e.g. Bacterial meningitis",
+        )
+    with c_btn:
+        term_clicked = st.button("Search", type="primary", width="stretch", key="search_pubmed_term_btn")
+
+    if term_clicked:
+        q = (query or "").strip()
+        if not q:
+            st.warning("Enter a search term.")
+        else:
+            # Mutually exclusive with the journal sweep — clear its results.
+            # Also drop any stale undo from a previous topic search.
+            for k in [
+                "search_pubmed_groups",
+                "search_pubmed_range",
+                "search_pubmed_last_hidden",
+                "search_pubmed_term_last_hidden",
+            ]:
+                st.session_state.pop(k, None)
+            with st.spinner(f"Searching PubMed for “{q}”…"):
+                try:
+                    # Three passes, each restricted by journal so a tier reliably
+                    # surfaces even on high-volume topics (the long tail can't
+                    # crowd it out of the most-recent window):
+                    #   1. top journals  (BROAD_SEARCH subset)
+                    #   2. all named journals  → tier 2 is this minus tier 1
+                    #   3. every journal       → tier 3 is this minus tiers 1 & 2
+                    def _run(journal_term: str) -> dict:
+                        return search_pubmed_by_term_page(
+                            term_query=q,
+                            publication_type_terms=[],
+                            retmax=int(TERM_SEARCH_FETCH_LIMIT),
+                            retstart=0,
+                            exclude_publication_type_terms=EXCLUDED_PUBLICATION_TYPE_TERMS,
+                            exclude_review_unless_terms=COMBINED_PUBLICATION_TYPE_TERMS,
+                            journal_term=journal_term,
+                            mindate=f"{TERM_SEARCH_MIN_YEAR}/01/01",
+                        )
+
+                    top = _run(_broad_journals_or_term())
+                    named = _run(_named_journals_or_term())
+                    everything = _run("")
+
+                    def _rows(page: dict) -> list[dict]:
+                        return [r for r in (page.get("rows") or []) if isinstance(r, dict)]
+
+                    def _pmid(r: dict) -> str:
+                        return (r.get("pmid") or "").strip()
+
+                    top_rows = _rows(top)
+                    top_pmids = {_pmid(r) for r in top_rows}
+                    named_other_rows = [r for r in _rows(named) if _pmid(r) not in top_pmids]
+                    named_pmids = top_pmids | {_pmid(r) for r in _rows(named)}
+                    rest_rows = [r for r in _rows(everything) if _pmid(r) not in named_pmids]
+
+                    st.session_state["search_pubmed_term_results"] = {
+                        "query": q,
+                        "top_rows": top_rows,
+                        "named_other_rows": named_other_rows,
+                        "rest_rows": rest_rows,
+                        "total_count": int(everything.get("total_count") or 0),
+                    }
+                except requests.HTTPError as e:
+                    st.session_state.pop("search_pubmed_term_results", None)
+                    st.error(f"PubMed search failed: {e}")
+                except Exception as e:
+                    st.session_state.pop("search_pubmed_term_results", None)
+                    st.error(f"Unexpected search error: {e}")
+
+    result = st.session_state.get("search_pubmed_term_results")
+    if not isinstance(result, dict):
+        return
+
+    last_hidden = st.session_state.get("search_pubmed_term_last_hidden")
+    if isinstance(last_hidden, dict) and (last_hidden.get("pmid") or "").strip():
+        u_msg, u_btn = st.columns([6, 1])
+        with u_msg:
+            _hidden_title = (last_hidden.get("title") or "").strip() or str(last_hidden.get("pmid"))
+            if len(_hidden_title) > 70:
+                _hidden_title = _hidden_title[:70].rstrip() + "…"
+            st.caption(f"Hidden “{_hidden_title}”")
+        with u_btn:
+            if st.button("↩︎ Undo", key="search_pubmed_term_undo_hide", use_container_width=True):
+                unhide_pubmed_pmid(str(last_hidden.get("pmid") or ""))
+                st.session_state.pop("search_pubmed_term_last_hidden", None)
+                st.rerun()
+
+    label_map = _journal_label_map()
+
+    def _clean(rows: list) -> list[dict]:
+        # Drops trials already in the DB (saved), previously-hidden PMIDs, and
+        # pediatric titles. Sorts newest first (no rank within a tier).
+        rows = [r for r in (rows or []) if isinstance(r, dict)]
+        rows = _filter_search_pubmed_rows(rows)
+        rows = [r for r in rows if not _is_pediatric_title(r.get("title"))]
+        rows.sort(key=lambda r: _safe_int(r.get("recency_rank"), 10**9))
+        return rows
+
+    # Three tiers, no rank within any — each newest first.
+    top_rows = _clean(result.get("top_rows"))
+    named_rows = _clean(result.get("named_other_rows"))
+    rest_rows = _clean(result.get("rest_rows"))
+
+    # Tier 1 shown in full; Tiers 2 & 3 each capped (so they always appear and
+    # stay bounded regardless of how large Tier 1 is).
+    top_shown = top_rows
+    named_shown = named_rows[:TERM_SEARCH_NAMED_DISPLAY_CAP]
+    rest_shown = rest_rows[:TERM_SEARCH_REST_DISPLAY_CAP]
+
+    visible_count = len(top_shown) + len(named_shown) + len(rest_shown)
+    hidden = (len(named_rows) - len(named_shown)) + (len(rest_rows) - len(rest_shown))
+
+    q_label = (result.get("query") or "").strip()
+    total = int(result.get("total_count") or 0)
+    caption = f"“{q_label}” — {visible_count} shown"
+    if total:
+        caption += f" (of {total} matches)"
+    if hidden > 0:
+        caption += f"; {hidden} more hidden"
+    st.caption(caption)
+
+    if visible_count == 0:
+        st.info("No new results for this term.")
+        return
+
+    def _render_rows(rows: list[dict]) -> None:
+        for r in rows:
+            title = (r.get("title") or "").strip() or "(no title)"
+            pmid = (r.get("pmid") or "").strip() or "—"
+            iso = (r.get("journal_iso") or "").strip()
+            label = label_map.get(iso.lower(), iso) or "Other journal"
+            date_bit = _format_pub_date(r.get("pub_year"), r.get("pub_month"))
+            if date_bit:
+                label = f"{label} — {date_bit}"
+
+            c_left, c_right = st.columns([5, 3])
+            with c_left:
+                st.markdown(f"- {title}  \n  _{label}_")
+            with c_right:
+                if pmid != "—":
+                    b1, b2 = st.columns(2, gap="small")
+                    with b1:
+                        if st.button(
+                            "Don't show again",
+                            key=f"search_pubmed_term_hide_{pmid}",
+                            use_container_width=True,
+                        ):
+                            hide_pubmed_pmid(pmid, journal=label)
+                            st.session_state["search_pubmed_term_last_hidden"] = {
+                                "pmid": pmid,
+                                "title": title,
+                            }
+                            st.rerun()
+                    with b2:
+                        if st.button(
+                            "Open abstract",
+                            key=f"search_pubmed_term_open_{pmid}",
+                            use_container_width=True,
+                        ):
+                            st.query_params["open_abs_pmid"] = pmid
+                            st.rerun()
+
+    if top_shown:
+        st.markdown("### Top journals")
+        _render_rows(top_shown)
+    if named_shown:
+        st.markdown("### Other named journals")
+        _render_rows(named_shown)
+    if rest_shown:
+        st.markdown("### All other journals")
+        _render_rows(rest_shown)
+
+
 def render() -> None:
     st.title("🔎 Search PubMed")
 
@@ -400,6 +659,9 @@ def render() -> None:
         st.rerun()
 
     if search_clicked:
+        # Mutually exclusive with the topic search below — clear its results.
+        st.session_state.pop("search_pubmed_term_results", None)
+        st.session_state.pop("search_pubmed_term_last_hidden", None)
         try:
             start_date = datetime(int(selected_year), int(selected_month), 1, tzinfo=timezone.utc).date()
             end_day = int(calendar.monthrange(int(selected_year), int(selected_month))[1])
@@ -466,6 +728,8 @@ def render() -> None:
         st.info("Choose a year and month, then click Search all journals.")
         st.divider()
         _render_search_ledger()
+        st.divider()
+        _render_term_search()
         return
 
     groups = [g for g in (st.session_state.get("search_pubmed_groups") or []) if isinstance(g, dict)]
@@ -599,3 +863,5 @@ def render() -> None:
 
     st.divider()
     _render_search_ledger()
+    st.divider()
+    _render_term_search()
