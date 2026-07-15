@@ -5,6 +5,7 @@ from db import (
     db_count,
     db_count_all,
     ensure_guidelines_schema,
+    ensure_notes_schema,
     ensure_schema,
     guidelines_count,
 )
@@ -22,6 +23,7 @@ from ui_pages.page_db_browse import render as render_db_browse
 from ui_pages.page_db_search import render as render_db_search
 from ui_pages.page_delete import render as render_delete
 from ui_pages.page_guidelines import render as render_guidelines
+from ui_pages.page_notes import render as render_notes
 from ui_pages.page_pmid_abstract import render as render_pmid_abstract
 from ui_pages.page_search_pubmed import render as render_search_pubmed
 from ui_pages.page_suggest import render as render_suggest
@@ -29,6 +31,7 @@ from ui_pages.page_suggest import render as render_suggest
 st.set_page_config(page_title="Hospital Medicine Shelf", page_icon="🩺", layout="wide")
 ensure_schema()
 ensure_guidelines_schema()
+ensure_notes_schema()
 
 # name → renderer. Dict order is the sidebar order.
 _PAGES = {
@@ -39,6 +42,7 @@ _PAGES = {
     "Search PubMed": render_search_pubmed,
     "Manage": render_delete,
     "Dashboard": render_dashboard,
+    "Notes": render_notes,
     "Suggest an article": render_suggest,
     "About": render_about,
 }
@@ -51,7 +55,7 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article"}
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Notes"}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]

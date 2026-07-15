@@ -1148,3 +1148,120 @@ def dashboard_saved_specialties() -> list[dict[str, object]]:
     return [{"specialty": (r["specialty"] or "").strip()} for r in rows]
 
 
+# ---------------- Notes schema + CRUD ----------------
+# Password-gated personal notes page (see ui_pages/page_notes.py) — may contain
+# excerpts pasted from copyrighted material, so this table is never exposed
+# through any public-mode page or query-param deep link.
+
+def _migrate_notes_columns(conn: sqlite3.Connection) -> None:
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(notes);").fetchall()}
+    if "source" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN source TEXT NOT NULL DEFAULT '';")
+    if "specialties" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN specialties TEXT NOT NULL DEFAULT '';")
+    if "tags" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '';")
+
+
+def ensure_notes_schema() -> None:
+    with _connect_db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notes (
+                note_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        _migrate_notes_columns(conn)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_updated_at ON notes(updated_at);")
+
+
+def _note_row_to_dict(r: sqlite3.Row) -> dict[str, str]:
+    return {
+        "note_id": (r["note_id"] or "").strip(),
+        "title": (r["title"] or "").strip(),
+        "source": (r["source"] or "").strip(),
+        "content": r["content"] or "",
+        "specialties": (r["specialties"] or "").strip(),
+        "tags": (r["tags"] or "").strip(),
+        "created_at": (r["created_at"] or "").strip(),
+        "updated_at": (r["updated_at"] or "").strip(),
+    }
+
+
+_NOTES_SELECT_COLS = "note_id, title, source, content, specialties, tags, created_at, updated_at"
+
+
+def list_notes() -> list[dict[str, str]]:
+    with _connect_db() as conn:
+        rows = conn.execute(
+            f"SELECT {_NOTES_SELECT_COLS} FROM notes ORDER BY updated_at DESC;"
+        ).fetchall()
+    return [_note_row_to_dict(r) for r in rows]
+
+
+def get_note(note_id: str) -> dict[str, str]:
+    nid = (note_id or "").strip()
+    if not nid:
+        return {}
+    with _connect_db() as conn:
+        row = conn.execute(
+            f"SELECT {_NOTES_SELECT_COLS} FROM notes WHERE note_id=? LIMIT 1;",
+            (nid,),
+        ).fetchone()
+    if not row:
+        return {}
+    return _note_row_to_dict(row)
+
+
+def create_note(
+    title: str = "", source: str = "", content: str = "", specialties: str = "", tags: str = ""
+) -> dict[str, str]:
+    nid = uuid.uuid4().hex
+    now = _utc_iso_z()
+    with _connect_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO notes (note_id, title, source, content, specialties, tags, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (nid, (title or "").strip(), (source or "").strip(), content or "", specialties or "", tags or "", now, now),
+        )
+    return {
+        "note_id": nid,
+        "title": (title or "").strip(),
+        "source": (source or "").strip(),
+        "content": content or "",
+        "specialties": specialties or "",
+        "tags": tags or "",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def update_note(note_id: str, title: str, source: str, content: str, specialties: str, tags: str) -> None:
+    nid = (note_id or "").strip()
+    if not nid:
+        return
+    with _connect_db() as conn:
+        conn.execute(
+            """
+            UPDATE notes SET title=?, source=?, content=?, specialties=?, tags=?, updated_at=?
+            WHERE note_id=?;
+            """,
+            ((title or "").strip(), (source or "").strip(), content or "", specialties or "", tags or "", _utc_iso_z(), nid),
+        )
+
+
+def delete_note(note_id: str) -> None:
+    nid = (note_id or "").strip()
+    if not nid:
+        return
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM notes WHERE note_id=?;", (nid,))
+
+
