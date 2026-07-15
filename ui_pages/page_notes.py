@@ -3,6 +3,7 @@ import os
 import streamlit as st
 
 from db import create_note, delete_note, list_notes, update_note
+from pages_shared import is_public_mode
 
 # Curated starting list for the required specialty tag — st.multiselect's
 # accept_new_options lets the user add more beyond this list.
@@ -131,7 +132,7 @@ def _render_add_note_form(notes: list[dict[str, str]]) -> None:
                 st.rerun()
 
 
-def _render_note_section(note: dict[str, str], all_tags: list[str]) -> None:
+def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: bool) -> None:
     note_id = note["note_id"]
     title = note.get("title") or "(untitled)"
     specialties = _split_csv(note.get("specialties") or "")
@@ -152,6 +153,10 @@ def _render_note_section(note: dict[str, str], all_tags: list[str]) -> None:
     if source:
         with st.expander("Source", expanded=False):
             st.markdown(source)
+
+    if read_only:
+        st.markdown("---")
+        return
 
     with st.expander("Edit", expanded=False):
         with st.form(f"notes_edit_form_{note_id}"):
@@ -235,6 +240,7 @@ def render() -> None:
             st.session_state.pop("notes_authed", None)
             st.rerun()
 
+    read_only = is_public_mode()
     notes = list_notes()
 
     search = st.text_input(
@@ -244,7 +250,8 @@ def render() -> None:
         label_visibility="collapsed",
     )
 
-    _render_add_note_form(notes)
+    if not read_only:
+        _render_add_note_form(notes)
 
     q = (search or "").strip().lower()
     if q:
@@ -264,4 +271,4 @@ def render() -> None:
 
     all_tags = _all_existing_tags(notes)
     for note in visible:
-        _render_note_section(note, all_tags)
+        _render_note_section(note, all_tags, read_only)
