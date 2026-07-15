@@ -62,6 +62,34 @@ EXCLUDED_PUBLICATION_TYPE_TERMS = [
     '"Published Erratum"[pt]',
 ]
 
+# Raw PubMed <PublicationType> tags worth surfacing next to a result, mapped to
+# a short display label, ordered by how much they narrow down the evidence type
+# (most specific/informative first). PubMed tags most articles with several
+# generic types (e.g. "Journal Article") alongside 0-1 of these — the first
+# match in this order is shown.
+PUBLICATION_TYPE_DISPLAY_LABELS = {
+    "Randomized Controlled Trial": "RCT",
+    "Meta-Analysis": "Meta-Analysis",
+    "Systematic Review": "Systematic Review",
+    "Practice Guideline": "Practice Guideline",
+    "Multicenter Study": "Multicenter Study",
+    "Observational Study": "Observational Study",
+    "Clinical Trial": "Clinical Trial",
+    "Comparative Study": "Comparative Study",
+    "Validation Study": "Validation Study",
+    "Case Reports": "Case Report",
+    "Clinical Study": "Clinical Study",
+    "Review": "Review",
+}
+
+
+def _pick_display_publication_type(publication_types: list) -> str:
+    types = {(str(t or "")).strip() for t in (publication_types or [])}
+    for raw, label in PUBLICATION_TYPE_DISPLAY_LABELS.items():
+        if raw in types:
+            return label
+    return ""
+
 # High-yield journals searched broadly (journal NOT the excluded types) so
 # original articles that carry no study-type tag are still surfaced. The narrow
 # study-type filter (COMBINED_PUBLICATION_TYPE_TERMS) is used for every other
@@ -440,6 +468,14 @@ def _render_term_search() -> None:
     with c_btn:
         term_clicked = st.button("Search", type="primary", width="stretch", key="search_pubmed_term_btn")
 
+    titles_only = st.checkbox(
+        "Search titles only",
+        value=True,
+        key="search_pubmed_term_titles_only",
+        help="When on, only matches the term against article titles. Turn off to also "
+        "match against abstracts/MeSH terms (broader, noisier).",
+    )
+
     if term_clicked:
         q = (query or "").strip()
         if not q:
@@ -472,6 +508,7 @@ def _render_term_search() -> None:
                             exclude_review_unless_terms=COMBINED_PUBLICATION_TYPE_TERMS,
                             journal_term=journal_term,
                             mindate=f"{TERM_SEARCH_MIN_YEAR}/01/01",
+                            titles_only=titles_only,
                         )
 
                     top = _run(_broad_journals_or_term())
@@ -569,6 +606,9 @@ def _render_term_search() -> None:
             date_bit = _format_pub_date(r.get("pub_year"), r.get("pub_month"))
             if date_bit:
                 label = f"{label} — {date_bit}"
+            pub_type = _pick_display_publication_type(r.get("publication_types"))
+            if pub_type:
+                label = f"{label} — {pub_type}"
 
             c_left, c_right = st.columns([5, 3])
             with c_left:

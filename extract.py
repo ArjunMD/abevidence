@@ -370,6 +370,62 @@ def parse_abstract(xml_text: str) -> str:
     return "\n\n".join(parts).strip()
 
 
+_QUERY_BOOLEAN_OPS = {"and", "or", "not"}
+_QUERY_TOKEN_RE = re.compile(r'"[^"]*"|\(|\)|[^\s()]+')
+
+
+def _restrict_query_to_title_field(q: str) -> str:
+    """Rewrite a free-text PubMed query so every search phrase is restricted to
+    the Title field, while preserving AND/OR/NOT/parentheses structure.
+
+    A naive `f'"{q}"[Title]'` (quoting the whole query) breaks any boolean
+    query — e.g. `"point of care ultrasound" OR "pocus"` becomes one literal
+    phrase containing the word "OR" and matches nothing. A naive bare
+    `f'({q})[Title]'` fares no better: PubMed's automatic term mapping ignores
+    a [Title] tag applied to an unquoted multi-word group and silently falls
+    back to its normal (unrestricted) search. The only form PubMed actually
+    honors is a [Title] tag on each individually quoted phrase, so this tags
+    each phrase separately and leaves operators/parens/existing field tags as-is.
+    """
+    tokens = _QUERY_TOKEN_RE.findall(q or "")
+
+    # Merge consecutive bare (unquoted, non-operator, non-paren) word tokens
+    # into single multi-word phrases, e.g. ["point", "of", "care"] -> one token.
+    merged: list[str] = []
+    bare_run: list[str] = []
+
+    def _flush_bare_run() -> None:
+        if bare_run:
+            merged.append(" ".join(bare_run))
+            bare_run.clear()
+
+    for tok in tokens:
+        is_operator = tok.lower() in _QUERY_BOOLEAN_OPS
+        is_paren = tok in ("(", ")")
+        is_quoted = tok.startswith('"') and tok.endswith('"') and len(tok) >= 2
+        if is_operator or is_paren or is_quoted:
+            _flush_bare_run()
+            merged.append(tok.upper() if is_operator else tok)
+        else:
+            bare_run.append(tok)
+    _flush_bare_run()
+
+    out: list[str] = []
+    for tok in merged:
+        if tok in ("(", ")") or tok.upper() in ("AND", "OR", "NOT"):
+            out.append(tok)
+            continue
+        phrase = tok[1:-1] if tok.startswith('"') and tok.endswith('"') else tok
+        if "[" in phrase:
+            # Already carries a field tag (e.g. user typed "sepsis[MeSH Terms]");
+            # leave it untouched rather than double-tagging.
+            out.append(phrase)
+        else:
+            out.append(f'"{phrase}"[Title]')
+
+    return " ".join(out)
+
+
 def _extract_year_el(el: ET.Element) -> str:
     year = _itertext(el.find(".//JournalIssue/PubDate/Year"))
     if year:
@@ -694,6 +750,10 @@ def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, obj
     ``pub_year``/``pub_month`` come from the same efetch response already
     fetched for title/abstract/journal, so surfacing them costs no extra
     PubMed call.
+
+    ``publication_types`` is the raw list of PubMed's <PublicationType> tags
+    (e.g. ["Randomized Controlled Trial", "Journal Article"]) — also from this
+    same efetch response, no extra call.
     """
     root = ET.fromstring(efetch_xml)
     out: dict[str, dict[str, object]] = {}
@@ -704,12 +764,16 @@ def _parse_titles_and_abstract_flags(efetch_xml: str) -> dict[str, dict[str, obj
         title = _itertext(art.find(".//ArticleTitle"))
         has_real_abstract = _abstract_has_real_text(art.find(".//Article/Abstract"))
         journal_iso = _itertext(art.find(".//Article/Journal/ISOAbbreviation"))
+        publication_types = [
+            t for t in (_itertext(pt) for pt in art.findall(".//PublicationTypeList/PublicationType")) if t
+        ]
         out[pmid] = {
             "title": title,
             "has_real_abstract": has_real_abstract,
             "journal_iso": journal_iso,
             "pub_year": _extract_year_el(art),
             "pub_month": _extract_month_el(art),
+            "publication_types": publication_types,
         }
     return out
 
@@ -833,18 +897,22 @@ def search_pubmed_by_term_page(
     exclude_review_unless_terms: list[str] | None = None,
     journal_term: str = "",
     mindate: str = "1900/01/01",
+    titles_only: bool = False,
 ) -> dict[str, object]:
     """
     Free-text PubMed search across all journals and all years, filtered by the
     same study-type machinery as the journal sweep (positive types and/or the
     lenient exclude-only filter) and requiring a real abstract. Pass
     ``journal_term`` (e.g. an OR of journal[jour] clauses) to restrict to a
-    journal set; leave it blank to search every journal.
+    journal set; leave it blank to search every journal. ``titles_only``
+    restricts the query term to the Title field instead of PubMed's default
+    automatic term mapping (title/abstract/MeSH/etc.).
 
     Returns rows with ``pmid``, ``title``, ``journal_iso`` (NLM abbreviation, for
     journal ranking), ``pub_year``/``pub_month`` (from the same efetch response,
-    no extra call) and ``recency_rank`` (0-based position in PubMed's "most
-    recent" ordering, so callers can sort by recency without parsing dates).
+    no extra call), ``publication_types`` (raw PubMed <PublicationType> tags,
+    same efetch response) and ``recency_rank`` (0-based position in PubMed's
+    "most recent" ordering, so callers can sort by recency without parsing dates).
     """
     q = (term_query or "").strip()
     if not q:
@@ -856,8 +924,10 @@ def search_pubmed_by_term_page(
     journal_q = (journal_term or "").strip()
 
     # Search the term across title/abstract so a topic like "bacterial meningitis"
-    # matches without requiring an exact MeSH heading.
-    term_bits: list[str] = [f"({q})"]
+    # matches without requiring an exact MeSH heading. When titles_only is set,
+    # restrict every phrase in the query to the Title field instead (still
+    # honors AND/OR/NOT/parens the user typed — see _restrict_query_to_title_field).
+    term_bits: list[str] = [f"({_restrict_query_to_title_field(q)})"] if titles_only else [f"({q})"]
     if journal_q:
         term_bits.append(journal_q)
     if pub_type_terms:
@@ -902,6 +972,7 @@ def search_pubmed_by_term_page(
                 "journal_iso": (str(meta.get("journal_iso") or "")).strip(),
                 "pub_year": (str(meta.get("pub_year") or "")).strip(),
                 "pub_month": (str(meta.get("pub_month") or "")).strip(),
+                "publication_types": list(meta.get("publication_types") or []),
                 "recency_rank": idx,
             }
         )
