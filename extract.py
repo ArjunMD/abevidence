@@ -3301,3 +3301,148 @@ def extract_and_store_guideline_metadata_azure(guideline_id: str, pdf_bytes: byt
     )
 
     return {"guideline_name": final_name, "society": final_society, "pub_year": final_year, "specialty": final_spec}
+
+
+# ---------------- Review article extraction (PDF → verbatim high-yield sentences) ----------------
+
+# NEJM (and similar) review articles are well within this after OCR; the cap only
+# guards against a pathological input blowing up the prompt.
+REVIEW_MARKDOWN_MAX_CHARS = 120000
+
+
+def extract_review_key_sentences(pdf_bytes: bytes, filename: str = "", progress_cb=None) -> dict:
+    """Convert a review-article PDF (typically NEJM) to Markdown via Azure DI, then
+    have the model pull out high-yield clinical sentences VERBATIM, in the order
+    they appear — the same shape as the hand-curated Reviews entries.
+
+    Returns {"title","doi","source","specialty","sentences": [...]}. The PDF bytes
+    are used only in-memory for OCR; nothing here persists them.
+    """
+
+    def _progress(done=0, total=0, msg="", detail=""):
+        if callable(progress_cb):
+            try:
+                progress_cb(done, total, msg, detail)
+            except Exception:
+                pass
+
+    if not pdf_bytes:
+        raise ValueError("Empty PDF bytes.")
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    _progress(0, 0, "Reading PDF…", "Azure Document Intelligence → Markdown")
+    md = (analyze_pdf_to_markdown_azure(pdf_bytes) or "").strip()
+    if not md:
+        raise RuntimeError("Could not read any text from this PDF.")
+
+    snippet = _truncate_for_prompt(md, REVIEW_MARKDOWN_MAX_CHARS)
+
+    _progress(0, 0, "Extracting high-yield sentences…", "")
+
+    instructions = (
+        "You extract high-yield clinical facts from a medical review article (often from the New "
+        "England Journal of Medicine) for a physician who is both building clinical knowledge and "
+        "studying for board exams.\n"
+        "\n"
+        "Return ONLY valid JSON (no markdown fences) with this exact shape:\n"
+        "{\"title\":\"...\",\"doi\":\"...\",\"year\":\"...\",\"specialty\":\"...\",\"sentences\":[\"...\",\"...\"]}\n"
+        "\n"
+        "Rules for \"sentences\":\n"
+        "- Copy each sentence VERBATIM — word for word, exactly as it appears in the article, "
+        "including numbers, units, drug names, and punctuation. Do NOT paraphrase, summarize, "
+        "shorten, merge, or reword. If you cannot reproduce a sentence exactly, leave it out.\n"
+        "- Preserve the ORDER in which the sentences appear in the article, from beginning to end.\n"
+        "- Select sentences that teach a durable, testable clinical fact: definitions, epidemiology, "
+        "pathophysiology, risk factors, clinical features, diagnostic criteria and test performance, "
+        "management and treatment choices, dosing, complications, and prognosis.\n"
+        "- Include concrete specifics (percentages, thresholds, key trial results) when they appear "
+        "in a self-contained sentence.\n"
+        "- Do NOT include: the title, author names and affiliations, figure/table captions, reference "
+        "list entries, acknowledgments, funding or disclosure statements, or sentences that only make "
+        "sense alongside a figure.\n"
+        "- Strip citation markers and footnote/superscript reference numbers that are not part of the "
+        "prose.\n"
+        "- Be thorough: cover the article's teachable content from start to finish. There is no fixed "
+        "count, but every entry must be a genuinely high-yield, standalone sentence.\n"
+        "\n"
+        "Rules for the metadata:\n"
+        "- title: the article's title only (no journal, authors, or date). Empty string if unclear.\n"
+        "- doi: the article DOI if present (e.g. '10.1056/NEJMra2404059'); else empty string.\n"
+        "- year: the 4-digit year the article was published, taken from the text (e.g. the journal "
+        "citation line or copyright); else empty string.\n"
+        "- specialty: one or two of exactly these, comma-separated: Cardiology, Endocrinology, "
+        "Gastroenterology, Hepatology, Hematology, Infectious Disease, Nephrology, Neurology, "
+        "Oncology, Pulmonology, Rheumatology, Critical Care, Emergency Medicine, Surgery, Obstetrics "
+        "and Gynecology, Psychiatry, Dermatology, Ophthalmology, Otolaryngology, Urology, Orthopedics. "
+        "Empty string if unclear.\n"
+        "- Strings and a JSON array of strings only; never null."
+    )
+
+    fn = (filename or "").strip()
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": (
+            (f"FILENAME:\n{fn}\n\n" if fn else "")
+            + "ARTICLE (Markdown from OCR):\n"
+            + snippet
+            + "\n\nReturn JSON now."
+        ),
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 16000,
+        "store": False,
+    }
+
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=180,
+        max_attempts=3,
+    )
+    r.raise_for_status()
+
+    obj = _parse_json_from_model(_extract_output_text(r.json()))
+
+    title = (obj.get("title") or "").strip()
+    doi = (obj.get("doi") or "").strip().rstrip(".")
+    if doi.lower().startswith("doi:"):
+        doi = doi.split(":", 1)[1].strip()
+    year = _parse_year4(obj.get("year") or "")
+    specialty = _parse_tag_list(obj.get("specialty") or "")
+
+    raw_sentences = obj.get("sentences") or []
+    sentences: list[str] = []
+    seen = set()
+    if isinstance(raw_sentences, list):
+        for s in raw_sentences:
+            t = (str(s) if s is not None else "").strip()
+            if not t:
+                continue
+            k = t.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            sentences.append(t)
+
+    source = ""
+    if doi:
+        if doi.startswith("10.1056/"):
+            source = f"https://www.nejm.org/doi/full/{doi}"
+        else:
+            source = f"https://doi.org/{doi}"
+
+    _progress(1, 1, "Done", f"{len(sentences)} sentences")
+
+    return {
+        "title": title,
+        "doi": doi,
+        "year": year,
+        "source": source,
+        "specialty": specialty,
+        "sentences": sentences,
+    }

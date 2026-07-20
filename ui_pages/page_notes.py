@@ -3,6 +3,7 @@ import os
 import streamlit as st
 
 from db import create_note, delete_note, list_notes, update_note
+from extract import extract_review_key_sentences
 from pages_shared import is_public_mode
 
 # Curated starting list for the required specialty tag — st.multiselect's
@@ -42,7 +43,7 @@ def _notes_password() -> str:
 
 
 def _render_password_gate(configured: str) -> None:
-    st.title("🔒 Notes")
+    st.title("🔒 Reviews")
     st.caption("Password-protected — may contain excerpts from copyrighted material for personal reference only.")
     with st.form("notes_password_form"):
         candidate = st.text_input("Password", type="password")
@@ -88,26 +89,92 @@ def _all_existing_tags(notes: list[dict[str, str]]) -> list[str]:
     return sorted(out, key=str.lower)
 
 
+def _render_extract_pdf() -> None:
+    """Upload a review-article PDF (typically NEJM), extract the high-yield
+    sentences verbatim, and pre-fill the add-review form below. The PDF is used
+    only in-memory for extraction — it is never saved (same as guidelines)."""
+    with st.expander("📄 Extract from PDF (NEJM review article)", expanded=False):
+        st.caption(
+            "Upload a review-article PDF. The key clinical sentences are pulled out "
+            "verbatim, in the order they appear, for both clinical knowledge and board "
+            "review — then pre-filled into the form below for you to edit and save. "
+            "The PDF itself is not saved."
+        )
+        up = st.file_uploader(
+            "Review PDF",
+            type=["pdf"],
+            accept_multiple_files=False,
+            key="reviews_pdf_uploader",
+        )
+        if up is None:
+            return
+
+        if st.button("Extract sentences", type="primary", key="reviews_extract_btn"):
+            phase_ph = st.empty()
+            detail_ph = st.empty()
+
+            def _cb(done, total, msg="", detail=""):
+                if (msg or "").strip():
+                    phase_ph.caption(msg.strip())
+                if (detail or "").strip():
+                    detail_ph.caption(detail.strip())
+
+            try:
+                with st.spinner("Reading PDF and extracting sentences…"):
+                    result = extract_review_key_sentences(
+                        up.getvalue(), filename=up.name, progress_cb=_cb
+                    )
+            except Exception as e:
+                st.error(f"Extraction failed: {e}")
+                return
+
+            sentences = result.get("sentences") or []
+            if not sentences:
+                st.warning("No high-yield sentences were extracted from this PDF.")
+                return
+
+            spec = (result.get("specialty") or "").strip()
+            year = (result.get("year") or "").strip()
+            st.session_state["notes_add_heading"] = result.get("title") or ""
+            st.session_state["notes_add_source"] = result.get("source") or ""
+            st.session_state["notes_add_content"] = "\n".join(sentences)
+            st.session_state["notes_add_specialties"] = [
+                s.strip() for s in spec.split(",") if s.strip()
+            ]
+            st.session_state["notes_add_tags"] = [year] if year else []
+            st.session_state["notes_add_expanded"] = True
+            st.toast(f"Extracted {len(sentences)} sentences — review and save below.")
+            st.rerun()
+
+
 def _render_add_note_form(notes: list[dict[str, str]]) -> None:
-    with st.expander("+ Add note", expanded=False):
+    # Auto-open when a PDF extraction has just pre-filled the fields.
+    expand = bool(st.session_state.pop("notes_add_expanded", False))
+    with st.expander("+ Add review", expanded=expand):
         heading = st.text_input("Heading (e.g. article title)", key="notes_add_heading")
         source = st.text_input("Source (e.g. URL) — hidden by default in the display", key="notes_add_source")
         content = st.text_area(
-            "Bullet points (one per line)", key="notes_add_content", height=220
+            "Sentences (one per line)", key="notes_add_content", height=220
         )
+        # Include any specialties pre-filled by extraction so they're valid options.
+        prefilled_specs = st.session_state.get("notes_add_specialties") or []
+        spec_options = sorted(set(NOTES_SPECIALTIES) | set(prefilled_specs), key=str.lower)
         specialties = st.multiselect(
             "Specialty (required, choose one or more)",
-            options=NOTES_SPECIALTIES,
+            options=spec_options,
             key="notes_add_specialties",
             accept_new_options=True,
         )
+        # Include any tags pre-filled by extraction (e.g. the year) so they're valid options.
+        prefilled_tags = st.session_state.get("notes_add_tags") or []
+        tag_options = sorted(set(_all_existing_tags(notes)) | set(prefilled_tags), key=str.lower)
         tags = st.multiselect(
             "Other tags (optional, e.g. disease names)",
-            options=_all_existing_tags(notes),
+            options=tag_options,
             key="notes_add_tags",
             accept_new_options=True,
         )
-        if st.button("Add note", type="primary"):
+        if st.button("Add review", type="primary"):
             if not heading.strip():
                 st.error("Heading is required.")
             elif not specialties:
@@ -128,7 +195,7 @@ def _render_add_note_form(notes: list[dict[str, str]]) -> None:
                     "notes_add_tags",
                 ]:
                     st.session_state.pop(k, None)
-                st.toast("Note added.")
+                st.toast("Review added.")
                 st.rerun()
 
 
@@ -148,7 +215,7 @@ def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: b
     if bullets:
         st.markdown("\n".join(f"- {b}" for b in bullets))
     else:
-        st.caption("_No bullet points yet._")
+        st.caption("_No sentences yet._")
 
     if source:
         with st.expander("Source", expanded=False):
@@ -163,7 +230,7 @@ def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: b
             new_title = st.text_input("Heading", value=title)
             new_source = st.text_input("Source", value=source)
             new_content = st.text_area(
-                "Bullet points (one per line)", value="\n".join(bullets), height=220
+                "Sentences (one per line)", value="\n".join(bullets), height=220
             )
             new_specialties = st.multiselect(
                 "Specialty (required)",
@@ -198,11 +265,11 @@ def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: b
 
         confirm_key = f"notes_confirm_delete_{note_id}"
         if not st.session_state.get(confirm_key):
-            if st.button("Delete note", key=f"notes_delete_btn_{note_id}"):
+            if st.button("Delete review", key=f"notes_delete_btn_{note_id}"):
                 st.session_state[confirm_key] = True
                 st.rerun()
         else:
-            st.warning("Delete this note? This can't be undone.")
+            st.warning("Delete this review? This can't be undone.")
             c_confirm, c_cancel = st.columns(2)
             with c_confirm:
                 if st.button("Confirm delete", type="primary", key=f"notes_confirm_btn_{note_id}", use_container_width=True):
@@ -221,7 +288,7 @@ def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: b
 def render() -> None:
     configured = _notes_password()
     if not configured:
-        st.title("🔒 Notes")
+        st.title("🔒 Reviews")
         st.warning(
             "No password configured. Add `NOTES_PASSWORD` to `.streamlit/secrets.toml` "
             "(local) or your hosting provider's secrets (deployed) to enable this page."
@@ -234,7 +301,7 @@ def render() -> None:
 
     c_title, c_lock = st.columns([6, 1])
     with c_title:
-        st.title("🔒 Notes")
+        st.title("🔒 Reviews")
     with c_lock:
         if st.button("Lock", use_container_width=True):
             st.session_state.pop("notes_authed", None)
@@ -246,11 +313,12 @@ def render() -> None:
     search = st.text_input(
         "Search",
         key="notes_search",
-        placeholder="Search bullet points… (matching notes are shown in full)",
+        placeholder="Search sentences… (matching reviews are shown in full)",
         label_visibility="collapsed",
     )
 
     if not read_only:
+        _render_extract_pdf()
         _render_add_note_form(notes)
 
     q = (search or "").strip().lower()
@@ -263,10 +331,10 @@ def render() -> None:
         visible = notes
 
     if not notes:
-        st.info("No notes yet. Add one above.")
+        st.info("No reviews yet. Add one above.")
         return
     if q and not visible:
-        st.info(f"No bullet points match “{search}”.")
+        st.info(f"No sentences match “{search}”.")
         return
 
     all_tags = _all_existing_tags(notes)
