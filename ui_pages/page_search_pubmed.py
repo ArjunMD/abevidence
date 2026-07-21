@@ -168,6 +168,7 @@ SPECIALTY_JOURNAL_TERMS = {
     },
     "Emergency Medicine": {
         "Annals of Emergency Medicine": '"Ann Emerg Med"[Journal]',
+        "Academic Emergency Medicine": '"Acad Emerg Med"[Journal]',
         "Resuscitation": '"Resuscitation"[Journal]',
     },
     "Nephrology": {
