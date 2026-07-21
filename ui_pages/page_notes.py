@@ -1,11 +1,10 @@
-import os
 import re
 
 import streamlit as st
 
 from db import create_note, delete_note, list_notes, update_note
 from extract import extract_review_key_sentences
-from pages_shared import is_public_mode
+from pages_shared import gated_lock, is_public_mode, render_gate
 
 # Curated starting list for the required specialty tag — st.multiselect's
 # accept_new_options lets the user add more beyond this list.
@@ -30,31 +29,6 @@ NOTES_SPECIALTIES = [
     "Surgery",
     "Palliative Care",
 ]
-
-
-def _notes_password() -> str:
-    """Checks st.secrets first, then the NOTES_PASSWORD env var. Empty means the
-    page hasn't been configured yet, in which case access is refused (not opened)."""
-    try:
-        if "NOTES_PASSWORD" in st.secrets:
-            return str(st.secrets["NOTES_PASSWORD"]).strip()
-    except Exception:
-        pass
-    return os.environ.get("NOTES_PASSWORD", "").strip()
-
-
-def _render_password_gate(configured: str) -> None:
-    st.title("🔒 Reviews")
-    st.caption("Password-protected — may contain excerpts from copyrighted material for personal reference only.")
-    with st.form("notes_password_form"):
-        candidate = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Unlock")
-    if submitted:
-        if candidate and candidate == configured:
-            st.session_state["notes_authed"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect password.")
 
 
 def _split_csv(raw: str) -> list[str]:
@@ -312,17 +286,7 @@ def _render_note_section(
 
 
 def render() -> None:
-    configured = _notes_password()
-    if not configured:
-        st.title("🔒 Reviews")
-        st.warning(
-            "No password configured. Add `NOTES_PASSWORD` to `.streamlit/secrets.toml` "
-            "(local) or your hosting provider's secrets (deployed) to enable this page."
-        )
-        return
-
-    if not st.session_state.get("notes_authed"):
-        _render_password_gate(configured)
+    if not render_gate("Reviews"):
         return
 
     c_title, c_lock = st.columns([6, 1])
@@ -330,7 +294,7 @@ def render() -> None:
         st.title("🔒 Reviews")
     with c_lock:
         if st.button("Lock", use_container_width=True):
-            st.session_state.pop("notes_authed", None)
+            gated_lock()
             st.rerun()
 
     read_only = is_public_mode()

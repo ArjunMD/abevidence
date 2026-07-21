@@ -1265,3 +1265,91 @@ def delete_note(note_id: str) -> None:
         conn.execute("DELETE FROM notes WHERE note_id=?;", (nid,))
 
 
+# Value-Based Care page (see ui_pages/page_value_based_care.py). A lightweight
+# tagging layer: it marks saved abstracts as relevant to a hospital payment
+# program (readmissions, hospital-acquired conditions, …) and one or more measures
+# within it. No copyrighted text lives here — only pmid references into `abstracts`
+# — so this is NOT password-gated. One row per (pmid, program); measures is a CSV.
+
+def ensure_value_based_care_schema() -> None:
+    with _connect_db() as conn:
+        # One-time cleanup: the short-lived Readmissions feature was folded into
+        # Value-Based Care before it ever held real data.
+        conn.execute("DROP TABLE IF EXISTS readmit_entries;")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vbc_tags (
+                tag_id TEXT PRIMARY KEY,
+                pmid TEXT NOT NULL DEFAULT '',
+                program TEXT NOT NULL DEFAULT '',
+                measures TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_vbc_pmid_program ON vbc_tags(pmid, program);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vbc_updated_at ON vbc_tags(updated_at);")
+
+
+def _vbc_row_to_dict(r: sqlite3.Row) -> dict[str, str]:
+    return {
+        "tag_id": (r["tag_id"] or "").strip(),
+        "pmid": (r["pmid"] or "").strip(),
+        "program": (r["program"] or "").strip(),
+        "measures": (r["measures"] or "").strip(),
+        "created_at": (r["created_at"] or "").strip(),
+        "updated_at": (r["updated_at"] or "").strip(),
+    }
+
+
+_VBC_SELECT_COLS = "tag_id, pmid, program, measures, created_at, updated_at"
+
+
+def list_vbc_tags() -> list[dict[str, str]]:
+    with _connect_db() as conn:
+        rows = conn.execute(
+            f"SELECT {_VBC_SELECT_COLS} FROM vbc_tags ORDER BY updated_at DESC;"
+        ).fetchall()
+    return [_vbc_row_to_dict(r) for r in rows]
+
+
+def set_vbc_tag(pmid: str, program: str, measures: str) -> None:
+    """Upsert the (pmid, program) tag, replacing its measures. Re-tagging the same
+    paper for the same program just updates the measures rather than duplicating."""
+    p = (pmid or "").strip()
+    prog = (program or "").strip()
+    if not p or not prog:
+        return
+    now = _utc_iso_z()
+    with _connect_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO vbc_tags (tag_id, pmid, program, measures, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pmid, program)
+            DO UPDATE SET measures=excluded.measures, updated_at=excluded.updated_at;
+            """,
+            (uuid.uuid4().hex, p, prog, measures or "", now, now),
+        )
+
+
+def update_vbc_tag(tag_id: str, measures: str) -> None:
+    tid = (tag_id or "").strip()
+    if not tid:
+        return
+    with _connect_db() as conn:
+        conn.execute(
+            "UPDATE vbc_tags SET measures=?, updated_at=? WHERE tag_id=?;",
+            (measures or "", _utc_iso_z(), tid),
+        )
+
+
+def delete_vbc_tag(tag_id: str) -> None:
+    tid = (tag_id or "").strip()
+    if not tid:
+        return
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM vbc_tags WHERE tag_id=?;", (tid,))
+
+

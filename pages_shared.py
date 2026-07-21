@@ -1,6 +1,7 @@
 import html
 import os
 import re
+import time
 from urllib.parse import quote_plus
 
 import streamlit as st
@@ -19,6 +20,74 @@ def is_public_mode() -> bool:
     """Whether the app is running in read-only public mode (the hosted .com
     site sets ABEV_MODE=public). Personal/local mode is the default."""
     return os.environ.get("ABEV_MODE", "personal").strip().lower() == "public"
+
+
+# ---------------- Password gate (Reviews) ----------------
+#
+# A reusable password gate: any page that calls render_gate() shares ONE unlock,
+# which lasts GATED_TTL_SECONDS before it is re-requested. State lives in
+# session_state, so it naturally resets on a full browser reload / new tab —
+# that keeps this dependency-free. Currently only the Reviews page uses it.
+
+GATED_TTL_SECONDS = 12 * 3600  # how long a single unlock stays valid
+_GATED_AT_KEY = "gated_authed_at"
+
+
+def gated_password() -> str:
+    """Shared password for the gated pages. st.secrets first, then env var.
+    Empty means unconfigured, in which case the pages refuse access."""
+    try:
+        if "NOTES_PASSWORD" in st.secrets:
+            return str(st.secrets["NOTES_PASSWORD"]).strip()
+    except Exception:
+        pass
+    return os.environ.get("NOTES_PASSWORD", "").strip()
+
+
+def gated_unlocked() -> bool:
+    ts = st.session_state.get(_GATED_AT_KEY)
+    try:
+        return bool(ts) and (time.time() - float(ts)) < GATED_TTL_SECONDS
+    except Exception:
+        return False
+
+
+def gated_unlock() -> None:
+    st.session_state[_GATED_AT_KEY] = time.time()
+
+
+def gated_lock() -> None:
+    st.session_state.pop(_GATED_AT_KEY, None)
+
+
+def render_gate(page_title: str) -> bool:
+    """Return True if the shared gate is unlocked. Otherwise render the password
+    UI (or a config warning) and return False. `page_title` names the page for
+    the headings, e.g. "Reviews"."""
+    configured = gated_password()
+    if not configured:
+        st.title(f"🔒 {page_title}")
+        st.warning(
+            "No password configured. Add `NOTES_PASSWORD` to `.streamlit/secrets.toml` "
+            "(local) or your hosting provider's secrets (deployed) to enable this page."
+        )
+        return False
+
+    if gated_unlocked():
+        return True
+
+    st.title(f"🔒 {page_title}")
+    st.caption("Password-protected — may contain excerpts from copyrighted material for personal reference only.")
+    with st.form(f"gate_form_{page_title}"):
+        candidate = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Unlock")
+    if submitted:
+        if candidate and candidate == configured:
+            gated_unlock()
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    return False
 
 
 # Matches a trailing place/edition qualifier, e.g. " (London, England)" or
