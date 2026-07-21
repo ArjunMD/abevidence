@@ -1265,31 +1265,56 @@ def delete_note(note_id: str) -> None:
         conn.execute("DELETE FROM notes WHERE note_id=?;", (nid,))
 
 
-# Value-Based Care page (see ui_pages/page_value_based_care.py). A lightweight
-# tagging layer: it marks saved abstracts as relevant to a hospital payment
-# program (readmissions, hospital-acquired conditions, …) and one or more measures
-# within it. No copyrighted text lives here — only pmid references into `abstracts`
-# — so this is NOT password-gated. One row per (pmid, program); measures is a CSV.
+# Value-Based Care / Metrics page (see ui_pages/page_value_based_care.py). A tagging
+# layer marking saved abstracts as relevant to a hospital payment program's measure,
+# optionally within a named subsection. One row per (pmid, program, measure). No
+# copyrighted text lives here — only pmid references into `abstracts` — so it is NOT
+# password-gated.
+
+def _create_vbc_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vbc_tags (
+            tag_id TEXT PRIMARY KEY,
+            pmid TEXT NOT NULL DEFAULT '',
+            program TEXT NOT NULL DEFAULT '',
+            measure TEXT NOT NULL DEFAULT '',
+            subsection TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_vbc_pmm ON vbc_tags(pmid, program, measure);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vbc_updated_at ON vbc_tags(updated_at);")
+
 
 def ensure_value_based_care_schema() -> None:
     with _connect_db() as conn:
-        # One-time cleanup: the short-lived Readmissions feature was folded into
-        # Value-Based Care before it ever held real data.
+        # One-time cleanup from an earlier iteration.
         conn.execute("DROP TABLE IF EXISTS readmit_entries;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS vbc_tags (
-                tag_id TEXT PRIMARY KEY,
-                pmid TEXT NOT NULL DEFAULT '',
-                program TEXT NOT NULL DEFAULT '',
-                measures TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_vbc_pmid_program ON vbc_tags(pmid, program);")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_vbc_updated_at ON vbc_tags(updated_at);")
+
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(vbc_tags);").fetchall()}
+        if cols and "measures" in cols and "measure" not in cols:
+            # Migrate the old one-row-per-(pmid, program) shape (measures as a CSV)
+            # to one row per (pmid, program, measure), with an empty subsection.
+            old = conn.execute(
+                "SELECT pmid, program, measures, created_at, updated_at FROM vbc_tags;"
+            ).fetchall()
+            conn.execute("DROP TABLE vbc_tags;")
+            _create_vbc_table(conn)
+            for r in old:
+                for m in [x.strip() for x in (r["measures"] or "").split(",") if x.strip()]:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO vbc_tags
+                            (tag_id, pmid, program, measure, subsection, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, '', ?, ?);
+                        """,
+                        (uuid.uuid4().hex, r["pmid"], r["program"], m, r["created_at"], r["updated_at"]),
+                    )
+        else:
+            _create_vbc_table(conn)
 
 
 def _vbc_row_to_dict(r: sqlite3.Row) -> dict[str, str]:
@@ -1297,13 +1322,14 @@ def _vbc_row_to_dict(r: sqlite3.Row) -> dict[str, str]:
         "tag_id": (r["tag_id"] or "").strip(),
         "pmid": (r["pmid"] or "").strip(),
         "program": (r["program"] or "").strip(),
-        "measures": (r["measures"] or "").strip(),
+        "measure": (r["measure"] or "").strip(),
+        "subsection": (r["subsection"] or "").strip(),
         "created_at": (r["created_at"] or "").strip(),
         "updated_at": (r["updated_at"] or "").strip(),
     }
 
 
-_VBC_SELECT_COLS = "tag_id, pmid, program, measures, created_at, updated_at"
+_VBC_SELECT_COLS = "tag_id, pmid, program, measure, subsection, created_at, updated_at"
 
 
 def list_vbc_tags() -> list[dict[str, str]]:
@@ -1314,34 +1340,36 @@ def list_vbc_tags() -> list[dict[str, str]]:
     return [_vbc_row_to_dict(r) for r in rows]
 
 
-def set_vbc_tag(pmid: str, program: str, measures: str) -> None:
-    """Upsert the (pmid, program) tag, replacing its measures. Re-tagging the same
-    paper for the same program just updates the measures rather than duplicating."""
+def set_vbc_tag(pmid: str, program: str, measure: str, subsection: str = "") -> None:
+    """Upsert the (pmid, program, measure) tag, setting its subsection. Re-tagging
+    the same paper/measure moves it to the given subsection rather than duplicating."""
     p = (pmid or "").strip()
     prog = (program or "").strip()
-    if not p or not prog:
+    meas = (measure or "").strip()
+    if not p or not prog or not meas:
         return
     now = _utc_iso_z()
     with _connect_db() as conn:
         conn.execute(
             """
-            INSERT INTO vbc_tags (tag_id, pmid, program, measures, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(pmid, program)
-            DO UPDATE SET measures=excluded.measures, updated_at=excluded.updated_at;
+            INSERT INTO vbc_tags (tag_id, pmid, program, measure, subsection, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pmid, program, measure)
+            DO UPDATE SET subsection=excluded.subsection, updated_at=excluded.updated_at;
             """,
-            (uuid.uuid4().hex, p, prog, measures or "", now, now),
+            (uuid.uuid4().hex, p, prog, meas, (subsection or "").strip(), now, now),
         )
 
 
-def update_vbc_tag(tag_id: str, measures: str) -> None:
+def update_vbc_tag(tag_id: str, subsection: str) -> None:
+    """Move an existing tag to a (possibly new/blank) subsection."""
     tid = (tag_id or "").strip()
     if not tid:
         return
     with _connect_db() as conn:
         conn.execute(
-            "UPDATE vbc_tags SET measures=?, updated_at=? WHERE tag_id=?;",
-            (measures or "", _utc_iso_z(), tid),
+            "UPDATE vbc_tags SET subsection=?, updated_at=? WHERE tag_id=?;",
+            ((subsection or "").strip(), _utc_iso_z(), tid),
         )
 
 
@@ -1351,5 +1379,80 @@ def delete_vbc_tag(tag_id: str) -> None:
         return
     with _connect_db() as conn:
         conn.execute("DELETE FROM vbc_tags WHERE tag_id=?;", (tid,))
+
+
+# ---------------- Related-paper clipboard (durable) ----------------
+#
+# An owner-only tray of PMIDs collected from the "related articles" lists. Stored
+# in the DB rather than st.session_state because opening a study from Browse
+# navigates via a ?pmid= link — a full page reload that starts a NEW Streamlit
+# session and wipes session_state. Persisting here keeps the clipboard across
+# those navigations.
+
+def ensure_clipboard_schema() -> None:
+    with _connect_db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS clipboard (
+                pmid TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                added_at TEXT NOT NULL
+            );
+            """
+        )
+
+
+def list_clipboard() -> list[dict[str, str]]:
+    with _connect_db() as conn:
+        rows = conn.execute(
+            "SELECT pmid, title, source FROM clipboard ORDER BY added_at ASC, rowid ASC;"
+        ).fetchall()
+    return [
+        {
+            "pmid": (r["pmid"] or "").strip(),
+            "title": (r["title"] or "").strip(),
+            "source": (r["source"] or "").strip(),
+        }
+        for r in rows
+    ]
+
+
+def add_clipboard(pmid: str, title: str = "", source: str = "") -> bool:
+    """Add a PMID to the clipboard. Returns True if newly added, False if it was
+    already present (in which case any previously blank title/source is backfilled)."""
+    pid = (pmid or "").strip()
+    if not pid:
+        return False
+    title = (title or "").strip()
+    source = (source or "").strip()
+    with _connect_db() as conn:
+        row = conn.execute("SELECT title, source FROM clipboard WHERE pmid=?;", (pid,)).fetchone()
+        if row is not None:
+            new_title = (row["title"] or "").strip() or title
+            new_source = (row["source"] or "").strip() or source
+            conn.execute(
+                "UPDATE clipboard SET title=?, source=? WHERE pmid=?;",
+                (new_title, new_source, pid),
+            )
+            return False
+        conn.execute(
+            "INSERT INTO clipboard (pmid, title, source, added_at) VALUES (?, ?, ?, ?);",
+            (pid, title, source, _utc_iso_z()),
+        )
+    return True
+
+
+def remove_clipboard(pmid: str) -> None:
+    pid = (pmid or "").strip()
+    if not pid:
+        return
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM clipboard WHERE pmid=?;", (pid,))
+
+
+def clear_clipboard() -> None:
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM clipboard;")
 
 

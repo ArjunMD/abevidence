@@ -4,6 +4,7 @@ import streamlit.components.v1 as components
 from db import (
     db_count,
     db_count_all,
+    ensure_clipboard_schema,
     ensure_guidelines_schema,
     ensure_notes_schema,
     ensure_schema,
@@ -35,6 +36,7 @@ ensure_schema()
 ensure_guidelines_schema()
 ensure_notes_schema()
 ensure_value_based_care_schema()
+ensure_clipboard_schema()
 
 # name → renderer. Dict order is the sidebar order.
 _PAGES = {

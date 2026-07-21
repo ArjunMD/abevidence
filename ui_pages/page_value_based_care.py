@@ -11,17 +11,27 @@ from pages_shared import is_public_mode
 from ui_pages.page_db_browse import _render_browse_item
 
 # The payment programs and their measures. Data-driven so new programs/measures
-# (e.g. Value-Based Purchasing → mortality, PSI-90) can be added here with no
-# schema or query changes. `key` is stored in the DB; `label` is shown.
+# can be added here with no schema change. `key` is stored in the DB; `label` is
+# shown; `description` is a short blurb rendered under the program header.
 VBC_PROGRAMS = [
     {
         "key": "readmissions",
         "label": "Readmissions (HRRP)",
+        "description": (
+            "The **Hospital Readmissions Reduction Program (HRRP)**, was created by the Affordable Care "
+            "Act and was launched in October, 2012. Penalties are based on a risk-adjusted readmission rates and can "
+            "cost up to **3 of a hospital's Medicare payments. The program applies to six "
+            "conditions: **acute myocardial infarction (AMI)**, **heart failure (HF)**, "
+            "**COPD**, **pneumonia**, elective **total hip/knee arthroplasty**, and **CABG**. "
+            "In this section, we highlight research focus on best practices of the first four conditions with an emphasis on how to "
+            "reduce readmissions."
+        ),
         "measures": ["General", "AMI", "HF", "COPD", "Pneumonia"],
     },
     {
         "key": "hac",
         "label": "Hospital-Acquired Conditions",
+        "description": "",
         "measures": [
             "General",
             "CLABSI",
@@ -33,6 +43,21 @@ VBC_PROGRAMS = [
     },
 ]
 
+# Predefined subsections under a specific (program_key, measure). They always
+# render as sub-headers under that measure; the user can also create new ones on
+# the fly when tagging (the subsection field accepts new options).
+VBC_SUBSECTIONS: dict[tuple[str, str], list[str]] = {
+    ("readmissions", "HF"): [
+        "Adequate Initial Diuresis",
+        "Daily Weights & Diuretic Response",
+        "Continuing GDMT During Decompensation",
+        "Decongestion Before Discharge",
+        "IV-to-Oral Diuretic Transition",
+        "Salt Restriction",
+        "Discharge Education & Early Follow-up",
+    ],
+}
+
 _PROG_BY_KEY = {p["key"]: p for p in VBC_PROGRAMS}
 _KEY_BY_LABEL = {p["label"]: p["key"] for p in VBC_PROGRAMS}
 
@@ -41,20 +66,8 @@ _KEY_BY_LABEL = {p["label"]: p["key"] for p in VBC_PROGRAMS}
 _PAPERS_LIMIT = 30000
 
 
-def _split_csv(raw: str) -> list[str]:
-    out: list[str] = []
-    seen = set()
-    for tok in (raw or "").split(","):
-        t = tok.strip()
-        if not t or t.lower() in seen:
-            continue
-        seen.add(t.lower())
-        out.append(t)
-    return out
-
-
 def _slug(text: str) -> str:
-    keep = [c.lower() if (c.isalnum()) else "-" for c in (text or "")]
+    keep = [c.lower() if c.isalnum() else "-" for c in (text or "")]
     s = "".join(keep).strip("-")
     while "--" in s:
         s = s.replace("--", "-")
@@ -69,13 +82,47 @@ def _paper_label(p: dict[str, str]) -> str:
     return f"{title} — {' · '.join(bits)}" if bits else title
 
 
-def _render_tag_form(pmap: dict[str, dict[str, str]]) -> None:
+def _pub_date_key(p: dict[str, str]) -> tuple[int, int]:
+    """(year, month) as ints for newest-first sorting; missing parts sort oldest."""
+    y = (p.get("year") or "").strip()
+    m = (p.get("pub_month") or "").strip()
+    yi = int(y) if y.isdigit() else 0
+    mi = int(m) if (m.isdigit() and 1 <= int(m) <= 12) else 0
+    return (yi, mi)
+
+
+def _subsections_for(program_key: str, measure: str, tags: list[dict[str, str]]) -> list[str]:
+    """Predefined subsections for a measure (in config order) plus any others that
+    already appear in the data, so nothing gets orphaned."""
+    predefined = list(VBC_SUBSECTIONS.get((program_key, measure), []))
+    seen = {s.lower() for s in predefined}
+    extra: list[str] = []
+    for t in tags:
+        if t["program"] != program_key or t["measure"] != measure:
+            continue
+        s = (t.get("subsection") or "").strip()
+        if s and s.lower() not in seen:
+            seen.add(s.lower())
+            extra.append(s)
+    return predefined + sorted(extra, key=str.lower)
+
+
+def _render_article_list(tag_list: list[dict[str, str]], pmap: dict[str, dict[str, str]]) -> None:
+    for t in sorted(tag_list, key=lambda x: _pub_date_key(pmap.get(x["pmid"], {})), reverse=True):
+        it = pmap.get(t["pmid"])
+        if it:
+            _render_browse_item(it, show_pub_date=True, allow_delete=False)
+        else:
+            st.markdown(f"- *[Removed from database — PMID {t['pmid']}]*")
+
+
+def _render_tag_form(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]) -> None:
     with st.expander("+ Tag an article", expanded=False):
         if not pmap:
             st.info("No saved abstracts yet. Add papers on the Upload Abstract page first.")
             return
 
-        options = sorted(pmap.keys(), key=lambda pid: (pmap[pid].get("title") or "").lower())
+        options = sorted(pmap.keys(), key=lambda pid: (pmap[pid].get("uploaded_at") or ""), reverse=True)
         pmid = st.selectbox(
             "Article (type to search your saved abstracts)",
             options=options,
@@ -93,21 +140,33 @@ def _render_tag_form(pmap: dict[str, dict[str, str]]) -> None:
         )
         program = _KEY_BY_LABEL[prog_label]
 
-        measures = st.multiselect(
-            "Measure(s)",
+        measure = st.selectbox(
+            "Measure",
             options=_PROG_BY_KEY[program]["measures"],
-            key=f"vbc_add_measures_{program}",
+            index=None,
+            placeholder="Choose a measure…",
+            key=f"vbc_add_measure_{program}",
+        )
+
+        subsection = st.selectbox(
+            "Subsection (optional — type to add a new one)",
+            options=_subsections_for(program, measure, tags) if measure else [],
+            index=None,
+            placeholder="— none (directly under the measure) —",
+            key=f"vbc_add_sub_{program}_{measure or 'x'}",
+            accept_new_options=True,
         )
 
         if st.button("Tag article", type="primary", key="vbc_add_btn"):
             if not pmid:
                 st.error("Choose a paper from your database.")
-            elif not measures:
-                st.error("Choose at least one measure.")
+            elif not measure:
+                st.error("Choose a measure.")
             else:
-                set_vbc_tag(pmid, program, ", ".join(measures))
+                set_vbc_tag(pmid, program, measure, subsection or "")
                 st.session_state.pop("vbc_add_pmid", None)
-                st.session_state.pop(f"vbc_add_measures_{program}", None)
+                st.session_state.pop(f"vbc_add_measure_{program}", None)
+                st.session_state.pop(f"vbc_add_sub_{program}_{measure or 'x'}", None)
                 st.toast("Article tagged.")
                 st.rerun()
 
@@ -116,28 +175,31 @@ def _render_manage(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]) 
     if not tags:
         return
     with st.expander(f"Manage tagged articles ({len(tags)})", expanded=False):
-        # Group by program so the management list mirrors the reading view.
         for program in VBC_PROGRAMS:
             prog_tags = [t for t in tags if t["program"] == program["key"]]
             if not prog_tags:
                 continue
             st.markdown(f"**{program['label']}**")
-            for t in prog_tags:
+            for t in sorted(prog_tags, key=lambda x: (x["measure"], (x.get("subsection") or ""))):
                 tid = t["tag_id"]
                 title = (pmap.get(t["pmid"], {}).get("title") or "").strip() or f"PMID {t['pmid']}"
-                st.caption(title)
+                st.caption(f"{title} — _{t['measure']}_")
+                sub_opts = _subsections_for(program["key"], t["measure"], tags)
+                cur = (t.get("subsection") or "").strip()
                 c_edit, c_save, c_rm = st.columns([5, 1, 1])
                 with c_edit:
-                    new_measures = st.multiselect(
-                        "Measures",
-                        options=sorted(set(program["measures"]) | set(_split_csv(t["measures"]))),
-                        default=_split_csv(t["measures"]),
+                    new_sub = st.selectbox(
+                        "Subsection",
+                        options=sub_opts,
+                        index=sub_opts.index(cur) if cur in sub_opts else None,
+                        placeholder="— none (directly under the measure) —",
                         key=f"vbc_edit_{tid}",
+                        accept_new_options=True,
                         label_visibility="collapsed",
                     )
                 with c_save:
                     if st.button("Save", key=f"vbc_save_{tid}", use_container_width=True):
-                        update_vbc_tag(tid, ", ".join(new_measures))
+                        update_vbc_tag(tid, new_sub or "")
                         st.toast("Updated.")
                         st.rerun()
                 with c_rm:
@@ -150,37 +212,52 @@ def _render_manage(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]) 
 
 def render() -> None:
     st.title("📊 Metrics")
-    st.markdown(
-        "Studies relevant to hospital quality metrics."
-    )
+    st.markdown("Studies relevant to hospital quality metrics.")
 
     read_only = is_public_mode()
     pmap = {p["pmid"]: p for p in list_browse_items(_PAPERS_LIMIT)}
     tags = list_vbc_tags()
 
     if not read_only:
-        _render_tag_form(pmap)
+        _render_tag_form(pmap, tags)
         _render_manage(pmap, tags)
 
     st.divider()
 
     for program in VBC_PROGRAMS:
         st.header(program["label"], anchor=program["key"])
+        desc = (program.get("description") or "").strip()
+        if desc:
+            st.markdown(desc)
+
         prog_tags = [t for t in tags if t["program"] == program["key"]]
+        shown_any = False
 
-        shown = False
         for measure in program["measures"]:
-            arts = [t for t in prog_tags if measure in _split_csv(t["measures"])]
-            if not arts:
-                continue
-            shown = True
-            st.subheader(measure, anchor=f"{program['key']}-{_slug(measure)}")
-            for t in sorted(arts, key=lambda x: (pmap.get(x["pmid"], {}).get("title") or "").lower()):
-                it = pmap.get(t["pmid"])
-                if it:
-                    _render_browse_item(it, show_pub_date=True, allow_delete=False)
-                else:
-                    st.markdown(f"- *[Removed from database — PMID {t['pmid']}]*")
+            measure_tags = [t for t in prog_tags if t["measure"] == measure]
+            subsections = _subsections_for(program["key"], measure, tags)
 
-        if not shown:
+            # Show the measure if it has articles OR any (predefined/known) subsection.
+            if not measure_tags and not subsections:
+                continue
+            shown_any = True
+            st.subheader(measure, anchor=f"{program['key']}-{_slug(measure)}")
+
+            # Articles filed directly under the measure (no subsection).
+            direct = [t for t in measure_tags if not (t.get("subsection") or "").strip()]
+            _render_article_list(direct, pmap)
+
+            # Then each subsection (predefined first, then any extra from the data).
+            for sub in subsections:
+                sub_tags = [
+                    t for t in measure_tags
+                    if (t.get("subsection") or "").strip().lower() == sub.lower()
+                ]
+                st.markdown(f"#### {sub}")
+                if sub_tags:
+                    _render_article_list(sub_tags, pmap)
+                else:
+                    st.caption("_No articles yet._")
+
+        if not shown_any:
             st.caption("No articles tagged yet.")

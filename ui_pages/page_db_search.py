@@ -8,18 +8,20 @@ from db import (
     get_guideline_rec_labels,
     get_guideline_recommendations_display,
     get_record,
-    search_guidelines,
-    search_records,
+    list_browse_guideline_items,
+    list_browse_items,
     update_guideline_recommendations_display,
 )
 from extract import get_s2_similar_papers, get_top_neighbors
 from pages_shared import (
-    SEARCH_MAX_DEFAULT,
+    BROWSE_MAX_ROWS,
     _delete_recs_from_guideline_md,
     _fmt_search_item,
     _parse_rec_nums,
     _render_bullets,
     _render_plain_text,
+    _render_related_item_row,
+    _render_related_tray,
     _tags_to_md,
     clear_public_study_overlay,
     display_journal,
@@ -46,38 +48,47 @@ def render() -> None:
     elif open_gid:
         forced_selected = {"type": "guideline", "guideline_id": open_gid}
 
-    q = st.text_input(
-        "Search",
-        placeholder="Search by drug, condition, or journal…",
-        key="db_search_any",
-        help='Combine words with AND / OR, or wrap a phrase in "quotes" for an exact match.',
-    )
+    # All saved studies (papers + guidelines), most-recently-added first, in one
+    # searchable dropdown — like the Metrics picker. Typing filters by title/meta.
+    items = list_browse_items(BROWSE_MAX_ROWS) + list_browse_guideline_items(BROWSE_MAX_ROWS)
+    items.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
 
-    if (q or "").strip():
+    if not items:
+        st.info("No saved studies yet.")
+        st.stop()
+
+    def _item_id(it: dict[str, str]) -> str:
+        gid = (it.get("guideline_id") or "").strip()
+        if gid or (it.get("type") or "") == "guideline":
+            return f"g:{gid}"
+        return f"p:{(it.get('pmid') or '').strip()}"
+
+    id_to_item = {_item_id(it): it for it in items}
+    options = list(id_to_item.keys())
+
+    # A deep-link (?pmid= / ?gid= from Browse) preselects that study, then is
+    # consumed so the dropdown can be freely changed afterward.
+    if forced_selected:
+        forced_id = _item_id(forced_selected)
+        if forced_id in id_to_item:
+            st.session_state["db_study_pick"] = forced_id
         st.session_state.pop("db_search_open_pmid", None)
         st.session_state.pop("db_search_open_gid", None)
-        forced_selected = None
 
-    rows: list[dict[str, str]] = []
-    selected: dict[str, str] | None = None
+    picked_id = st.selectbox(
+        "Study",
+        options=options,
+        index=None,
+        placeholder="Choose a study… (most recently added first)",
+        format_func=lambda i: _fmt_search_item(id_to_item[i]),
+        key="db_study_pick",
+    )
 
-    if (q or "").strip():
-        paper_rows = search_records(limit=SEARCH_MAX_DEFAULT, q=q)
-        guideline_rows = search_guidelines(limit=SEARCH_MAX_DEFAULT, q=q)
-
-        rows.extend(guideline_rows)
-        rows.extend(paper_rows)
-
-        if not rows:
-            st.warning("No matches.")
-            st.stop()
-
-        selected = st.selectbox("Results", options=rows, format_func=_fmt_search_item, index=0)
-    elif forced_selected:
-        selected = forced_selected
-    else:
-        st.info("Type to search.")
+    if not picked_id or picked_id not in id_to_item:
+        st.info("Choose a study to view.")
         st.stop()
+
+    selected: dict[str, str] = id_to_item[picked_id]
 
     if (selected.get("type") or "") != "guideline":
         selected_pmid = selected["pmid"]
@@ -160,6 +171,10 @@ def render() -> None:
             with st.expander("Original abstract"):
                 _render_plain_text(abstract)
 
+        # The related-paper clipboard is an owner curation aid (collect PMIDs to add
+        # via Upload Abstract), so the 📋 buttons and tray are hidden in public mode.
+        allow_clip = not is_public_mode()
+
         with st.expander("PubMed Related articles (top 5)"):
             try:
                 neighbors = get_top_neighbors(selected_pmid, top_n=5)
@@ -167,8 +182,11 @@ def render() -> None:
                     st.caption("No related articles found.")
                 else:
                     for n in neighbors:
-                        st.markdown(
-                            f"- [{n['title'] or n['pmid']}](https://pubmed.ncbi.nlm.nih.gov/{n['pmid']}/) — `{n['pmid']}`"
+                        _render_related_item_row(
+                            n.get("pmid") or "",
+                            n.get("title") or n.get("pmid") or "",
+                            source="PubMed related",
+                            allow_add=allow_clip,
                         )
             except Exception:
                 # NCBI's elink endpoint is intermittently unavailable. Never surface
@@ -189,9 +207,12 @@ def render() -> None:
                         pmid = (p.get("pmid") or "").strip()
                         url = (p.get("url") or "").strip()
                         if pmid:
-                            # Prefer a PubMed link when we have (or recovered) a PMID.
-                            st.markdown(
-                                f"- [{title}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/) — `{pmid}`"
+                            # Prefer a PubMed link (and clipboard) when we have a PMID.
+                            _render_related_item_row(
+                                pmid,
+                                title,
+                                source="Semantic Scholar related",
+                                allow_add=allow_clip,
                             )
                         elif url:
                             paper_id = (p.get("paperId") or "").strip()
@@ -203,6 +224,11 @@ def render() -> None:
                 # Same precaution: don't leak request details (and the S2 config-hint
                 # message isn't useful to a public visitor).
                 st.caption("Semantic Scholar recommendations are temporarily unavailable — try again later.")
+
+        # Same shared clipboard as the Upload Abstract page (where it's always
+        # visible); shown here too for convenience while browsing related papers.
+        if allow_clip:
+            _render_related_tray()
 
     else:
         gid = (selected.get("guideline_id") or "").strip()

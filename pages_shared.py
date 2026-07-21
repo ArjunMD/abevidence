@@ -7,8 +7,12 @@ from urllib.parse import quote_plus
 import streamlit as st
 
 from db import (
+    add_clipboard,
+    clear_clipboard,
     get_hidden_pubmed_pmids,
     get_saved_pmids,
+    list_clipboard,
+    remove_clipboard,
 )
 
 SEARCH_MAX_DEFAULT = 1500
@@ -123,6 +127,78 @@ def _clean_pmid(raw: str) -> str:
     s = raw.strip()
     m = re.search(r"(\d{1,10})", s)
     return m.group(1) if m else ""
+
+
+# ---------------- Related-paper clipboard (shared: Upload Abstract + Single-study view) ----------------
+#
+# The owner collects PMIDs from the "related articles" lists to add later via
+# Upload Abstract. Backed by the DB (see db.clipboard) rather than session_state,
+# because opening a study from Browse navigates via a ?pmid= link — a full reload
+# that starts a new session and would wipe an in-memory tray. The DB store keeps
+# the clipboard across those navigations and across every page.
+
+
+def _get_related_tray() -> list[dict[str, str]]:
+    return list_clipboard()
+
+
+def _add_related_pmid(pmid: str, title: str = "", source: str = "") -> bool:
+    pid = _clean_pmid(pmid)
+    if not pid:
+        return False
+    return add_clipboard(pid, (title or "").strip(), (source or "").strip())
+
+
+def _render_related_item_row(pmid: str, title: str, source: str = "", allow_add: bool = True) -> None:
+    """One related-paper row. With `allow_add`, shows a 📋 button that puts the PMID
+    on the shared clipboard; without it (e.g. public mode), renders the row alone."""
+    pid = _clean_pmid(pmid)
+    if not pid:
+        return
+    raw_title = (title or "").strip() or pid
+    safe_title = html.escape(raw_title)
+    link_md = (
+        f"- <a href='https://pubmed.ncbi.nlm.nih.gov/{pid}/' target='_blank'>{safe_title}</a> — <code>{pid}</code>"
+    )
+
+    if not allow_add:
+        st.markdown(link_md, unsafe_allow_html=True)
+        return
+
+    source_key = "".join([ch if ch.isalnum() else "_" for ch in source]).strip("_") or "related"
+    c1, c2 = st.columns([18, 1], gap="small")
+    with c1:
+        st.markdown(link_md, unsafe_allow_html=True)
+    with c2:
+        if st.button("📋", key=f"related_add_{source_key}_{pid}", help="Add PMID to clipboard", type="tertiary"):
+            added = _add_related_pmid(pid, raw_title, source=source)
+            st.toast("Added to clipboard." if added else "Already in clipboard.")
+            st.rerun()
+
+
+def _render_related_tray() -> None:
+    tray = _get_related_tray()
+    with st.expander(f"Clipboard ({len(tray)})" if tray else "Clipboard", expanded=bool(tray)):
+        if not tray:
+            st.info("No PMIDs in clipboard yet. Add them with the 📋 icon in any study's related-paper lists.")
+            return
+
+        for it in tray:
+            pmid = (it.get("pmid") or "").strip()
+            if not pmid:
+                continue
+            title = (it.get("title") or "").strip() or f"PMID {pmid}"
+            c1, c2 = st.columns([18, 1], gap="small")
+            with c1:
+                st.markdown(f"- [{title}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/) — `{pmid}`")
+            with c2:
+                if st.button("✕", key=f"related_rm_{pmid}", help="Remove from clipboard", type="tertiary"):
+                    remove_clipboard(pmid)
+                    st.rerun()
+
+        if st.button("Clear clipboard", key="related_tray_clear", width="stretch"):
+            clear_clipboard()
+            st.rerun()
 
 
 def _split_specialties(raw: str) -> list[str]:
