@@ -41,12 +41,12 @@ _PAGES = {
     "Upload Abstract": render_pmid_abstract,
     "Upload Guideline": render_guidelines,
     "Browse studies": render_db_browse,
-    "Value-Based Care": render_value_based_care,
     "Single-study view": render_db_search,
     "Search PubMed": render_search_pubmed,
     "Manage": render_delete,
     "Dashboard": render_dashboard,
     "Reviews": render_notes,
+    "Metrics": render_value_based_care,
     "Suggest an article": render_suggest,
     "About": render_about,
 }
@@ -59,7 +59,7 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Value-Based Care"}
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Metrics"}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]

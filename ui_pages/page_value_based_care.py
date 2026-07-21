@@ -149,11 +149,9 @@ def _render_manage(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]) 
 
 
 def render() -> None:
-    st.title("💵 Value-Based Care")
+    st.title("📊 Metrics")
     st.markdown(
-        "Curated studies relevant to hospital **value-based payment programs** — where "
-        "reimbursement rises with lower readmissions and fewer hospital-acquired conditions. "
-        "Articles are drawn from the library and grouped by program and measure."
+        "Studies relevant to hospital quality metrics."
     )
 
     read_only = is_public_mode()
