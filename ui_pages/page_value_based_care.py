@@ -49,11 +49,11 @@ VBC_PROGRAMS = [
 VBC_SUBSECTIONS: dict[tuple[str, str], list[str]] = {
     ("readmissions", "HF"): [
         "Adequate Initial Diuresis",
-        "Daily Weights & Diuretic Response",
+        "Salt Restriction",
+        "Daily monitoring including Braking phenomenon and Rising Creatinine",
         "Continuing GDMT During Decompensation",
         "Decongestion Before Discharge",
         "IV-to-Oral Diuretic Transition",
-        "Salt Restriction",
         "Discharge Education & Early Follow-up",
     ],
 }
@@ -122,7 +122,17 @@ def _render_tag_form(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]
             st.info("No saved abstracts yet. Add papers on the Upload Abstract page first.")
             return
 
-        options = sorted(pmap.keys(), key=lambda pid: (pmap[pid].get("uploaded_at") or ""), reverse=True)
+        # Hide articles that already carry any Metrics tag — this picker is for
+        # bringing new articles in. (Already-tagged articles can still gain more
+        # tags via the 🏷️ tagger in the Single-study view / Upload Abstract.)
+        tagged_pmids = {t["pmid"] for t in tags}
+        options = sorted(
+            (pid for pid in pmap.keys() if pid not in tagged_pmids),
+            key=lambda pid: (pmap[pid].get("uploaded_at") or ""),
+            reverse=True,
+        )
+        if not options:
+            st.caption("All saved articles are already tagged.")
         pmid = st.selectbox(
             "Article (type to search your saved abstracts)",
             options=options,
@@ -168,6 +178,62 @@ def _render_tag_form(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]
                 st.session_state.pop(f"vbc_add_measure_{program}", None)
                 st.session_state.pop(f"vbc_add_sub_{program}_{measure or 'x'}", None)
                 st.toast("Article tagged.")
+                st.rerun()
+
+
+def _prog_label(program_key: str) -> str:
+    return (_PROG_BY_KEY.get(program_key) or {}).get("label", program_key)
+
+
+def render_metrics_tagger(pmid: str, key_prefix: str, expanded: bool = False) -> None:
+    """Compact form to tag ONE article (by pmid) for the Metrics page. Reusable
+    from the Single-study view and Upload Abstract pages. Owner-only — callers
+    should not render it in public mode."""
+    pid = (pmid or "").strip()
+    if not pid:
+        return
+
+    tags = list_vbc_tags()
+    existing = [t for t in tags if t["pmid"] == pid]
+
+    title = f"🏷️ Metrics tags ({len(existing)})" if existing else "🏷️ Add to Metrics"
+    with st.expander(title, expanded=expanded):
+        for t in existing:
+            sub = (t.get("subsection") or "").strip()
+            path = f"{_prog_label(t['program'])} › {t['measure']}" + (f" › {sub}" if sub else "")
+            st.caption(f"• {path}")
+
+        prog_label = st.radio(
+            "Program",
+            options=[p["label"] for p in VBC_PROGRAMS],
+            key=f"{key_prefix}_prog",
+            horizontal=True,
+        )
+        program = _KEY_BY_LABEL[prog_label]
+
+        measure = st.selectbox(
+            "Measure",
+            options=_PROG_BY_KEY[program]["measures"],
+            index=None,
+            placeholder="Choose a measure…",
+            key=f"{key_prefix}_measure_{program}",
+        )
+
+        subsection = st.selectbox(
+            "Subsection (optional — type to add a new one)",
+            options=_subsections_for(program, measure, tags) if measure else [],
+            index=None,
+            placeholder="— none (directly under the measure) —",
+            key=f"{key_prefix}_sub_{program}_{measure or 'x'}",
+            accept_new_options=True,
+        )
+
+        if st.button("Tag article", type="primary", key=f"{key_prefix}_btn"):
+            if not measure:
+                st.error("Choose a measure.")
+            else:
+                set_vbc_tag(pid, program, measure, subsection or "")
+                st.toast("Tagged for Metrics.")
                 st.rerun()
 
 

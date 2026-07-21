@@ -26,6 +26,7 @@ from pages_shared import (
     _render_related_item_row,
     _render_related_tray,
 )
+from ui_pages.page_value_based_care import render_metrics_tagger
 
 
 def render() -> None:
@@ -270,6 +271,13 @@ def render() -> None:
                 st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
             else:
                 st.warning("No abstract found for this PMID (or PubMed returned no AbstractText).")
+
+            # Tag for the Metrics page — only once the article is in the database
+            # (Metrics references saved abstracts, so an unsaved PMID would dangle).
+            if is_saved(last_pmid):
+                render_metrics_tagger(last_pmid, key_prefix=f"uatag_{last_pmid}")
+            else:
+                st.caption("Add this abstract to your database to tag it for Metrics.")
 
             with st.expander("Pubmed Related articles (top 5)"):
                 try:

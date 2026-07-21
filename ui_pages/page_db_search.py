@@ -13,6 +13,7 @@ from db import (
     update_guideline_recommendations_display,
 )
 from extract import get_s2_similar_papers, get_top_neighbors
+from ui_pages.page_value_based_care import render_metrics_tagger
 from pages_shared import (
     BROWSE_MAX_ROWS,
     _delete_recs_from_guideline_md,
@@ -170,6 +171,10 @@ def render() -> None:
         if abstract:
             with st.expander("Original abstract"):
                 _render_plain_text(abstract)
+
+        # Owner-only: tag this study for the Metrics page without leaving this view.
+        if not is_public_mode():
+            render_metrics_tagger(selected_pmid, key_prefix=f"sstag_{selected_pmid}")
 
         # The related-paper clipboard is an owner curation aid (collect PMIDs to add
         # via Upload Abstract), so the 📋 buttons and tray are hidden in public mode.
