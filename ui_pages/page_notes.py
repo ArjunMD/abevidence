@@ -1,4 +1,5 @@
 import os
+import re
 
 import streamlit as st
 
@@ -74,6 +75,28 @@ def _bullets_from_text(raw: str) -> list[str]:
         b = line.strip().lstrip("-•").strip()
         if b:
             out.append(b)
+    return out
+
+
+def _slug(text: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (text or "").strip().lower()).strip("-")
+    return s or "review"
+
+
+def _slug_map(notes: list[dict[str, str]]) -> dict[str, str]:
+    """Map each note_id to a unique anchor slug so the TOC links and the section
+    headings agree even when two reviews share a title."""
+    out: dict[str, str] = {}
+    used: set[str] = set()
+    for n in notes:
+        base = _slug(n.get("title") or "")
+        slug = base
+        i = 2
+        while slug in used:
+            slug = f"{base}-{i}"
+            i += 1
+        used.add(slug)
+        out[n["note_id"]] = slug
     return out
 
 
@@ -199,7 +222,9 @@ def _render_add_note_form(notes: list[dict[str, str]]) -> None:
                 st.rerun()
 
 
-def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: bool) -> None:
+def _render_note_section(
+    note: dict[str, str], all_tags: list[str], read_only: bool, anchor: str = ""
+) -> None:
     note_id = note["note_id"]
     title = note.get("title") or "(untitled)"
     specialties = _split_csv(note.get("specialties") or "")
@@ -207,7 +232,8 @@ def _render_note_section(note: dict[str, str], all_tags: list[str], read_only: b
     bullets = _bullets_from_text(note.get("content") or "")
     source = (note.get("source") or "").strip()
 
-    st.markdown(f"### {title}")
+    # subheader (not "### ") so we can set a stable anchor the TOC links to.
+    st.subheader(title, anchor=anchor or None)
     meta = " · ".join(specialties + tags)
     if meta:
         st.caption(meta)
@@ -338,5 +364,13 @@ def render() -> None:
         return
 
     all_tags = _all_existing_tags(notes)
+    slugs = _slug_map(visible)
+
+    if len(visible) > 1:
+        with st.expander(f"📑 Contents ({len(visible)})", expanded=False):
+            for n in sorted(visible, key=lambda x: (x.get("title") or "").strip().lower()):
+                t = (n.get("title") or "(untitled)").strip()
+                st.markdown(f"- [{t}](#{slugs[n['note_id']]})")
+
     for note in visible:
-        _render_note_section(note, all_tags, read_only)
+        _render_note_section(note, all_tags, read_only, anchor=slugs[note["note_id"]])
