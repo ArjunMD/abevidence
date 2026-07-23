@@ -3632,3 +3632,84 @@ def acid_base_ai_interpretation(context: str, values_summary: str) -> dict:
     summary = str(data.get("summary") or "").strip()
     differential = [str(x).strip() for x in (data.get("differential") or []) if str(x).strip()]
     return {"summary": summary, "differential": differential}
+
+
+# ---------------- Tools: HPI → assessment and plan ----------------
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
+    """Draft a problem-based assessment and plan from a DEIDENTIFIED HPI written
+    in prose (including notable vitals, exam, labs, imaging). `considerations` is
+    optional free text — specific elements, differentials, or thoughts the
+    clinician wants the model to be sure to address. Returns
+    {"summary": str, "problems": [{"problem", "assessment", "plan": [str]}]}.
+    Cached for a day so re-running the same inputs doesn't re-bill."""
+    hpi = (hpi or "").strip()
+    considerations = (considerations or "").strip()
+    if not hpi:
+        return {}
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    instructions = (
+        "You are an experienced hospital-medicine attending. Given a deidentified HPI "
+        "written in prose (including notable vital signs, exam, labs, and imaging), "
+        "produce a thoughtful, problem-based assessment and plan.\n"
+        "Rules:\n"
+        "- 'summary': a one-line summary statement (age/sex, pertinent history, presenting "
+        "problem). Contains no identifiers.\n"
+        "- 'problems': a prioritized list, most acute/important first. For each:\n"
+        "   * 'problem': a short problem name (e.g. 'Acute hypoxic respiratory failure').\n"
+        "   * 'assessment': 1-3 sentences of clinical reasoning — the leading diagnosis and "
+        "the key differential, tied to the data given.\n"
+        "   * 'plan': 2-6 concrete action items (diagnostics, therapeutics with typical adult "
+        "dosing where apt, monitoring, consults, disposition).\n"
+        "- Reason only from the information provided; if a pivotal datum is missing, say so "
+        "briefly in the relevant assessment rather than inventing it.\n"
+        "- Be specific and clinically useful; avoid generic boilerplate.\n"
+        "- If the clinician supplies additional considerations (specific elements, "
+        "differentials, or thoughts), explicitly address each one in the relevant "
+        "problem's assessment and plan — adding a problem if needed. Weigh them, and if "
+        "one is unlikely, say briefly why rather than silently dropping it.\n"
+        'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
+        '"assessment": "...", "plan": ["...", "..."]}]}'
+    )
+    user_input = f"Deidentified HPI:\n{hpi}\n\n"
+    if considerations:
+        user_input += f"Clinician's considerations to address:\n{considerations}\n\n"
+    user_input += "JSON:"
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": user_input,
+        "reasoning": {"effort": "medium"},
+        "text": {"verbosity": "medium"},
+        "max_output_tokens": 8000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return {}
+
+    problems: list[dict] = []
+    for p in data.get("problems") or []:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("problem") or "").strip()
+        if not name:
+            continue
+        plan = [str(x).strip() for x in (p.get("plan") or []) if str(x).strip()]
+        problems.append({
+            "problem": name,
+            "assessment": str(p.get("assessment") or "").strip(),
+            "plan": plan,
+        })
+    return {"summary": str(data.get("summary") or "").strip(), "problems": problems}
