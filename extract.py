@@ -3446,3 +3446,189 @@ def extract_review_key_sentences(pdf_bytes: bytes, filename: str = "", progress_
         "specialty": specialty,
         "sentences": sentences,
     }
+
+
+# ---------------- Tools: ICD-10 code finder ----------------
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def icd10_suggestions(description: str) -> list[dict[str, str]]:
+    """Suggest ICD-10-CM codes for a free-text description of a presenting
+    diagnosis. Returns a ranked list of {"code", "name", "note"} dicts — best
+    match first. "name" is the official code title; "note" is an optional very
+    short disambiguation hint ('' when the code needs none). Cached for a day
+    so re-running the same query doesn't re-bill."""
+    description = (description or "").strip()
+    if not description:
+        return []
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    instructions = (
+        "You are an ICD-10-CM coding assistant for a hospital-medicine physician.\n"
+        "Given a clinician's free-text description of a presenting diagnosis or problem, "
+        "return the ICD-10-CM codes it could plausibly be coded under.\n"
+        "Rules:\n"
+        "- Prefer billable, maximally specific codes the description supports; when the "
+        "description lacks the detail to pick a specific code, include the 'unspecified' "
+        "variant AND the common specific variants the clinician may have meant.\n"
+        "- Order by likelihood of being the intended code, best match first.\n"
+        "- Return 3-10 codes: fewer when the description is precise, more when it is vague.\n"
+        "- 'name' is the official ICD-10-CM code title, verbatim.\n"
+        "- 'note' is a very short hint (max ~8 words) for choosing between the listed codes "
+        "(e.g. 'use if aspiration documented'); use \"\" when no hint is needed. No other "
+        "commentary anywhere.\n"
+        'Return ONLY JSON: {"codes": [{"code": "...", "name": "...", "note": "..."}]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": f"Presenting diagnosis (clinician's own words):\n{description}\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 4000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+
+    out: list[dict[str, str]] = []
+    for item in (data.get("codes") or []) if isinstance(data, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not code or not name:
+            continue
+        out.append({"code": code, "name": name, "note": str(item.get("note") or "").strip()})
+    return out
+
+
+# ---------------- Tools: medication dosing ----------------
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def medication_dosing(drug: str) -> dict:
+    """Look up typical adult dosing for a medicine, by indication. Returns
+    {"drug": "<generic name>", "doses": [{"indication", "dose", "note"}]} —
+    most common indication first. "dose" is compact (dose, route, frequency);
+    "note" is an optional very short caveat ('' when none). Cached for a day
+    so re-running the same query doesn't re-bill."""
+    drug = (drug or "").strip()
+    if not drug:
+        return {}
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    instructions = (
+        "You are a medication-dosing reference for a hospital-medicine physician.\n"
+        "Given a medicine name (generic or brand), return typical ADULT dosing for its "
+        "common indications.\n"
+        "Rules:\n"
+        "- Resolve brand names to the generic; 'drug' is the generic name.\n"
+        "- Cover 3-10 indications, most common first. Emphasize inpatient/hospital use "
+        "but include major outpatient indications.\n"
+        "- 'dose' is compact: dose, route, frequency, e.g. '1 g IV q12h' or "
+        "'5 mg PO BID'; add loading dose, titration, max, or duration only when essential.\n"
+        "- 'note' is a very short caveat (max ~8 words), e.g. renal adjustment or key "
+        "monitoring; use \"\" when none is needed. No other commentary anywhere.\n"
+        "- If the input is not a recognizable medicine, return {\"drug\": \"\", \"doses\": []}.\n"
+        'Return ONLY JSON: {"drug": "...", "doses": [{"indication": "...", "dose": "...", "note": "..."}]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": f"Medicine:\n{drug}\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 4000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return {}
+
+    doses: list[dict[str, str]] = []
+    for item in data.get("doses") or []:
+        if not isinstance(item, dict):
+            continue
+        indication = str(item.get("indication") or "").strip()
+        dose = str(item.get("dose") or "").strip()
+        if not indication or not dose:
+            continue
+        doses.append(
+            {"indication": indication, "dose": dose, "note": str(item.get("note") or "").strip()}
+        )
+    return {"drug": str(data.get("drug") or "").strip(), "doses": doses}
+
+
+# ---------------- Tools: acid-base AI context layer ----------------
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def acid_base_ai_interpretation(context: str, values_summary: str) -> dict:
+    """Optional AI layer for the acid-base tool. Given a brief free-text clinical
+    context plus a recap of the entered values, return a concise interpretation
+    that uses the context to prioritize the differential. This complements — does
+    not replace — the deterministic engine (which does all the arithmetic).
+    Returns {"summary": str, "differential": [str]}. Cached for a day so
+    re-running the same query doesn't re-bill."""
+    context = (context or "").strip()
+    if not context:
+        return {}
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    instructions = (
+        "You are an acid-base consultant for a hospital-medicine physician.\n"
+        "You are given already-measured blood-gas/lab values and a brief clinical "
+        "context. Give a concise interpretation that USES the context to prioritize "
+        "the differential.\n"
+        "Rules:\n"
+        "- Tie reasoning to the context, e.g.: metformin → type B lactic acidosis; "
+        "vomiting/NG suction → contraction metabolic alkalosis; SGLT2 inhibitor → "
+        "euglycemic DKA; sepsis/hypotension → type A lactic acidosis; salicylate "
+        "overdose → mixed respiratory alkalosis + high anion gap acidosis; diarrhea "
+        "→ non-gap acidosis.\n"
+        "- 'summary': ONE sentence naming the most likely acid-base picture for THIS "
+        "patient.\n"
+        "- 'differential': 2-5 items, most likely first, each ≤12 words, specific to "
+        "the context. No generic list.\n"
+        "- Do not restate the raw numbers or add safety boilerplate.\n"
+        'Return ONLY JSON: {"summary": "...", "differential": ["...", ...]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": f"Values: {values_summary or '(none entered)'}\nContext: {context}\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 2000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return {}
+    summary = str(data.get("summary") or "").strip()
+    differential = [str(x).strip() for x in (data.get("differential") or []) if str(x).strip()]
+    return {"summary": summary, "differential": differential}

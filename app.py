@@ -29,6 +29,7 @@ from ui_pages.page_notes import render as render_notes
 from ui_pages.page_pmid_abstract import render as render_pmid_abstract
 from ui_pages.page_search_pubmed import render as render_search_pubmed
 from ui_pages.page_suggest import render as render_suggest
+from ui_pages.page_tools import render as render_tools
 from ui_pages.page_value_based_care import render as render_value_based_care
 
 st.set_page_config(page_title="Hospital Medicine Shelf", page_icon="🩺", layout="wide")
@@ -49,6 +50,7 @@ _PAGES = {
     "Dashboard": render_dashboard,
     "Reviews": render_notes,
     "Metrics": render_value_based_care,
+    "Tools": render_tools,
     "Suggest an article": render_suggest,
     "About": render_about,
 }
@@ -61,7 +63,7 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Metrics"}
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Metrics", "Tools"}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]
