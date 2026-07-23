@@ -79,47 +79,39 @@ def _render_dosing_lookup() -> None:
 
 
 def _render_acid_base() -> None:
-    st.subheader("Acid-base interpreter")
+    st.subheader("Acid-base")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
 
     c1, c2, c3 = st.columns(3)
-    ph = c1.number_input("pH", value=None, step=0.01, format="%.2f",
-                         placeholder="7.40", key="tools_ab_ph")
-    pco2 = c2.number_input("pCO₂ (mmHg)", value=None, step=1.0,
-                           placeholder="40", key="tools_ab_pco2")
-    hco3 = c3.number_input("HCO₃⁻ (mmol/L)", value=None, step=1.0,
-                           placeholder="24", key="tools_ab_hco3")
+    ph = _num(c1, "pH", "tools_ab_ph", 0.01, "%.2f")
+    pco2 = _num(c2, "pCO₂ (mmHg)", "tools_ab_pco2", 1.0)
+    hco3 = _num(c3, "HCO₃⁻ (mmol/L)", "tools_ab_hco3", 1.0)
 
     c4, c5, c6 = st.columns(3)
-    na = c4.number_input("Na⁺", value=None, step=1.0,
-                         placeholder="140", key="tools_ab_na")
-    cl = c5.number_input("Cl⁻", value=None, step=1.0,
-                         placeholder="104", key="tools_ab_cl")
-    alb = c6.number_input("Albumin g/dL", value=None, step=0.1,
-                          format="%.1f", placeholder="4.0", key="tools_ab_alb")
+    na = _num(c4, "Na⁺", "tools_ab_na", 1.0)
+    cl = _num(c5, "Cl⁻", "tools_ab_cl", 1.0)
+    alb = _num(c6, "Albumin g/dL", "tools_ab_alb", 0.1, "%.1f")
 
     c7, c8, c9 = st.columns(3)
-    lactate = c7.number_input("Lactate mmol/L", value=None, step=0.1,
-                              format="%.1f", placeholder="1.0", key="tools_ab_lac")
-    bhb = c8.number_input("β-hydroxybutyrate mmol/L", value=None, step=0.1,
-                          format="%.1f", placeholder="0.4", key="tools_ab_bhb")
-    glucose = c9.number_input("Glucose mg/dL", value=None, step=1.0,
-                              placeholder="120", key="tools_ab_glu")
+    lactate = _num(c7, "Lactate mmol/L", "tools_ab_lac", 0.1, "%.1f")
+    bhb = _num(c8, "β-hydroxybutyrate mmol/L", "tools_ab_bhb", 0.1, "%.1f")
+    glucose = _num(c9, "Glucose mg/dL", "tools_ab_glu", 1.0)
 
     c10, c11, c12 = st.columns(3)
-    bun = c10.number_input("BUN mg/dL", value=None, step=1.0,
-                           placeholder="14", key="tools_ab_bun")
-    creat = c11.number_input("Creatinine mg/dL", value=None, step=0.1,
-                             format="%.1f", placeholder="1.0", key="tools_ab_cr")
-    osm = c12.number_input("Measured osmolality mOsm/kg", value=None, step=1.0,
-                           placeholder="290", key="tools_ab_osm")
+    bun = _num(c10, "BUN mg/dL", "tools_ab_bun", 1.0)
+    creat = _num(c11, "Creatinine mg/dL", "tools_ab_cr", 0.1, "%.1f")
+    osm = _num(c12, "Measured osmolality mOsm/kg", "tools_ab_osm", 1.0)
 
     context = st.text_input(
         "Clinical context (optional — adds an AI interpretation)",
         key="tools_ab_context",
-        placeholder="e.g. septic, on metformin, vomiting for 2 days",
+        placeholder="Clinical context (optional) — e.g. septic, on metformin, vomiting",
+        label_visibility="collapsed",
     )
-
-    st.caption("Everything is optional — enter a full gas, a BMP, or whatever you have.")
 
     if st.button("Interpret", type="primary", key="tools_ab_go"):
         anything = any(v is not None for v in (ph, pco2, hco3, na, cl, alb,
