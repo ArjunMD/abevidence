@@ -272,12 +272,12 @@ def render() -> None:
             else:
                 st.warning("No abstract found for this PMID (or PubMed returned no AbstractText).")
 
-            # Tag for the Metrics page — only once the article is in the database
-            # (Metrics references saved abstracts, so an unsaved PMID would dangle).
+            # Tag for the Readmissions page — only once the article is in the database
+            # (Readmissions references saved abstracts, so an unsaved PMID would dangle).
             if is_saved(last_pmid):
                 render_metrics_tagger(last_pmid, key_prefix=f"uatag_{last_pmid}")
             else:
-                st.caption("Add this abstract to your database to tag it for Metrics.")
+                st.caption("Add this abstract to your database to tag it for Readmissions.")
 
             with st.expander("Pubmed Related articles (top 5)"):
                 try:

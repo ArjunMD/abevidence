@@ -50,7 +50,7 @@ _PAGES = {
     "Manage": render_delete,
     "Dashboard": render_dashboard,
     "Reviews": render_notes,
-    "Metrics": render_value_based_care,
+    "Readmissions": render_value_based_care,
     "Tools": render_tools,
     "Assessment & Plan": render_ap,
     "Suggest an article": render_suggest,
@@ -65,7 +65,7 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Metrics", "Tools", "Assessment & Plan"}
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Readmissions", "Tools", "Assessment & Plan"}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]

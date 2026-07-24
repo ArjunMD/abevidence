@@ -28,19 +28,6 @@ VBC_PROGRAMS = [
         ),
         "measures": ["General", "AMI", "HF", "COPD", "Pneumonia"],
     },
-    {
-        "key": "hac",
-        "label": "Hospital-Acquired Conditions",
-        "description": "",
-        "measures": [
-            "General",
-            "CLABSI",
-            "CAUTI",
-            "SSI (Colon & Abdominal Hysterectomy)",
-            "MRSA bacteremia",
-            "CDI",
-        ],
-    },
 ]
 
 # Predefined subsections under a specific (program_key, measure). They always
@@ -122,7 +109,7 @@ def _render_tag_form(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]
             st.info("No saved abstracts yet. Add papers on the Upload Abstract page first.")
             return
 
-        # Hide articles that already carry any Metrics tag — this picker is for
+        # Hide articles that already carry any Readmissions tag — this picker is for
         # bringing new articles in. (Already-tagged articles can still gain more
         # tags via the 🏷️ tagger in the Single-study view / Upload Abstract.)
         tagged_pmids = {t["pmid"] for t in tags}
@@ -186,7 +173,7 @@ def _prog_label(program_key: str) -> str:
 
 
 def render_metrics_tagger(pmid: str, key_prefix: str, expanded: bool = False) -> None:
-    """Compact form to tag ONE article (by pmid) for the Metrics page. Reusable
+    """Compact form to tag ONE article (by pmid) for the Readmissions page. Reusable
     from the Single-study view and Upload Abstract pages. Owner-only — callers
     should not render it in public mode."""
     pid = (pmid or "").strip()
@@ -196,7 +183,7 @@ def render_metrics_tagger(pmid: str, key_prefix: str, expanded: bool = False) ->
     tags = list_vbc_tags()
     existing = [t for t in tags if t["pmid"] == pid]
 
-    title = f"🏷️ Metrics tags ({len(existing)})" if existing else "🏷️ Add to Metrics"
+    title = f"🏷️ Readmissions tags ({len(existing)})" if existing else "🏷️ Add to Readmissions"
     with st.expander(title, expanded=expanded):
         for t in existing:
             sub = (t.get("subsection") or "").strip()
@@ -233,7 +220,7 @@ def render_metrics_tagger(pmid: str, key_prefix: str, expanded: bool = False) ->
                 st.error("Choose a measure.")
             else:
                 set_vbc_tag(pid, program, measure, subsection or "")
-                st.toast("Tagged for Metrics.")
+                st.toast("Tagged for Readmissions.")
                 st.rerun()
 
 
@@ -277,8 +264,8 @@ def _render_manage(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]) 
 
 
 def render() -> None:
-    st.title("📊 Metrics")
-    st.markdown("Studies relevant to hospital quality metrics.")
+    st.title("📊 Readmissions")
+    st.markdown("Studies relevant to reducing hospital readmissions.")
 
     read_only = is_public_mode()
     pmap = {p["pmid"]: p for p in list_browse_items(_PAPERS_LIMIT)}
@@ -291,7 +278,7 @@ def render() -> None:
     st.divider()
 
     for program in VBC_PROGRAMS:
-        st.header(program["label"], anchor=program["key"])
+        # No program header — the page title already names the only program.
         desc = (program.get("description") or "").strip()
         if desc:
             st.markdown(desc)

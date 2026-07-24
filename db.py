@@ -1265,7 +1265,7 @@ def delete_note(note_id: str) -> None:
         conn.execute("DELETE FROM notes WHERE note_id=?;", (nid,))
 
 
-# Value-Based Care / Metrics page (see ui_pages/page_value_based_care.py). A tagging
+# Value-Based Care / Readmissions page (see ui_pages/page_value_based_care.py). A tagging
 # layer marking saved abstracts as relevant to a hospital payment program's measure,
 # optionally within a named subsection. One row per (pmid, program, measure). No
 # copyrighted text lives here — only pmid references into `abstracts` — so it is NOT

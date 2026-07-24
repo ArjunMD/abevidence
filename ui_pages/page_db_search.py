@@ -50,7 +50,7 @@ def render() -> None:
         forced_selected = {"type": "guideline", "guideline_id": open_gid}
 
     # All saved studies (papers + guidelines), most-recently-added first, in one
-    # searchable dropdown — like the Metrics picker. Typing filters by title/meta.
+    # searchable dropdown — like the Readmissions picker. Typing filters by title/meta.
     items = list_browse_items(BROWSE_MAX_ROWS) + list_browse_guideline_items(BROWSE_MAX_ROWS)
     items.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
 
@@ -172,7 +172,7 @@ def render() -> None:
             with st.expander("Original abstract"):
                 _render_plain_text(abstract)
 
-        # Owner-only: tag this study for the Metrics page without leaving this view.
+        # Owner-only: tag this study for the Readmissions page without leaving this view.
         if not is_public_mode():
             render_metrics_tagger(selected_pmid, key_prefix=f"sstag_{selected_pmid}")
 

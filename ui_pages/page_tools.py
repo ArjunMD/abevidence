@@ -1,81 +1,7 @@
 import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
-from extract import acid_base_ai_interpretation, icd10_suggestions, medication_dosing
-
-
-def _render_icd10_finder() -> None:
-    st.subheader("ICD-10 code finder")
-
-    description = st.text_input(
-        "Presenting diagnosis",
-        key="tools_icd10_input",
-        placeholder="Describe the presenting diagnosis in your own words",
-        label_visibility="collapsed",
-    )
-
-    if st.button("Find codes", type="primary", key="tools_icd10_go"):
-        if not description.strip():
-            st.warning("Describe the diagnosis first.")
-        else:
-            try:
-                with st.spinner("Looking up codes…"):
-                    st.session_state["tools_icd10_results"] = icd10_suggestions(description)
-                st.session_state["tools_icd10_query"] = description.strip()
-            except Exception as e:
-                st.session_state.pop("tools_icd10_results", None)
-                st.error(f"Lookup failed: {e}")
-
-    results = st.session_state.get("tools_icd10_results")
-    if results is None:
-        return
-    if not results:
-        st.info("No codes came back — try rewording the description.")
-        return
-
-    rows = ["| Code | Diagnosis | Note |", "| --- | --- | --- |"]
-    for r in results:
-        rows.append(f"| `{r['code']}` | {r['name']} | {r['note'] or ''} |")
-    st.markdown("\n".join(rows))
-
-
-def _render_dosing_lookup() -> None:
-    st.subheader("Medication dosing")
-
-    drug = st.text_input(
-        "Medicine",
-        key="tools_dosing_input",
-        placeholder="Type a medicine (generic or brand)",
-        label_visibility="collapsed",
-    )
-
-    if st.button("Look up doses", type="primary", key="tools_dosing_go"):
-        if not drug.strip():
-            st.warning("Type a medicine first.")
-        else:
-            try:
-                with st.spinner("Looking up dosing…"):
-                    st.session_state["tools_dosing_results"] = medication_dosing(drug)
-            except Exception as e:
-                st.session_state.pop("tools_dosing_results", None)
-                st.error(f"Lookup failed: {e}")
-
-    results = st.session_state.get("tools_dosing_results")
-    if results is None:
-        return
-    doses = results.get("doses") or []
-    if not doses:
-        st.info("Didn't recognize that as a medicine — check the spelling.")
-        return
-
-    generic = results.get("drug") or ""
-    if generic and generic.lower() != drug.strip().lower():
-        st.markdown(f"**{generic}**")
-    rows = ["| Indication | Dose | Note |", "| --- | --- | --- |"]
-    for d in doses:
-        rows.append(f"| {d['indication']} | `{d['dose']}` | {d['note'] or ''} |")
-    st.markdown("\n".join(rows))
-    st.caption("AI-generated — verify before prescribing.")
+from extract import acid_base_ai_interpretation
 
 
 def _render_acid_base() -> None:
@@ -158,8 +84,4 @@ def _render_acid_base() -> None:
 
 def render() -> None:
     st.title("🧰 Tools")
-    _render_icd10_finder()
-    st.divider()
-    _render_dosing_lookup()
-    st.divider()
     _render_acid_base()
