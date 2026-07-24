@@ -1,7 +1,7 @@
 import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
-from extract import acid_base_ai_interpretation
+from extract import acid_base_ai_interpretation, medication_adverse_effects
 
 
 def _render_acid_base() -> None:
@@ -82,6 +82,89 @@ def _render_acid_base() -> None:
                 st.markdown(f"- {d}")
 
 
+def _render_med_result(result: dict) -> None:
+    """Render one drug's result — either a list of adverse effects or a
+    yes/possible/no check against a specific effect."""
+    if result.get("mode") == "list":
+        effects = result.get("effects") or []
+        if not effects:
+            st.info(
+                f"No adverse effects came back for “{result.get('medication')}” "
+                "— check the spelling."
+            )
+            return
+        st.markdown(f"**Common / important adverse effects of {result['medication']}:**")
+        for e in effects:
+            detail = f" — {e['detail']}" if e.get("detail") else ""
+            st.markdown(f"- **{e['effect']}**{detail}")
+    else:
+        verdict = result.get("verdict")
+        header = f"**{result.get('medication')} → {result.get('side_effect')}:**"
+        if verdict == "yes":
+            st.success(f"{header} reported adverse effect.")
+        elif verdict == "no":
+            st.error(f"{header} not a recognized adverse effect.")
+        else:
+            st.warning(f"{header} possible — limited / uncertain association.")
+        if result.get("explanation"):
+            st.markdown(result["explanation"])
+
+
+def _render_med_adverse_effects() -> None:
+    st.subheader("Medication adverse effects")
+
+    c1, c2 = st.columns(2)
+    med = c1.text_input(
+        "Medication",
+        key="tools_adv_med",
+        placeholder="Medication(s), comma-separated — e.g. amiodarone, sertraline",
+        label_visibility="collapsed",
+    )
+    effect = c2.text_input(
+        "Side effect (optional)",
+        key="tools_adv_effect",
+        placeholder="Side effect to check (optional) — e.g. pulmonary fibrosis",
+        label_visibility="collapsed",
+    )
+
+    if st.button("Look up", type="primary", key="tools_adv_go"):
+        # Split on commas; de-dupe case-insensitively while preserving order.
+        seen: set[str] = set()
+        meds = []
+        for m in (part.strip() for part in med.split(",")):
+            if m and m.lower() not in seen:
+                seen.add(m.lower())
+                meds.append(m)
+        if not meds:
+            st.warning("Enter a medication.")
+            st.session_state.pop("tools_adv_results", None)
+        else:
+            try:
+                with st.spinner("Looking up adverse effects…"):
+                    st.session_state["tools_adv_results"] = [
+                        medication_adverse_effects(m, effect) for m in meds
+                    ]
+            except Exception as e:
+                st.session_state.pop("tools_adv_results", None)
+                st.error(f"Lookup failed: {e}")
+
+    results = st.session_state.get("tools_adv_results")
+    if not results:
+        return
+
+    multi = len([r for r in results if r]) > 1
+    first = True
+    for result in results:
+        if not result:
+            continue
+        if multi and not first:
+            st.divider()
+        _render_med_result(result)
+        first = False
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
+    st.divider()
+    _render_med_adverse_effects()
