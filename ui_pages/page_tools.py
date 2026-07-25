@@ -163,8 +163,48 @@ def _render_med_adverse_effects() -> None:
         first = False
 
 
+def _render_qtc() -> None:
+    st.subheader("QTc (Fridericia)")
+
+    c1, c2 = st.columns(2)
+    qt = c1.number_input("QT interval (ms)", value=None, step=1.0,
+                         placeholder="QT interval (ms)", label_visibility="collapsed",
+                         key="tools_qtc_qt")
+    hr = c2.number_input("Heart rate (bpm)", value=None, step=1.0,
+                         placeholder="Heart rate (bpm)", label_visibility="collapsed",
+                         key="tools_qtc_hr")
+
+    if st.button("Compute", type="primary", key="tools_qtc_go"):
+        if qt is None or hr is None:
+            st.warning("Enter both the QT interval and the heart rate.")
+            st.session_state.pop("tools_qtc_result", None)
+        elif qt <= 0 or hr <= 0:
+            st.warning("QT and heart rate must be positive.")
+            st.session_state.pop("tools_qtc_result", None)
+        else:
+            # Fridericia: QTcF = QT / cube_root(RR), RR = 60 / HR (seconds).
+            rr = 60.0 / hr
+            qtcf = qt / (rr ** (1.0 / 3.0))
+            st.session_state["tools_qtc_result"] = {"qtcf": qtcf, "rr": rr}
+
+    result = st.session_state.get("tools_qtc_result")
+    if not result:
+        return
+
+    qtcf = result["qtcf"]
+    st.markdown(f"**QTcF = {qtcf:.0f} ms** (Fridericia; RR {result['rr']:.2f} s)")
+    if qtcf >= 500:
+        st.error("High risk (≥500 ms) — markedly prolonged; risk of torsades de pointes.")
+    elif qtcf >= 450:
+        st.warning("Borderline (450–499 ms).")
+    else:
+        st.success("Normal (<450 ms).")
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
+    st.divider()
+    _render_qtc()
     st.divider()
     _render_med_adverse_effects()
