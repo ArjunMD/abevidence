@@ -68,7 +68,14 @@ def render() -> None:
 
     for i, p in enumerate(problems, 1):
         st.markdown(f"**{i}. {p['problem']}**")
-        if p.get("assessment"):
-            st.markdown(p["assessment"])
-        if p.get("plan"):
-            st.markdown("\n".join(f"- {item}" for item in p["plan"]))
+        lines = [
+            f"- **{label}:** {p[field]}"
+            for label, field in (
+                ("Evidence", "evidence"),
+                ("Plan", "plan"),
+                ("Differentials", "differentials"),
+            )
+            if p.get(field)
+        ]
+        if lines:
+            st.markdown("\n".join(lines))
