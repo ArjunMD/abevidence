@@ -1,7 +1,7 @@
 import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
-from extract import acid_base_ai_interpretation, medication_adverse_effects
+from extract import acid_base_ai_interpretation
 
 
 def _render_acid_base() -> None:
@@ -82,117 +82,46 @@ def _render_acid_base() -> None:
                 st.markdown(f"- {d}")
 
 
-def _render_med_result(result: dict) -> None:
-    """Render one drug's result — either a list of adverse effects or a
-    yes/possible/no check against a specific effect."""
-    if result.get("mode") == "list":
-        effects = result.get("effects") or []
-        if not effects:
-            st.info(
-                f"No adverse effects came back for “{result.get('medication')}” "
-                "— check the spelling."
-            )
-            return
-        st.markdown(f"**Common / important adverse effects of {result['medication']}:**")
-        for e in effects:
-            detail = f" — {e['detail']}" if e.get("detail") else ""
-            st.markdown(f"- **{e['effect']}**{detail}")
-    else:
-        verdict = result.get("verdict")
-        header = f"**{result.get('medication')} → {result.get('side_effect')}:**"
-        if verdict == "yes":
-            st.success(f"{header} reported adverse effect.")
-        elif verdict == "no":
-            st.error(f"{header} not a recognized adverse effect.")
-        else:
-            st.warning(f"{header} possible — limited / uncertain association.")
-        if result.get("explanation"):
-            st.markdown(result["explanation"])
-
-
-def _render_med_adverse_effects() -> None:
-    st.subheader("Medication adverse effects")
-
-    c1, c2 = st.columns(2)
-    med = c1.text_input(
-        "Medication",
-        key="tools_adv_med",
-        placeholder="Medication(s), comma-separated — e.g. amiodarone, sertraline",
-        label_visibility="collapsed",
-    )
-    effect = c2.text_input(
-        "Side effect (optional)",
-        key="tools_adv_effect",
-        placeholder="Side effect to check (optional) — e.g. pulmonary fibrosis",
-        label_visibility="collapsed",
-    )
-
-    if st.button("Look up", type="primary", key="tools_adv_go"):
-        # Split on commas; de-dupe case-insensitively while preserving order.
-        seen: set[str] = set()
-        meds = []
-        for m in (part.strip() for part in med.split(",")):
-            if m and m.lower() not in seen:
-                seen.add(m.lower())
-                meds.append(m)
-        if not meds:
-            st.warning("Enter a medication.")
-            st.session_state.pop("tools_adv_results", None)
-        else:
-            try:
-                with st.spinner("Looking up adverse effects…"):
-                    st.session_state["tools_adv_results"] = [
-                        medication_adverse_effects(m, effect) for m in meds
-                    ]
-            except Exception as e:
-                st.session_state.pop("tools_adv_results", None)
-                st.error(f"Lookup failed: {e}")
-
-    results = st.session_state.get("tools_adv_results")
-    if not results:
-        return
-
-    multi = len([r for r in results if r]) > 1
-    first = True
-    for result in results:
-        if not result:
-            continue
-        if multi and not first:
-            st.divider()
-        _render_med_result(result)
-        first = False
+# At the standard 25 mm/s paper speed one small box is 1 mm = 0.04 s.
+_SMALL_BOX_S = 0.04
 
 
 def _render_qtc() -> None:
     st.subheader("QTc (Fridericia)")
 
     c1, c2 = st.columns(2)
-    qt = c1.number_input("QT interval (ms)", value=None, step=1.0,
-                         placeholder="QT interval (ms)", label_visibility="collapsed",
-                         key="tools_qtc_qt")
+    qt_boxes = c1.number_input(
+        "QT (small boxes)", value=None, step=0.5,
+        placeholder="QT — small boxes (assumes 25 mm/s)",
+        label_visibility="collapsed", key="tools_qtc_qt_boxes",
+    )
     hr = c2.number_input("Heart rate (bpm)", value=None, step=1.0,
                          placeholder="Heart rate (bpm)", label_visibility="collapsed",
                          key="tools_qtc_hr")
 
     if st.button("Compute", type="primary", key="tools_qtc_go"):
-        if qt is None or hr is None:
-            st.warning("Enter both the QT interval and the heart rate.")
+        if qt_boxes is None or hr is None:
+            st.warning("Enter both the QT (in small boxes) and the heart rate.")
             st.session_state.pop("tools_qtc_result", None)
-        elif qt <= 0 or hr <= 0:
+        elif qt_boxes <= 0 or hr <= 0:
             st.warning("QT and heart rate must be positive.")
             st.session_state.pop("tools_qtc_result", None)
         else:
+            qt = qt_boxes * _SMALL_BOX_S * 1000.0
             # Fridericia: QTcF = QT / cube_root(RR), RR = 60 / HR (seconds).
             rr = 60.0 / hr
             qtcf = qt / (rr ** (1.0 / 3.0))
-            st.session_state["tools_qtc_result"] = {"qtcf": qtcf, "rr": rr}
+            st.session_state["tools_qtc_result"] = {"qtcf": qtcf, "qt": qt, "rr": rr}
 
     result = st.session_state.get("tools_qtc_result")
     if not result:
         return
 
     qtcf = result["qtcf"]
-    st.markdown(f"**QTcF = {qtcf:.0f} ms** (Fridericia; RR {result['rr']:.2f} s)")
+    st.markdown(
+        f"**QTcF = {qtcf:.0f} ms** (Fridericia; QT {result['qt']:.0f} ms, "
+        f"RR {result['rr']:.2f} s)"
+    )
     if qtcf >= 500:
         st.error("High risk (≥500 ms) — markedly prolonged; risk of torsades de pointes.")
     elif qtcf >= 450:
@@ -201,10 +130,196 @@ def _render_qtc() -> None:
         st.success("Normal (<450 ms).")
 
 
+# Each item: (label, [(points, description), ...]). "UN" (untestable) choices
+# score 0 — the standard scores them as not scored rather than as a deficit.
+_NIHSS_ITEMS: list[tuple[str, list[tuple[int, str]]]] = [
+    ("1a. Level of consciousness", [
+        (0, "Alert, keenly responsive"),
+        (1, "Not alert, arousable by minor stimulation"),
+        (2, "Not alert, requires repeated stimulation"),
+        (3, "Unresponsive, or reflex motor / autonomic responses only"),
+    ]),
+    ("1b. LOC questions (month, age)", [
+        (0, "Both correct"),
+        (1, "One correct"),
+        (2, "Neither correct"),
+    ]),
+    ("1c. LOC commands (open/close eyes, grip/release)", [
+        (0, "Both tasks performed"),
+        (1, "One task performed"),
+        (2, "Neither task performed"),
+    ]),
+    ("2. Best gaze", [
+        (0, "Normal"),
+        (1, "Partial gaze palsy"),
+        (2, "Forced deviation / total gaze paresis"),
+    ]),
+    ("3. Visual fields", [
+        (0, "No visual loss"),
+        (1, "Partial hemianopia"),
+        (2, "Complete hemianopia"),
+        (3, "Bilateral hemianopia / cortically blind"),
+    ]),
+    ("4. Facial palsy", [
+        (0, "Normal symmetric movement"),
+        (1, "Minor paralysis (flattened nasolabial fold)"),
+        (2, "Partial paralysis (total or near-total lower face)"),
+        (3, "Complete paralysis of one or both sides"),
+    ]),
+    ("5a. Motor — left arm", [
+        (0, "No drift for 10 s"),
+        (1, "Drift, does not hit bed"),
+        (2, "Some effort against gravity, cannot sustain"),
+        (3, "No effort against gravity, falls"),
+        (4, "No movement"),
+        (0, "UN — amputation or joint fusion"),
+    ]),
+    ("5b. Motor — right arm", [
+        (0, "No drift for 10 s"),
+        (1, "Drift, does not hit bed"),
+        (2, "Some effort against gravity, cannot sustain"),
+        (3, "No effort against gravity, falls"),
+        (4, "No movement"),
+        (0, "UN — amputation or joint fusion"),
+    ]),
+    ("6a. Motor — left leg", [
+        (0, "No drift for 5 s"),
+        (1, "Drift, does not hit bed"),
+        (2, "Some effort against gravity, cannot sustain"),
+        (3, "No effort against gravity, falls"),
+        (4, "No movement"),
+        (0, "UN — amputation or joint fusion"),
+    ]),
+    ("6b. Motor — right leg", [
+        (0, "No drift for 5 s"),
+        (1, "Drift, does not hit bed"),
+        (2, "Some effort against gravity, cannot sustain"),
+        (3, "No effort against gravity, falls"),
+        (4, "No movement"),
+        (0, "UN — amputation or joint fusion"),
+    ]),
+    ("7. Limb ataxia", [
+        (0, "Absent"),
+        (1, "Present in one limb"),
+        (2, "Present in two limbs"),
+        (0, "UN — amputation or joint fusion"),
+    ]),
+    ("8. Sensory", [
+        (0, "Normal"),
+        (1, "Mild-to-moderate loss"),
+        (2, "Severe to total loss"),
+    ]),
+    ("9. Best language", [
+        (0, "No aphasia"),
+        (1, "Mild-to-moderate aphasia"),
+        (2, "Severe aphasia"),
+        (3, "Mute, global aphasia"),
+    ]),
+    ("10. Dysarthria", [
+        (0, "Normal"),
+        (1, "Mild-to-moderate, slurred but intelligible"),
+        (2, "Severe, unintelligible or mute"),
+        (0, "UN — intubated or other physical barrier"),
+    ]),
+    ("11. Extinction / inattention", [
+        (0, "No abnormality"),
+        (1, "Inattention to one modality"),
+        (2, "Profound hemi-inattention, more than one modality"),
+    ]),
+]
+
+
+def _score_select(col, label: str, key: str, options: list[tuple[int, str]]) -> int:
+    """Selectbox over (points, description) choices; returns the points. An 'UN'
+    description is shown as-is rather than prefixed with its 0."""
+    def _fmt(o: tuple[int, str]) -> str:
+        pts, desc = o
+        return desc if desc.startswith("UN") else f"{pts} — {desc}"
+
+    return col.selectbox(label, options, key=key, format_func=_fmt)[0]
+
+
+def _render_nihss() -> None:
+    st.subheader("NIHSS")
+    st.caption("Score each item on the first attempt as observed; do not go back and change scores.")
+
+    total = 0
+    for i in range(0, len(_NIHSS_ITEMS), 2):
+        cols = st.columns(2)
+        for j, (label, options) in enumerate(_NIHSS_ITEMS[i:i + 2]):
+            total += _score_select(cols[j], label, f"tools_nihss_{i + j}", options)
+
+    if total == 0:
+        band = "No stroke symptoms"
+    elif total <= 4:
+        band = "Minor stroke"
+    elif total <= 15:
+        band = "Moderate stroke"
+    elif total <= 20:
+        band = "Moderate-to-severe stroke"
+    else:
+        band = "Severe stroke"
+
+    st.markdown(f"**NIHSS = {total} / 42** — {band}")
+
+
+_GCS_EYE = [
+    (4, "Spontaneous"),
+    (3, "To sound"),
+    (2, "To pressure"),
+    (1, "None"),
+]
+_GCS_VERBAL = [
+    (5, "Oriented"),
+    (4, "Confused"),
+    (3, "Words, not conversational"),
+    (2, "Sounds only"),
+    (1, "None"),
+]
+_GCS_MOTOR = [
+    (6, "Obeys commands"),
+    (5, "Localizing to pain"),
+    (4, "Normal flexion / withdrawal"),
+    (3, "Abnormal flexion (decorticate)"),
+    (2, "Extension (decerebrate)"),
+    (1, "None"),
+]
+
+
+def _render_gcs() -> None:
+    st.subheader("GCS")
+
+    intubated = st.checkbox("Intubated / verbal not testable", key="tools_gcs_intubated")
+
+    c1, c2, c3 = st.columns(3)
+    eye = _score_select(c1, "Eye opening", "tools_gcs_eye", _GCS_EYE)
+    if intubated:
+        c2.selectbox("Verbal response", ["1T — intubated"], disabled=True,
+                     key="tools_gcs_verbal_t")
+        verbal = 1
+    else:
+        verbal = _score_select(c2, "Verbal response", "tools_gcs_verbal", _GCS_VERBAL)
+    motor = _score_select(c3, "Motor response", "tools_gcs_motor", _GCS_MOTOR)
+
+    total = eye + verbal + motor
+    suffix = "T" if intubated else ""
+    breakdown = f"E{eye} V{verbal}{suffix} M{motor}"
+    st.markdown(f"**GCS = {total}{suffix} / 15** ({breakdown})")
+
+    if total <= 8:
+        st.error("Severe (≤8) — consider a definitive airway.")
+    elif total <= 12:
+        st.warning("Moderate (9–12).")
+    else:
+        st.success("Mild (13–15).")
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
     st.divider()
     _render_qtc()
     st.divider()
-    _render_med_adverse_effects()
+    _render_nihss()
+    st.divider()
+    _render_gcs()
