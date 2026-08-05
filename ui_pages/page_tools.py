@@ -243,7 +243,7 @@ def _score_select(col, label: str, key: str, options: list[tuple[int, str]]) -> 
 
 def _render_nihss() -> None:
     st.subheader("NIHSS")
-    st.caption("Score each item on the first attempt as observed; do not go back and change scores.")
+    st.caption("Score each item on the first attempt as observed.")
 
     total = 0
     for i in range(0, len(_NIHSS_ITEMS), 2):
@@ -334,13 +334,6 @@ _FERRIC_GLUCONATE_SESSION_NUDGE = 8
 
 def _render_iron_deficit() -> None:
     st.subheader("Iron deficit (Ganzoni)")
-    st.caption(
-        "Total iron deficit, then how many sodium ferric gluconate (Ferrlecit) "
-        "sessions it takes to give it. Adults only; assumes 500 mg of store "
-        "repletion. Ganzoni assumes the anemia is purely iron deficiency — it "
-        "underestimates with inflammation or ongoing blood loss, so treat the "
-        "number as a floor."
-    )
 
     def _num(col, label, key, step, fmt=None):
         return col.number_input(label, value=None, step=step, format=fmt,
@@ -408,6 +401,117 @@ def _render_iron_deficit() -> None:
         )
 
 
+# Corrected Na = measured Na + factor × (glucose − 100) / 100.
+_NA_GLUCOSE_BASELINE = 100.0
+_KATZ_FACTOR = 1.6      # Katz 1973 — theoretical, dilutional; the classic teaching number.
+_HILLIER_FACTOR = 2.4   # Hillier 1999 — measured in volunteers; fits the data better.
+# Above this glucose Hillier found the relationship steepens (closer to 4 mmol/L per
+# 100 mg/dL), so both factors under-correct and the tool says so rather than guessing.
+_NA_NONLINEAR_GLUCOSE = 400.0
+
+
+def _render_corrected_sodium() -> None:
+    st.subheader("Corrected Na (hyperglycemia)")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2 = st.columns(2)
+    na = _num(c1, "Measured Na⁺ (mmol/L)", "tools_cna_na", 1.0)
+    glucose = _num(c2, "Glucose (mg/dL)", "tools_cna_glu", 1.0)
+
+    if st.button("Compute", type="primary", key="tools_cna_go"):
+        if na is None or glucose is None:
+            st.warning("Enter both the measured sodium and the glucose.")
+            st.session_state.pop("tools_cna_result", None)
+        elif na <= 0 or glucose <= 0:
+            st.warning("Sodium and glucose must be positive.")
+            st.session_state.pop("tools_cna_result", None)
+        else:
+            # Below the baseline there is no osmotic pull to undo; correcting would
+            # push the sodium the wrong way, so clamp the excess at zero.
+            excess = max(0.0, glucose - _NA_GLUCOSE_BASELINE) / 100.0
+            st.session_state["tools_cna_result"] = {
+                "na": na, "glucose": glucose, "excess": excess,
+                "katz": na + _KATZ_FACTOR * excess,
+                "hillier": na + _HILLIER_FACTOR * excess,
+            }
+
+    result = st.session_state.get("tools_cna_result")
+    if not result:
+        return
+
+    katz, hillier = result["katz"], result["hillier"]
+    if result["excess"] == 0:
+        st.info(
+            f"Glucose {result['glucose']:.0f} mg/dL is at or below 100 — no correction "
+            f"applies. Sodium stands at {result['na']:.0f} mmol/L."
+        )
+        return
+
+    # Katz is the guideline-supported factor; Hillier is preferred once the glucose
+    # is high enough that the relationship has steepened. Mark whichever applies to
+    # the glucose actually entered.
+    hillier_preferred = result["glucose"] > _NA_NONLINEAR_GLUCOSE
+    katz_tag = "" if hillier_preferred else " ← use this"
+    hillier_tag = " ← use this" if hillier_preferred else ""
+
+    # Headline and verdict both follow whichever factor applies, so the tool never
+    # tells you to use one number while banding on the other.
+    corrected = hillier if hillier_preferred else katz
+    pref_name = "Hillier, 2.4" if hillier_preferred else "Katz, 1.6"
+    other_name = "Katz" if hillier_preferred else "Hillier"
+
+    st.markdown(f"**Corrected Na⁺ ≈ {corrected:.1f} mmol/L** ({pref_name})")
+    st.markdown("\n".join([
+        f"- Hillier (2.4), preferred above 400 mg/dL: {result['na']:.0f} + 2.4 × "
+        f"({result['glucose']:.0f} − 100)/100 = **{hillier:.1f} mmol/L**{hillier_tag}",
+        f"- Katz (1.6), guideline-supported: {result['na']:.0f} + 1.6 × "
+        f"({result['glucose']:.0f} − 100)/100 = **{katz:.1f} mmol/L**{katz_tag}",
+        f"- Correction adds {katz - result['na']:.1f}–{hillier - result['na']:.1f} mmol/L "
+        f"to the measured {result['na']:.0f}",
+    ]))
+
+    if corrected < 135:
+        st.error(
+            f"True hyponatremia — still {corrected:.1f} mmol/L after correcting. "
+            "The low sodium is not just a glucose artifact; work it up on its own."
+        )
+    elif corrected > 145:
+        st.warning(
+            f"Corrected Na {corrected:.1f} mmol/L is hypernatremic — a substantial free-water "
+            "deficit is hiding behind the dilutional reading. Typical of HHS/DKA, and it "
+            "argues for hypotonic fluid once the patient is volume-resuscitated."
+        )
+    elif result["na"] < 135:
+        st.success(
+            f"Translocational (dilutional) hyponatremia — measured {result['na']:.0f} "
+            f"corrects into the normal range at {corrected:.1f} mmol/L. Treat the glucose, "
+            "not the sodium."
+        )
+    else:
+        st.success(f"Corrected Na {corrected:.1f} mmol/L is within the normal range.")
+
+    # The two factors can land in different bands, in which case the verdict above is
+    # an artifact of which one applies. Say so rather than showing one confident answer.
+    if any((katz < cut) != (hillier < cut) for cut in (135.0, 145.0)):
+        st.caption(
+            f"The two formulas disagree here — Katz gives {katz:.1f} and Hillier "
+            f"{hillier:.1f}, which fall either side of a cutoff. The verdict above follows "
+            f"{pref_name.split(',')[0]}; {other_name} would band it differently, so recheck "
+            "the sodium as the glucose comes down."
+        )
+
+    if result["glucose"] > _NA_NONLINEAR_GLUCOSE:
+        st.caption(
+            f"Glucose is above {_NA_NONLINEAR_GLUCOSE:.0f} mg/dL, where the relationship "
+            "steepens (Hillier suggests nearer 4 mmol/L per 100 mg/dL). Both factors "
+            "likely under-correct here — read the number as a lower bound."
+        )
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
@@ -419,3 +523,5 @@ def render() -> None:
     _render_gcs()
     st.divider()
     _render_iron_deficit()
+    st.divider()
+    _render_corrected_sodium()
