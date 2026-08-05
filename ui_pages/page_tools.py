@@ -1,3 +1,5 @@
+import math
+
 import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
@@ -314,6 +316,98 @@ def _render_gcs() -> None:
         st.success("Mild (13–15).")
 
 
+# Ganzoni: deficit (mg) = weight (kg) × (target − actual) Hb (g/dL) × 2.4 + stores.
+# The 2.4 folds in Hb being 0.34% iron by weight, a 70 mL/kg blood volume, and the
+# g/dL → g/L conversion (0.0034 × 70 × 10).
+_GANZONI_FACTOR = 2.4
+_GANZONI_DEFAULT_TARGET_HB = 15.0
+# Iron stores to replace on top of the red-cell deficit. Adults only — the
+# weight-based pediatric figure is deliberately not implemented here.
+_IRON_STORES_MG = 500.0
+# Sodium ferric gluconate complex (Ferrlecit): 62.5 mg elemental iron per 5 mL
+# ampule, and no more than 125 mg (2 ampules) per session.
+_FERRIC_GLUCONATE_DOSE_MG = 125.0
+# Past roughly this many sessions the visit burden usually beats the drug cost,
+# and a single-dose formulation is the more sensible choice.
+_FERRIC_GLUCONATE_SESSION_NUDGE = 8
+
+
+def _render_iron_deficit() -> None:
+    st.subheader("Iron deficit (Ganzoni)")
+    st.caption(
+        "Total iron deficit, then how many sodium ferric gluconate (Ferrlecit) "
+        "sessions it takes to give it. Adults only; assumes 500 mg of store "
+        "repletion. Ganzoni assumes the anemia is purely iron deficiency — it "
+        "underestimates with inflammation or ongoing blood loss, so treat the "
+        "number as a floor."
+    )
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3 = st.columns(3)
+    weight = _num(c1, "Actual body weight (kg)", "tools_iron_weight", 1.0)
+    hb = _num(c2, "Current Hb (g/dL)", "tools_iron_hb", 0.1, "%.1f")
+    target = _num(c3, "Target Hb (g/dL) — default 15", "tools_iron_target", 0.1, "%.1f")
+
+    if st.button("Compute", type="primary", key="tools_iron_go"):
+        if weight is None or hb is None:
+            st.warning("Enter at least a weight and the current hemoglobin.")
+            st.session_state.pop("tools_iron_result", None)
+        elif weight <= 0 or hb <= 0 or (target is not None and target <= 0):
+            st.warning("Weight and hemoglobin must be positive.")
+            st.session_state.pop("tools_iron_result", None)
+        else:
+            tgt = _GANZONI_DEFAULT_TARGET_HB if target is None else target
+            stores = _IRON_STORES_MG
+            # Already at or above target: nothing to replace in the red-cell mass,
+            # but the stores still need filling. Clamp so a high Hb can't subtract.
+            red_cell = max(0.0, weight * (tgt - hb) * _GANZONI_FACTOR)
+            deficit = red_cell + stores
+            st.session_state["tools_iron_result"] = {
+                "deficit": deficit, "red_cell": red_cell, "stores": stores,
+                "weight": weight, "hb": hb, "target": tgt,
+                "doses": math.ceil(deficit / _FERRIC_GLUCONATE_DOSE_MG),
+            }
+
+    result = st.session_state.get("tools_iron_result")
+    if not result:
+        return
+
+    doses = result["doses"]
+    st.markdown(f"**Total iron deficit ≈ {result['deficit']:.0f} mg elemental iron**")
+    st.markdown("\n".join([
+        f"- Red-cell deficit: {result['weight']:.0f} kg × "
+        f"({result['target']:.1f} − {result['hb']:.1f} g/dL) × {_GANZONI_FACTOR} "
+        f"= **{result['red_cell']:.0f} mg**",
+        f"- Iron stores: **{result['stores']:.0f} mg** (adult repletion)",
+    ]))
+
+    if result["red_cell"] == 0:
+        st.info("Hb is already at or above target — this is store repletion only.")
+
+    st.markdown(
+        f"**Sodium ferric gluconate (Ferrlecit): {doses} × 125 mg** "
+        f"= {doses * _FERRIC_GLUCONATE_DOSE_MG:.0f} mg cumulative"
+    )
+    st.markdown("\n".join([
+        "- 125 mg (two 5 mL ampules, 62.5 mg each) in 100 mL NS over ~1 h, or "
+        "undiluted at ≤12.5 mg/min",
+        "- 125 mg is the ceiling for a single session — larger deficits mean more visits, "
+        "not a bigger dose",
+        "- Recheck Hb, ferritin, and TSAT ~4 weeks after the last dose rather than between doses",
+    ]))
+
+    if doses >= _FERRIC_GLUCONATE_SESSION_NUDGE:
+        st.warning(
+            f"{doses} separate infusions — at this deficit a single-dose formulation "
+            "(ferric carboxymaltose or ferric derisomaltose) is usually the better call "
+            "unless the patient is already coming in for hemodialysis."
+        )
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
@@ -323,3 +417,5 @@ def render() -> None:
     _render_nihss()
     st.divider()
     _render_gcs()
+    st.divider()
+    _render_iron_deficit()
