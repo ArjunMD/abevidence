@@ -67,7 +67,7 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "About", "Suggest an article", "Reviews", "Readmissions", "Tools", "RRT meds", "AP"}
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "Reviews", "Readmissions", "Tools", "RRT meds", "AP"}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]
