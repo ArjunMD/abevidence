@@ -3505,3 +3505,113 @@ def acid_base_ai_interpretation(context: str, values_summary: str) -> dict:
     summary = str(data.get("summary") or "").strip()
     differential = [str(x).strip() for x in (data.get("differential") or []) if str(x).strip()]
     return {"summary": summary, "differential": differential}
+
+
+# ---------------- Tools: HPI → assessment and plan ----------------
+
+def _join_csv(value) -> str:
+    """Normalize a model field that should be one comma-separated line but may
+    come back as a list."""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(x).strip() for x in value if str(x).strip())
+    return str(value or "").strip()
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
+    """Draft a problem-based assessment and plan from a DEIDENTIFIED HPI written
+    in prose (including notable vitals, exam, labs, imaging). `considerations` is
+    optional free text — specific elements, differentials, or thoughts the
+    clinician wants the model to be sure to address. Returns
+    {"summary": str, "problems": [{"problem", "evidence", "plan", "differentials"}]}.
+    Cached for a day so re-running the same inputs doesn't re-bill."""
+    hpi = (hpi or "").strip()
+    considerations = (considerations or "").strip()
+    if not hpi:
+        return {}
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    instructions = (
+        "You are an experienced hospital-medicine attending. Given a deidentified HPI "
+        "written in prose (including notable vital signs, exam, labs, and imaging), "
+        "produce a thoughtful, problem-based assessment and plan.\n"
+        "The reader is a physician or other healthcare staff — write in clipped clinical "
+        "shorthand, not full sentences, and never explain basic medicine.\n"
+        "Rules:\n"
+        "- 'summary': one line, exactly this shape — '[age/sex] who presented with "
+        "[main symptoms], found to have [primary diagnosis]'. Do NOT recite past medical "
+        "history unless it is directly driving the presentation. No identifiers.\n"
+        "- 'problems': a prioritized list, most acute/important first. For each:\n"
+        "   * 'problem': the problem name written verbatim as an ICD-10-CM diagnosis "
+        "description — the exact wording of a real code's title, the kind a clinician can "
+        "search and select in Epic's problem list (e.g. 'Acute respiratory failure with "
+        "hypoxia', 'Sepsis, unspecified organism', 'Acute kidney failure, unspecified', "
+        "'Non-ST elevation (NSTEMI) myocardial infarction', 'Hyponatremia'). Include the "
+        "ICD-10 qualifiers (acute/chronic, with/without, laterality, 'unspecified') that "
+        "the real code title carries. Never use colloquial, abbreviated, or free-text "
+        "phrasing ('AKI on CKD', 'hypoxia', 'sepsis - likely pulmonary source'), and never "
+        "append your own commentary to the title. Do NOT include the numeric code.\n"
+        "   * 'evidence': the supporting data, as a single comma-separated string of terse "
+        "fragments — vitals, exam findings, labs, imaging, history (e.g. 'T 38.9, HR 118, "
+        "lactate 3.2, RLL infiltrate on CXR, productive cough x3d'). No sentences, no "
+        "reasoning, no lead-in phrase.\n"
+        "   * 'plan': a single comma-separated string of concise action items — orders, "
+        "drugs with dose/route/frequency, monitoring, consults, disposition (e.g. 'CTX 1g "
+        "IV q24h + azithro 500mg IV q24h, blood cx x2, trend lactate q6h, O2 to keep SpO2 "
+        ">92%, ID if no defervescence by 48h'). Each item a few words; assume the reader "
+        "knows why. No rationale, no patient education, no hedging.\n"
+        "   * 'differentials': one or two sentences of actual thinking — alternative "
+        "diagnoses still in play, can't-miss entities to exclude, and the complications to "
+        "anticipate. This is the one field where you may reason rather than list.\n"
+        "- Reason only from the information provided; if a pivotal datum is missing, note it "
+        "briefly in 'differentials' rather than inventing it.\n"
+        "- Be specific and clinically useful; avoid generic boilerplate.\n"
+        "- If the clinician supplies additional considerations (specific elements, "
+        "differentials, or thoughts), explicitly address each one in the relevant problem — "
+        "adding a problem if needed. Weigh them, and if one is unlikely, say briefly why in "
+        "'differentials' rather than silently dropping it.\n"
+        'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
+        '"evidence": "...", "plan": "...", "differentials": "..."}]}'
+    )
+    user_input = f"Deidentified HPI:\n{hpi}\n\n"
+    if considerations:
+        user_input += f"Clinician's considerations to address:\n{considerations}\n\n"
+    user_input += "JSON:"
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": user_input,
+        "reasoning": {"effort": "medium"},
+        "text": {"verbosity": "medium"},
+        "max_output_tokens": 8000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return {}
+
+    problems: list[dict] = []
+    for p in data.get("problems") or []:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("problem") or "").strip()
+        if not name:
+            continue
+        # 'evidence' and 'plan' are comma-separated strings, but the model sometimes
+        # hands back a list anyway — join either into one line.
+        problems.append({
+            "problem": name,
+            "evidence": _join_csv(p.get("evidence")),
+            "plan": _join_csv(p.get("plan")),
+            "differentials": str(p.get("differentials") or "").strip(),
+        })
+    return {"summary": str(data.get("summary") or "").strip(), "problems": problems}
