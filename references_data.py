@@ -170,6 +170,46 @@ Vancomycin + antipseudomonal β-lactam. Add echinocandin for TPN, femoral line, 
 
 Ceftriaxone + vancomycin. Encapsulated organisms, plus *Capnocytophaga* after dog bite.
 
+### PART 3 — PHARMACOKINETIC PEARLS
+
+Why the right drug still fails: the wrong exposure at the site of infection.
+
+#### Protein binding and hypoalbuminemia
+
+- **Ertapenem** is ~95% protein bound — the most albumin-dependent antibiotic in common use. Low albumin raises the free fraction, which expands the volume of distribution and accelerates clearance, so the once-daily dose can fall below target for much of the interval. In the hypoalbuminemic critically ill, prefer meropenem.
+- **Ceftriaxone** (~85–95%) and **daptomycin** (~90%) shift the same way, and both are also once-daily — the same trap.
+- Only free drug is active. A reassuring total level can sit on top of an inadequate free level; the assay usually reports total.
+
+#### Time- versus concentration-dependent killing
+
+- **β-lactams kill by time above MIC.** In sepsis or with high-MIC organisms, extended (3–4 h) or continuous infusion of pip-tazo, cefepime, or meropenem improves target attainment. Always give a conventional bolus first — an infusion alone takes hours to reach concentration.
+- **Aminoglycosides and fluoroquinolones are concentration-dependent** (Cmax/MIC, AUC/MIC). Once-daily aminoglycoside dosing exploits that plus the post-antibiotic effect, and is less nephrotoxic than divided dosing.
+- **Vancomycin is AUC-driven** — target AUC24/MIC ≥400. AUC-guided dosing replaced trough-only monitoring in the 2020 consensus guideline; troughs of 15–20 overshoot and drive nephrotoxicity.
+- **Loading doses are set by volume of distribution, not clearance.** Sepsis expands the Vd of hydrophilic drugs, so load vancomycin at 20–25 mg/kg and do *not* reduce a loading dose for renal failure — reduce the maintenance dose.
+
+#### Penetration
+
+- **Lung:** linezolid reaches high epithelial lining fluid concentrations; vancomycin penetrates poorly, which is part of why it underperforms in MRSA pneumonia. Aminoglycosides penetrate poorly and are inactivated at the acidic pH of purulent airways — never monotherapy for pneumonia.
+- **CNS:** ceftriaxone, cefepime, meropenem, linezolid, metronidazole, and TMP-SMX cross usefully. Cefazolin, ertapenem, daptomycin, and the aminoglycosides do not.
+- **Urine:** nitrofurantoin and fosfomycin concentrate in bladder urine and reach nothing else — cystitis only, never pyelonephritis, prostatitis, or bacteremia. Nitrofurantoin stops achieving urinary concentrations as CrCl falls below ~30–45.
+- **Moxifloxacin** is the fluoroquinolone that does *not* concentrate in urine — do not use it for UTI.
+- **Abscess:** aminoglycosides are inactive in acidic, hypoxic, high-inoculum collections. Drainage is the intervention; the antibiotic is adjunctive.
+
+#### Oral bioavailability
+
+- Essentially complete oral absorption: **linezolid, fluoroquinolones, metronidazole, TMP-SMX, doxycycline, fluconazole**, and clindamycin (~90%). With a working gut, IV buys nothing but a line.
+- **Oral vancomycin is not absorbed** — it treats C. difficile and nothing else. The converse also holds: IV vancomycin does not treat C. difficile.
+- Most β-lactams have poor or erratic oral bioavailability — the main reason serious β-lactam-susceptible infections stay parenteral.
+
+#### Dose adjustment and toxicity
+
+- **Cefepime** accumulates in renal impairment and causes neurotoxicity — encephalopathy, myoclonus, non-convulsive status. It is frequently missed because the patient is already delirious.
+- **Linezolid** needs no renal adjustment, but causes myelosuppression after roughly two weeks, and is a weak MAO inhibitor — serotonin syndrome with SSRIs.
+- **Ceftriaxone** is largely biliary and needs no renal adjustment; it causes biliary sludging and pseudolithiasis.
+- **TMP-SMX** blocks tubular creatinine secretion, so creatinine rises without any fall in GFR. It also causes real hyperkalemia — that part is not an artifact.
+- **Fluoroquinolones** chelate calcium, iron, magnesium, and tube feeds — separate dosing or the drug is not absorbed.
+- **Rifampin** is a potent CYP450 inducer and will lower levels of most things the patient is already taking.
+
 ### β-LACTAM ALLERGY
 
 \\>90% of reported penicillin allergies are not real. Cephalosporins are safe with non-severe penicillin allergy — cross-reactivity tracks R1 side chains, and cefazolin shares its side chain with nothing. Aztreonam is the option for true anaphylaxis, but shares a side chain with ceftazidime.
