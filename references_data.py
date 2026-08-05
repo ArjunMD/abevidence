@@ -6,15 +6,7 @@ runtime because the .docx files are not deployed with the app.
 """
 
 EMPIRIC_ABX_MD = """\
-**Empiric Antibiotics on Admission**
-
-*Escalation triggers first, then syndromes*
-
-### PART 1 — WHEN TO BROADEN
-
-The syndrome sets the base regimen. These decide what gets added.
-
-#### MRSA → add vancomycin or linezolid
+#### MRSA
 
 | **Strong** | **Supportive** |
 | --- | --- |
@@ -25,7 +17,7 @@ The syndrome sets the base regimen. These decide what gets added.
 | Hemodialysis, hardware/prosthetics | Incarceration, contact sports |
 | Septic shock with plausible staph source | High local prevalence |
 
-#### Pseudomonas → antipseudomonal β-lactam
+#### Pseudomonas
 
 - Prior *Pseudomonas* isolate, any site, within 1 yr
 - Structural lung disease: bronchiectasis, CF, severe COPD on chronic steroids
@@ -35,15 +27,9 @@ The syndrome sets the base regimen. These decide what gets added.
 - Devices: trach, chronic urinary catheter, PEG, chronic wounds, burns
 - Classic niches: malignant otitis externa, hot-tub folliculitis, sneaker puncture osteo, ecthyma gangrenosum
 
-**Active:** cefepime, ceftazidime, pip-tazo, meropenem, imipenem, aztreonam, cipro/levofloxacin, ceftolozane-tazo, ceftaz-avibactam.
+#### VRE
 
-**Not active:** ceftriaxone, cefotaxime, **ertapenem**, amp-sulbactam, amox-clav, cefazolin, cefoxitin, moxifloxacin.
-
-Double gram-negative coverage is rarely justified — reserve for septic shock plus documented MDR risk, or unit resistance >10–15% to your chosen agent.
-
-#### VRE → daptomycin or linezolid
-
-The most over-covered organism on this list. Empiric coverage is almost never indicated in a general medical admission. Legitimate triggers:
+Empiric coverage is almost never indicated. Triggers:
 
 - Known VRE colonization **plus** a plausible enterococcal source
 - Liver transplant with hepatobiliary source
@@ -52,9 +38,7 @@ The most over-covered organism on this list. Empiric coverage is almost never in
 
 **Daptomycin is inactivated by surfactant — never for pneumonia.** Linezolid is bacteriostatic and generally second-line for bacteremia; serotonin syndrome risk with SSRIs.
 
-Related gap worth holding onto: **cephalosporins have no enterococcal activity at all.** A patient on ceftriaxone with an enterococcal source is functionally untreated. Ampicillin covers susceptible *E. faecalis*; pip-tazo does too.
-
-#### ESBL → carbapenem
+#### ESBL
 
 - Prior ESBL isolate
 - Travel to high-prevalence regions (Indian subcontinent, SE Asia, Middle East, North Africa)
@@ -62,41 +46,17 @@ Related gap worth holding onto: **cephalosporins have no enterococcal activity a
 - Recurrent UTI, chronic catheter, urologic instrumentation
 - LTAC residence
 
-**Do not use pip-tazo for ESBL bacteremia** — MERINO showed higher mortality vs meropenem. Cefepime is unreliable (inoculum effect). Ertapenem if not critically ill and no Pseudomonas concern; meropenem otherwise.
-
-#### CRE / difficult-to-treat resistance
-
-| **Mechanism** | **Options** |
-| --- | --- |
-| KPC | ceftaz-avibactam, mero-vaborbactam, imipenem-relebactam |
-| Metallo-β-lactamase (NDM, VIM, IMP) | ceftaz-avibactam **+** aztreonam; cefiderocol; aztreonam-avibactam |
-| OXA-48 | ceftaz-avibactam |
-| DTR-*Pseudomonas* | ceftolozane-tazo, ceftaz-avibactam, imipenem-relebactam, cefiderocol |
-| *Acinetobacter* | high-dose amp-sulbactam, cefiderocol, minocycline, polymyxin |
-| *S. maltophilia* | TMP-SMX, minocycline, levofloxacin, cefiderocol |
+**Do not use pip-tazo for ESBL bacteremia**. Cefepime is unreliable (inoculum effect). Ertapenem if not critically ill and no Pseudomonas concern; meropenem otherwise.
 
 #### Anaerobes
 
 **Cover:** perforation, diverticulitis, appendicitis, cholangitis, intra-abdominal abscess; lung abscess, necrotizing pneumonia, empyema; odontogenic and deep neck infection, Ludwig angina, Lemierre; diabetic foot with necrosis or gangrene; necrotizing soft tissue infection; bites; PID, tubo-ovarian abscess, septic abortion; brain abscess; any GU tract reconstructed with bowel.
 
-**Don't cover:**
-
-- **Infected obstructing stone, pyelonephritis, urosepsis.** The urinary tract is not an anaerobic environment. Even emphysematous pyelonephritis — which looks like it should be clostridial — is overwhelmingly *E. coli* and *Klebsiella* fermenting glucose in diabetic tissue. Metronidazole here adds *C. diff* risk and nothing else. Exceptions: perinephric abscess with enteric fistula, urinary diversion through bowel.
-- **Aspiration pneumonia.** IDSA 2019 dropped routine anaerobic coverage; this is a strep/GNR/staph disease. Cover only for demonstrated abscess, empyema, or necrotizing pneumonia.
-
-**Active:** metronidazole, pip-tazo, all carbapenems, amp-sulbactam, amox-clav, cefoxitin/cefotetan, clindamycin, tigecycline/eravacycline, moxifloxacin (partial).
-
-**Not active:** ceftriaxone, cefepime, ceftazidime, aztreonam, cefazolin, levo/ciprofloxacin, aminoglycosides, ceftaz-avibactam.
-
-*B. fragilis* resistance to clindamycin is now ~30–40%, cefoxitin ~15–25%. Amp-sulbactam has ~40–50% *E. coli* resistance in many US regions.
-
-### PART 2 — BY SYNDROME
+Amp-sulbactam has ~40–50% *E. coli* resistance in many US regions.
 
 ##### Sepsis, source unknown
 
 **Vancomycin + pip-tazo**, or **vancomycin + cefepime + metronidazole** if intra-abdominal source plausible. Meropenem if prior ESBL/MDR.
-
-*Vanc/pip-tazo AKI:* observational signal is confounded by pip-tazo's effect on creatinine secretion. ACORN found no AKI difference vs cefepime — but more neurotoxicity with cefepime. Choose on spectrum, not on the AKI concern.
 
 ##### Community-acquired pneumonia
 
@@ -118,7 +78,7 @@ Pip-tazo, cefepime, or meropenem. Add vancomycin/linezolid for MRSA risk factors
 - Urosepsis: cefepime or pip-tazo, ± vancomycin for hardware, prior MRSA, or shock
 - Add **ampicillin** when enterococcus is plausible — prior instrumentation, indwelling stent, chronic catheter
 
-**Infected obstructing stone:** a drainage problem before it is an antibiotic problem. Antibiotics do not sterilize an obstructed, high-pressure collecting system — urology or IR for nephrostomy or retrograde stent, and delay in decompression is what drives mortality. Organisms: *E. coli*, *Klebsiella*, *Proteus*, *Pseudomonas*, *Enterococcus* (especially with prior stents), *Candida*. Ceftriaxone if community-acquired and low risk; cefepime or pip-tazo if instrumented, stented, healthcare-exposed, or septic; meropenem if prior ESBL; vancomycin for shock, hardware, or prior MRSA. **No anaerobic coverage.** A struvite stone means a urease producer has been colonizing that system for a long time — *Proteus*, *Providencia*, *Morganella*, *Klebsiella*.
+**Infected obstructing stone:** Ceftriaxone if community-acquired and low risk; cefepime or pip-tazo if instrumented, stented, healthcare-exposed, or septic; meropenem if prior ESBL; vancomycin for shock, hardware, or prior MRSA. **No anaerobic coverage.** A struvite stone means a urease producer has been colonizing that system for a long time — *Proteus*, *Providencia*, *Morganella*, *Klebsiella*.
 
 ##### Intra-abdominal
 
@@ -170,10 +130,6 @@ Vancomycin + antipseudomonal β-lactam. Add echinocandin for TPN, femoral line, 
 
 Ceftriaxone + vancomycin. Encapsulated organisms, plus *Capnocytophaga* after dog bite.
 
-### PART 3 — PHARMACOKINETIC PEARLS
-
-Why the right drug still fails: the wrong exposure at the site of infection.
-
 #### Protein binding and hypoalbuminemia
 
 - **Ertapenem** is ~95% protein bound — the most albumin-dependent antibiotic in common use. Low albumin raises the free fraction, which expands the volume of distribution and accelerates clearance, so the once-daily dose can fall below target for much of the interval. In the hypoalbuminemic critically ill, prefer meropenem.
@@ -204,15 +160,13 @@ Why the right drug still fails: the wrong exposure at the site of infection.
 #### Dose adjustment and toxicity
 
 - **Cefepime** accumulates in renal impairment and causes neurotoxicity — encephalopathy, myoclonus, non-convulsive status. It is frequently missed because the patient is already delirious.
-- **Linezolid** needs no renal adjustment, but causes myelosuppression after roughly two weeks, and is a weak MAO inhibitor — serotonin syndrome with SSRIs.
+- **Linezolid** needs no renal adjustment, but is bacteriostatic and generally second-line for bacteremia. It causes myelosuppression after roughly two weeks, and is a weak MAO inhibitor — serotonin syndrome with SSRIs.
 - **Ceftriaxone** is largely biliary and needs no renal adjustment; it causes biliary sludging and pseudolithiasis.
 - **TMP-SMX** blocks tubular creatinine secretion, so creatinine rises without any fall in GFR. It also causes real hyperkalemia — that part is not an artifact.
 - **Fluoroquinolones** chelate calcium, iron, magnesium, and tube feeds — separate dosing or the drug is not absorbed.
 - **Rifampin** is a potent CYP450 inducer and will lower levels of most things the patient is already taking.
-
-### β-LACTAM ALLERGY
-
-\\>90% of reported penicillin allergies are not real. Cephalosporins are safe with non-severe penicillin allergy — cross-reactivity tracks R1 side chains, and cefazolin shares its side chain with nothing. Aztreonam is the option for true anaphylaxis, but shares a side chain with ceftazidime.
+- **Daptomycin** is inactivated by pulmonary surfactant — never for pneumonia, whatever the susceptibilities say.
+- **Penicillin allergy:** most reported penicillin allergies are not real, and cephalosporins are safe with a non-severe history — cross-reactivity tracks R1 side chains, and cefazolin shares its side chain with nothing. Aztreonam for true anaphylaxis, though it shares a side chain with ceftazidime.
 
 *Local antibiogram overrides all of the above.*\
 """

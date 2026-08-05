@@ -20,5 +20,12 @@ Thumbs.db
 .idea/
 .claude/
 
+# ---- Word scratch ----
+# Word writes a ~$ lock file next to any open document, and edits leave .bak
+# copies behind. Neither belongs in history.
+~$*
+*.bak
+*.bak[0-9]
+
 # ---- Local scratch ----
 Versions/
