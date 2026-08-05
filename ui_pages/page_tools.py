@@ -4,6 +4,7 @@ import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
 from extract import acid_base_ai_interpretation
+from references_data import EMPIRIC_ABX_MD
 
 
 def _render_acid_base() -> None:
@@ -512,6 +513,21 @@ def _render_corrected_sodium() -> None:
         )
 
 
+def _render_empiric_abx() -> None:
+    st.subheader("Empiric antibiotics")
+
+    shown = st.session_state.get("tools_abx_shown", False)
+    # Rerun on toggle so the button's own label updates in the same click rather
+    # than lagging a step behind the reference it controls.
+    if st.button("Hide reference" if shown else "See reference",
+                 type="primary", key="tools_abx_toggle"):
+        st.session_state["tools_abx_shown"] = not shown
+        st.rerun()
+
+    if shown:
+        st.markdown(EMPIRIC_ABX_MD)
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
@@ -525,3 +541,5 @@ def render() -> None:
     _render_iron_deficit()
     st.divider()
     _render_corrected_sodium()
+    st.divider()
+    _render_empiric_abx()
