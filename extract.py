@@ -3523,7 +3523,7 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     in prose (including notable vitals, exam, labs, imaging). `considerations` is
     optional free text — specific elements, differentials, or thoughts the
     clinician wants the model to be sure to address. Returns
-    {"summary": str, "problems": [{"problem", "evidence", "plan", "differentials"}]}.
+    {"summary": str, "problems": [{"problem", "lead", "plan": [...], "discussion"}]}.
     Cached for a day so re-running the same inputs doesn't re-bill."""
     hpi = (hpi or "").strip()
     considerations = (considerations or "").strip()
@@ -3544,7 +3544,8 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "- 'summary': one line, exactly this shape — '[age/sex] who presented with "
         "[main symptoms], found to have [primary diagnosis]'. Do NOT recite past medical "
         "history unless it is directly driving the presentation. No identifiers.\n"
-        "- 'problems': a prioritized list, most acute/important first. For each:\n"
+        "- 'problems': a prioritized list. Problem 1 is the admitting diagnosis; the rest "
+        "follow, most acute/important first. For each:\n"
         "   * 'problem': the problem name written verbatim as an ICD-10-CM diagnosis "
         "description — the exact wording of a real code's title, the kind a clinician can "
         "search and select in Epic's problem list (e.g. 'Acute respiratory failure with "
@@ -3554,27 +3555,45 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "the real code title carries. Never use colloquial, abbreviated, or free-text "
         "phrasing ('AKI on CKD', 'hypoxia', 'sepsis - likely pulmonary source'), and never "
         "append your own commentary to the title. Do NOT include the numeric code.\n"
-        "   * 'evidence': the supporting data, as a single comma-separated string of terse "
-        "fragments — vitals, exam findings, labs, imaging, history (e.g. 'T 38.9, HR 118, "
-        "lactate 3.2, RLL infiltrate on CXR, productive cough x3d'). No sentences, no "
-        "reasoning, no lead-in phrase.\n"
-        "   * 'plan': a single comma-separated string of concise action items — orders, "
-        "drugs with dose/route/frequency, monitoring, consults, disposition (e.g. 'CTX 1g "
-        "IV q24h + azithro 500mg IV q24h, blood cx x2, trend lactate q6h, O2 to keep SpO2 "
-        ">92%, ID if no defervescence by 48h'). Each item a few words; assume the reader "
-        "knows why. No rationale, no patient education, no hedging.\n"
-        "   * 'differentials': one or two sentences of actual thinking — alternative "
-        "diagnoses still in play, can't-miss entities to exclude, and the complications to "
-        "anticipate. This is the one field where you may reason rather than list.\n"
+        "   * 'lead': the opening line of that problem's plan.\n"
+        "       - For problem 1 (the admitting diagnosis): start with 'Patient presented "
+        "with' and give the key symptoms, signs, and findings that establish the diagnosis "
+        "— one sentence, no plan content (e.g. 'Patient presented with fever, productive "
+        "cough, and hypoxia, with leukocytosis and a RLL infiltrate on CXR.').\n"
+        "       - For every later problem: start with 'Due to ' + the problem 1 diagnosis "
+        "whenever that problem is genuinely caused by or attributable to it (e.g. 'Due to "
+        "sepsis, ...'). If it is not — a chronic comorbidity, a home med, an unrelated "
+        "finding — open with the actual driver instead ('Due to home lisinopril, ...', "
+        "'Chronic, on home ...'). Never assert a causal link you do not believe.\n"
+        "   * 'plan': the action items — orders, drugs with dose/route/frequency, "
+        "monitoring, consults, disposition — as a list of strings, each a few words in "
+        "clipped shorthand (e.g. ['CTX 1g IV q24h + azithro 500mg IV q24h', 'blood cx x2', "
+        "'O2 to keep SpO2 >92%', 'ID if no defervescence by 48h']). Assume the reader knows "
+        "why: no rationale, no patient education, no hedging.\n"
+        "       - Problem 1: a handful of concise items, most important first.\n"
+        "       - Later problems: keep it to ONE item — a single comma-separated string "
+        "that reads as one line appended to the lead. Only split into a second item if the "
+        "problem genuinely carries two unrelated actions.\n"
+        "   * 'discussion': OPTIONAL. Omit it (empty string) unless there is something "
+        "worth saying. When there is — alternative diagnoses still in play, a can't-miss "
+        "entity to exclude, an anticipated complication, a pivotal datum that is missing — "
+        "give it as one or two sentences of prose. This is the one field where you may "
+        "reason rather than list. Use it mostly on problem 1; later problems rarely need it.\n"
+        "- Numbers: describe findings qualitatively — 'leukocytosis', 'hyponatremia', "
+        "'transaminitis', 'AKI' — rather than reciting values. Give an actual number or "
+        "magnitude ONLY when it changes management or the degree is the point (e.g. "
+        "'profound leukocytosis', 'transaminases in the hundreds', 'K 6.8', 'lactate 6'). "
+        "Never list a string of normal or unremarkable values.\n"
         "- Reason only from the information provided; if a pivotal datum is missing, note it "
-        "briefly in 'differentials' rather than inventing it.\n"
-        "- Be specific and clinically useful; avoid generic boilerplate.\n"
+        "briefly in 'discussion' rather than inventing it.\n"
+        "- Be specific and clinically useful; avoid generic boilerplate. Concision and easy "
+        "readability matter more than completeness — every line should earn its place.\n"
         "- If the clinician supplies additional considerations (specific elements, "
         "differentials, or thoughts), explicitly address each one in the relevant problem — "
         "adding a problem if needed. Weigh them, and if one is unlikely, say briefly why in "
-        "'differentials' rather than silently dropping it.\n"
+        "'discussion' rather than silently dropping it.\n"
         'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
-        '"evidence": "...", "plan": "...", "differentials": "..."}]}'
+        '"lead": "...", "plan": ["...", "..."], "discussion": "..."}]}'
     )
     user_input = f"Deidentified HPI:\n{hpi}\n\n"
     if considerations:
@@ -3606,12 +3625,17 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         name = str(p.get("problem") or "").strip()
         if not name:
             continue
-        # 'evidence' and 'plan' are comma-separated strings, but the model sometimes
-        # hands back a list anyway — join either into one line.
+        # 'plan' is a list of bullets, but the model sometimes hands back one
+        # comma-separated string instead — keep that as a single bullet.
+        raw_plan = p.get("plan")
+        if isinstance(raw_plan, (list, tuple)):
+            plan = [str(x).strip() for x in raw_plan if str(x).strip()]
+        else:
+            plan = [s for s in [str(raw_plan or "").strip()] if s]
         problems.append({
             "problem": name,
-            "evidence": _join_csv(p.get("evidence")),
-            "plan": _join_csv(p.get("plan")),
-            "differentials": str(p.get("differentials") or "").strip(),
+            "lead": _join_csv(p.get("lead")),
+            "plan": plan,
+            "discussion": str(p.get("discussion") or "").strip(),
         })
     return {"summary": str(data.get("summary") or "").strip(), "problems": problems}

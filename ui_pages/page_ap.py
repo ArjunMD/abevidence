@@ -7,8 +7,22 @@ from extract import assessment_and_plan
 _AP_PASSWORD = "BeCareful"
 
 
+def _one_line(lead: str, plan: list[str]) -> str:
+    """Fold a problem's lead-in and its plan items into a single readable bullet."""
+    body = ", ".join(plan)
+    if not lead:
+        return body
+    if not body:
+        return lead
+    # A lead that already ends a sentence starts a new clause; otherwise the plan
+    # flows on from it as another comma-separated fragment.
+    if lead.endswith((".", ";", ":")):
+        return f"{lead} {body}"
+    return f"{lead.rstrip(',')}, {body}"
+
+
 def render() -> None:
-    st.title("🧠 Assessment & Plan")
+    st.title("🧠 Assessment and Plan")
 
     if not st.session_state.get("ap_unlocked"):
         st.caption("Password-protected tool.")
@@ -67,15 +81,24 @@ def render() -> None:
         return
 
     for i, p in enumerate(problems, 1):
-        st.markdown(f"**{i}. {p['problem']}**")
-        lines = [
-            f"- **{label}:** {p[field]}"
-            for label, field in (
-                ("Evidence", "evidence"),
-                ("Plan", "plan"),
-                ("Differentials", "differentials"),
-            )
-            if p.get(field)
-        ]
+        st.markdown(f"**{i}. {p.get('problem', '')}**")
+
+        lead = (p.get("lead") or "").strip()
+        plan = p.get("plan") or []
+        if isinstance(plan, str):
+            plan = [plan]
+        plan = [str(x).strip() for x in plan if str(x).strip()]
+
+        if i == 1:
+            # Admitting diagnosis: narrative lead, then the plan as bullets.
+            lines = ([lead] if lead else []) + [f"- {item}" for item in plan]
+        else:
+            # Everything else collapses to one bullet: "Due to X, <plan>".
+            lines = [f"- {_one_line(lead, plan)}"] if (lead or plan) else []
+
         if lines:
             st.markdown("\n".join(lines))
+
+        discussion = (p.get("discussion") or "").strip()
+        if discussion:
+            st.markdown(discussion)

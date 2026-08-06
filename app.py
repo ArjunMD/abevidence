@@ -56,7 +56,7 @@ _PAGES = {
     "RRT meds": render_rrt,
     "Suggest an article": render_suggest,
     "About": render_about,
-    "AP": render_ap,
+    "Assessment and Plan": render_ap,
 }
 
 # In public mode (ABEV_MODE=public — set on the hosted .com instance), only
@@ -67,7 +67,7 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "Reviews", "Readmissions", "Tools", "RRT meds", "AP"}
+_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "Reviews", "Readmissions", "Tools", "RRT meds", "Assessment and Plan"}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]
