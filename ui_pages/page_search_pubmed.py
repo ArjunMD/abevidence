@@ -13,12 +13,21 @@ from pages_shared import _filter_search_pubmed_rows
 TERM_SEARCH_FETCH_LIMIT = 500
 # Earliest publication year the topic search will reach back to.
 TERM_SEARCH_MIN_YEAR = 2000
-# Tier 1 (top journals) is NEVER display-capped — losing a top-journal hit would
-# defeat the point. Tiers 2 (other named journals) and 3 (the rest of PubMed)
-# each get their own cap, which doubles as a guaranteed minimum: because Tier 1
-# never eats into them, these tiers always appear (up to their cap).
-TERM_SEARCH_NAMED_DISPLAY_CAP = 40
-TERM_SEARCH_REST_DISPLAY_CAP = 30
+# Named journals (the ones the sweep above searches) are shown first and get the
+# larger cap; the rest of PubMed follows under its own smaller cap.
+TERM_SEARCH_DISPLAY_CAP = 60
+TERM_SEARCH_OTHER_DISPLAY_CAP = 30
+
+# The only study types the topic search returns: systematic reviews,
+# meta-analyses, guidelines, and RCTs. PubMed tags guidelines with both
+# "Guideline" and the narrower "Practice Guideline", so both are listed.
+TERM_SEARCH_PUBLICATION_TYPE_TERMS = [
+    '"Randomized Controlled Trial"[Publication Type]',
+    '"Systematic Review"[Publication Type]',
+    '"Meta-Analysis"[Publication Type]',
+    '"Practice Guideline"[Publication Type]',
+    '"Guideline"[Publication Type]',
+]
 
 SEARCH_FETCH_LIMIT = 500
 LEDGER_STUDY_TYPE_LABEL = "All"
@@ -72,6 +81,7 @@ PUBLICATION_TYPE_DISPLAY_LABELS = {
     "Meta-Analysis": "Meta-Analysis",
     "Systematic Review": "Systematic Review",
     "Practice Guideline": "Practice Guideline",
+    "Guideline": "Guideline",
     "Multicenter Study": "Multicenter Study",
     "Observational Study": "Observational Study",
     "Clinical Trial": "Clinical Trial",
@@ -418,23 +428,10 @@ def _journal_label_map() -> dict[str, str]:
     return out
 
 
-def _broad_journals_or_term() -> str:
-    """OR of the [jour] clauses for the 'top journals' — the BROAD_SEARCH subset
-    that gets the lenient study-type filter in the monthly sweep. Used to pull
-    those journals into their own section of the topic-search results."""
-    terms = [
-        term
-        for (_specialty, label, term) in _all_journal_targets()
-        if (term or "").strip() and label in BROAD_SEARCH_JOURNAL_LABELS
-    ]
-    if not terms:
-        return ""
-    return "(" + " OR ".join(terms) + ")"
-
-
 def _named_journals_or_term() -> str:
-    """OR of every configured journal's [jour] clause (top + the rest of the
-    named list), for the second tier of the topic search."""
+    """OR of every configured journal's [jour] clause — the same journal list the
+    monthly sweep at the top of the page walks. Used to give those journals their
+    own pass in the topic search so they always surface, and to rank them first."""
     terms = [term for (_specialty, _label, term) in _all_journal_targets() if (term or "").strip()]
     if not terms:
         return ""
@@ -443,19 +440,18 @@ def _named_journals_or_term() -> str:
 
 def _render_term_search() -> None:
     """Free-text PubMed search (any journal, year >= TERM_SEARCH_MIN_YEAR),
-    mutually exclusive with the month-by-month journal sweep above. Uses the
-    lenient study-type filter for everything, and excludes trials already in the
-    DB. Results are split into three tiers — top journals (BROAD_SEARCH subset,
-    shown in full), the rest of the named journals, then every other PubMed
-    journal (each of the latter two capped) — newest first within each. 'Don't
-    show again' hides a PMID (shared with the sweep's hidden list); there's no
-    ledger — searches themselves aren't saved."""
+    mutually exclusive with the month-by-month journal sweep above. Restricted to
+    systematic reviews, meta-analyses, guidelines, and RCTs; one list, with the
+    sweep's named journals first and the rest of PubMed after, newest first in
+    each. Trials already in the DB are excluded. 'Don't show again' hides a PMID
+    (shared with the sweep's hidden list); there's no ledger — searches
+    themselves aren't saved."""
     st.markdown("##### Search by topic")
     st.caption(
         f"Search any term across all journals, {TERM_SEARCH_MIN_YEAR}–present "
-        "(e.g. “Bacterial meningitis”). Top journals first, then your other named "
-        "journals, then the rest of PubMed — newest first in each. Trials already "
-        "in your database are skipped."
+        "(e.g. “Bacterial meningitis”). Systematic reviews, meta-analyses, "
+        "guidelines, and RCTs only — your named journals first, then the rest of "
+        "PubMed, newest first in each. Trials already in your database are skipped."
     )
 
     c_in, c_btn = st.columns([5, 1])
@@ -493,46 +489,38 @@ def _render_term_search() -> None:
                 st.session_state.pop(k, None)
             with st.spinner(f"Searching PubMed for “{q}”…"):
                 try:
-                    # Three passes, each restricted by journal so a tier reliably
-                    # surfaces even on high-volume topics (the long tail can't
-                    # crowd it out of the most-recent window):
-                    #   1. top journals  (BROAD_SEARCH subset)
-                    #   2. all named journals  → tier 2 is this minus tier 1
-                    #   3. every journal       → tier 3 is this minus tiers 1 & 2
+                    # Two passes, both restricted to the four study types worth
+                    # reading: one limited to the named journals the sweep above
+                    # searches, one over all of PubMed. The named pass is its own
+                    # query so those journals surface even on a high-volume topic
+                    # where the long tail would otherwise fill the fetch window.
                     def _run(journal_term: str) -> dict:
                         return search_pubmed_by_term_page(
                             term_query=q,
-                            publication_type_terms=[],
+                            publication_type_terms=TERM_SEARCH_PUBLICATION_TYPE_TERMS,
                             retmax=int(TERM_SEARCH_FETCH_LIMIT),
                             retstart=0,
                             exclude_publication_type_terms=EXCLUDED_PUBLICATION_TYPE_TERMS,
-                            exclude_review_unless_terms=COMBINED_PUBLICATION_TYPE_TERMS,
                             journal_term=journal_term,
                             mindate=f"{TERM_SEARCH_MIN_YEAR}/01/01",
                             titles_only=titles_only,
                         )
 
-                    top = _run(_broad_journals_or_term())
-                    named = _run(_named_journals_or_term())
-                    everything = _run("")
-
                     def _rows(page: dict) -> list[dict]:
                         return [r for r in (page.get("rows") or []) if isinstance(r, dict)]
 
-                    def _pmid(r: dict) -> str:
-                        return (r.get("pmid") or "").strip()
-
-                    top_rows = _rows(top)
-                    top_pmids = {_pmid(r) for r in top_rows}
-                    named_other_rows = [r for r in _rows(named) if _pmid(r) not in top_pmids]
-                    named_pmids = top_pmids | {_pmid(r) for r in _rows(named)}
-                    rest_rows = [r for r in _rows(everything) if _pmid(r) not in named_pmids]
+                    named = _rows(_run(_named_journals_or_term()))
+                    everything = _run("")
+                    named_pmids = {(r.get("pmid") or "").strip() for r in named}
+                    other = [
+                        r for r in _rows(everything)
+                        if (r.get("pmid") or "").strip() not in named_pmids
+                    ]
 
                     st.session_state["search_pubmed_term_results"] = {
                         "query": q,
-                        "top_rows": top_rows,
-                        "named_other_rows": named_other_rows,
-                        "rest_rows": rest_rows,
+                        "named_rows": named,
+                        "other_rows": other,
                         "total_count": int(everything.get("total_count") or 0),
                     }
                 except requests.HTTPError as e:
@@ -564,26 +552,24 @@ def _render_term_search() -> None:
 
     def _clean(rows: list) -> list[dict]:
         # Drops trials already in the DB (saved), previously-hidden PMIDs, and
-        # pediatric titles. Sorts newest first (no rank within a tier).
+        # pediatric titles, then sorts newest first.
         rows = [r for r in (rows or []) if isinstance(r, dict)]
         rows = _filter_search_pubmed_rows(rows)
         rows = [r for r in rows if not _is_pediatric_title(r.get("title"))]
         rows.sort(key=lambda r: _safe_int(r.get("recency_rank"), 10**9))
         return rows
 
-    # Three tiers, no rank within any — each newest first.
-    top_rows = _clean(result.get("top_rows"))
-    named_rows = _clean(result.get("named_other_rows"))
-    rest_rows = _clean(result.get("rest_rows"))
+    # Named journals lead the list; everything else follows, each newest first.
+    # The other-journals cap is separate so the tail can never crowd out — or be
+    # crowded out by — the named journals.
+    named_rows = _clean(result.get("named_rows"))
+    other_rows = _clean(result.get("other_rows"))
+    named_shown = named_rows[:TERM_SEARCH_DISPLAY_CAP]
+    other_shown = other_rows[:TERM_SEARCH_OTHER_DISPLAY_CAP]
 
-    # Tier 1 shown in full; Tiers 2 & 3 each capped (so they always appear and
-    # stay bounded regardless of how large Tier 1 is).
-    top_shown = top_rows
-    named_shown = named_rows[:TERM_SEARCH_NAMED_DISPLAY_CAP]
-    rest_shown = rest_rows[:TERM_SEARCH_REST_DISPLAY_CAP]
-
-    visible_count = len(top_shown) + len(named_shown) + len(rest_shown)
-    hidden = (len(named_rows) - len(named_shown)) + (len(rest_rows) - len(rest_shown))
+    shown = named_shown + other_shown
+    visible_count = len(shown)
+    hidden = (len(named_rows) - len(named_shown)) + (len(other_rows) - len(other_shown))
 
     q_label = (result.get("query") or "").strip()
     total = int(result.get("total_count") or 0)
@@ -638,15 +624,7 @@ def _render_term_search() -> None:
                             st.query_params["open_abs_pmid"] = pmid
                             st.rerun()
 
-    if top_shown:
-        st.markdown("### Top journals")
-        _render_rows(top_shown)
-    if named_shown:
-        st.markdown("### Other named journals")
-        _render_rows(named_shown)
-    if rest_shown:
-        st.markdown("### All other journals")
-        _render_rows(rest_shown)
+    _render_rows(shown)
 
 
 def render() -> None:
