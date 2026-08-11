@@ -528,6 +528,62 @@ def _render_empiric_abx() -> None:
         st.markdown(EMPIRIC_ABX_MD)
 
 
+# Procedure → [(section, [bullet, ...]), ...], in reading order. One entry per
+# procedure; sections are filled in as they're written.
+_PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
+    "Tracheal intubation": [
+        ("Preoxygenation and apneic oxygenation", [
+            "Optimal preoxygenation increases the safe apnea time (when O₂ > 90%)",
+            "The process is also called denitrogenation",
+            "Upright (or at least reverse Trendelenburg) position maximizes the FRC",
+            "Tidal breathing 100% O₂ for 3–5 minutes will adequately "
+            "preoxygenate/denitrogenate",
+            "Preoxygenation device should be left in place until the laryngoscope blade "
+            "enters the mouth",
+            "Options if not apneic: NRB at flush flow rate (>40 L/min), NIPPV, HFNO",
+            "If patient is apneic or nearly apneic, BMV with PEEP valve must be used",
+            "When using NIPPV, start with inspiratory pressure of 10–15 and PEEP of 5",
+            "After paralytic is administered, NIPPV should stay in place and jaw thrust "
+            "should be performed to maintain a patent airway",
+            "DSI is delayed sequence intubation, and is a form of procedural sedation to "
+            "facilitate compliance with preoxygenation that is otherwise limited by "
+            "agitation. Basically it means low-dose ketamine before RSI. It is not well "
+            "studied.",
+            "Apneic oxygenation refers to the oxygen delivery during the process of "
+            "intubation. It is either NC (placed under the O₂ delivery device initially) "
+            "or HFNO.",
+            "Rescue oxygenation refers to BVM after a failed intubation attempt or when "
+            "O₂ < 93%. If it is difficult, use an extraglottic device.",
+        ]),
+    ],
+}
+
+# Sits first in the dropdown so nothing renders until a procedure is picked.
+_PROCEDURE_PLACEHOLDER = "Select a procedure…"
+
+
+def _render_procedures_checklist() -> None:
+    st.subheader("Procedures checklist")
+
+    choice = st.selectbox(
+        "Procedure",
+        options=[_PROCEDURE_PLACEHOLDER, *_PROCEDURE_CHECKLISTS],
+        key="tools_proc_choice",
+        label_visibility="collapsed",
+    )
+    if choice == _PROCEDURE_PLACEHOLDER:
+        return
+
+    sections = _PROCEDURE_CHECKLISTS.get(choice) or []
+    if not sections:
+        st.caption("No items yet for this procedure.")
+        return
+
+    for name, items in sections:
+        st.markdown(f"**{name}**")
+        st.markdown("\n".join(f"- {item}" for item in items))
+
+
 def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
@@ -543,3 +599,5 @@ def render() -> None:
     _render_corrected_sodium()
     st.divider()
     _render_empiric_abx()
+    st.divider()
+    _render_procedures_checklist()
