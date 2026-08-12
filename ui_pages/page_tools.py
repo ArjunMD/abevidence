@@ -513,6 +513,173 @@ def _render_corrected_sodium() -> None:
         )
 
 
+# APRI = (AST / AST ULN) × 100 / platelets (×10⁹/L). Wai 2003, derived in chronic
+# hepatitis C; the lab's own AST upper limit of normal is what the ratio is built
+# on, so it is an input rather than a fixed number.
+_APRI_DEFAULT_AST_ULN = 40.0
+# Wai's two-cutoff scheme: below the low cutoff significant fibrosis (F2+) is
+# effectively ruled out, above the high cutoff it is ruled in, and the span
+# between them is the indeterminate zone the score cannot resolve. WHO's 2015
+# hepatitis B guidance uses >2 for cirrhosis.
+_APRI_FIBROSIS_RULE_OUT = 0.5
+_APRI_FIBROSIS_RULE_IN = 1.5
+_APRI_CIRRHOSIS = 2.0
+
+
+def _render_apri() -> None:
+    st.subheader("APRI (AST-to-platelet ratio index)")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3 = st.columns(3)
+    ast = _num(c1, "AST (U/L)", "tools_apri_ast", 1.0)
+    uln = _num(c2, "AST upper limit of normal (default 40)", "tools_apri_uln", 1.0)
+    plt = _num(c3, "Platelets (×10⁹/L)", "tools_apri_plt", 1.0)
+
+    if st.button("Compute", type="primary", key="tools_apri_go"):
+        if ast is None or plt is None:
+            st.warning("Enter at least an AST and a platelet count.")
+            st.session_state.pop("tools_apri_result", None)
+        elif ast <= 0 or plt <= 0 or (uln is not None and uln <= 0):
+            st.warning("AST, platelets, and the upper limit of normal must be positive.")
+            st.session_state.pop("tools_apri_result", None)
+        else:
+            limit = _APRI_DEFAULT_AST_ULN if uln is None else uln
+            st.session_state["tools_apri_result"] = {
+                "ast": ast, "uln": limit, "plt": plt,
+                "apri": (ast / limit) * 100.0 / plt,
+            }
+
+    result = st.session_state.get("tools_apri_result")
+    if not result:
+        return
+
+    apri = result["apri"]
+    st.markdown(f"**APRI = {apri:.2f}**")
+    st.markdown(
+        f"- ({result['ast']:.0f} / {result['uln']:.0f}) × 100 / "
+        f"{result['plt']:.0f} = **{apri:.2f}**"
+    )
+
+    if apri >= _APRI_CIRRHOSIS:
+        st.error(
+            f"≥{_APRI_CIRRHOSIS:.0f} — cirrhosis likely (WHO cutoff in chronic hepatitis B). "
+            "Specific but not sensitive: a lower score does not clear the liver."
+        )
+    elif apri >= _APRI_FIBROSIS_RULE_IN:
+        st.warning(
+            f"≥{_APRI_FIBROSIS_RULE_IN} — significant fibrosis (F2+) likely. "
+            "Confirm with elastography or a validated panel before acting on it."
+        )
+    elif apri > _APRI_FIBROSIS_RULE_OUT:
+        st.info(
+            f"Between {_APRI_FIBROSIS_RULE_OUT} and {_APRI_FIBROSIS_RULE_IN} — indeterminate. "
+            "This is the band APRI cannot resolve; it neither rules fibrosis in nor out."
+        )
+    else:
+        st.success(
+            f"≤{_APRI_FIBROSIS_RULE_OUT} — significant fibrosis unlikely. This is where the "
+            "score performs best (high negative predictive value)."
+        )
+
+    st.caption(
+        "Derived and validated in chronic viral hepatitis. Anything else that moves either "
+        "term — acute hepatitis, alcoholic hepatitis, hemolysis or muscle injury raising AST, "
+        "ITP or splenic sequestration dropping platelets — distorts the ratio, so read it "
+        "alongside the clinical picture rather than as a standalone stage."
+    )
+
+
+# Retic % is corrected for the degree of anemia against a normal hematocrit, then
+# divided by a maturation factor: the more anemic the marrow, the earlier retics
+# are released and the longer they persist in blood, which otherwise inflates the
+# count. Factors are the standard Hct-banded table.
+_RETIC_NORMAL_HCT = 45.0
+_RETIC_MATURATION_FACTORS = [
+    (40.0, 1.0),
+    (35.0, 1.5),
+    (25.0, 2.0),
+    (20.0, 2.5),
+]
+_RETIC_MATURATION_FLOOR = 3.0
+# An RPI at or above this means the marrow is answering the anemia (blood loss,
+# hemolysis); below it the response is inadequate for the degree of anemia.
+_RPI_ADEQUATE = 2.0
+
+
+def _retic_maturation_factor(hct: float) -> float:
+    for floor, factor in _RETIC_MATURATION_FACTORS:
+        if hct >= floor:
+            return factor
+    return _RETIC_MATURATION_FLOOR
+
+
+def _render_retic_index() -> None:
+    st.subheader("Reticulocyte production index")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2 = st.columns(2)
+    retic = _num(c1, "Reticulocytes (%)", "tools_rpi_retic", 0.1, "%.1f")
+    hct = _num(c2, "Hematocrit (%)", "tools_rpi_hct", 0.1, "%.1f")
+
+    if st.button("Compute", type="primary", key="tools_rpi_go"):
+        if retic is None or hct is None:
+            st.warning("Enter both the reticulocyte percentage and the hematocrit.")
+            st.session_state.pop("tools_rpi_result", None)
+        elif retic < 0 or hct <= 0:
+            st.warning("Reticulocytes cannot be negative and hematocrit must be positive.")
+            st.session_state.pop("tools_rpi_result", None)
+        else:
+            corrected = retic * (hct / _RETIC_NORMAL_HCT)
+            factor = _retic_maturation_factor(hct)
+            st.session_state["tools_rpi_result"] = {
+                "retic": retic, "hct": hct, "corrected": corrected,
+                "factor": factor, "rpi": corrected / factor,
+            }
+
+    result = st.session_state.get("tools_rpi_result")
+    if not result:
+        return
+
+    rpi = result["rpi"]
+    st.markdown(f"**RPI = {rpi:.1f}**")
+    st.markdown("\n".join([
+        f"- Corrected retic: {result['retic']:.1f}% × ({result['hct']:.0f} / "
+        f"{_RETIC_NORMAL_HCT:.0f}) = **{result['corrected']:.1f}%**",
+        f"- Maturation factor at Hct {result['hct']:.0f}: **{result['factor']:.1f}** "
+        f"→ RPI = {result['corrected']:.1f} / {result['factor']:.1f} = **{rpi:.1f}**",
+    ]))
+
+    # Banding the index against a normal hematocrit would report a marrow failing
+    # to answer an anemia the patient does not have, so say that instead.
+    if result["hct"] >= _RETIC_NORMAL_HCT:
+        st.info(
+            "The index only means something in anemia — at a normal hematocrit there is "
+            "nothing to correct for and the raw retic percentage is the number to read."
+        )
+        return
+
+    if rpi >= _RPI_ADEQUATE:
+        st.success(
+            f"≥{_RPI_ADEQUATE:.0f} — appropriate marrow response. Points to blood loss or "
+            "hemolysis rather than a production problem; check LDH, haptoglobin, bilirubin, "
+            "smear, and look for bleeding."
+        )
+    else:
+        st.warning(
+            f"<{_RPI_ADEQUATE:.0f} — hypoproliferative for this degree of anemia. Work up "
+            "production: iron studies, B12/folate, renal function, TSH, marrow infiltration "
+            "or suppression."
+        )
+
+
 def _render_empiric_abx() -> None:
     st.subheader("Empiric antibiotics")
 
@@ -528,6 +695,11 @@ def _render_empiric_abx() -> None:
         st.markdown(EMPIRIC_ABX_MD)
 
 
+# Class I-IV figure on Wikimedia Commons (Jmarchn, CC BY-SA 3.0) — the file the
+# Mallampati score article itself uses. Points at the original SVG so tapping it
+# opens the figure directly rather than a description page.
+_MALLAMPATI_IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/0/09/Mallampati.svg"
+
 # Procedure → [(section, [bullet, ...]), ...], in reading order. One entry per
 # procedure; sections are filled in as they're written.
 _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
@@ -539,7 +711,7 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "L = Look externally (simply gestalt)",
             "E = Evaluate 3-3-2. 3 fingers in the mouth, 3 fingers under the chin, "
             "2 fingers from base of chin to hyoid notch",
-            "M = Mallampati",
+            f"M = [Mallampati]({_MALLAMPATI_IMAGE_URL})",
             "O = Obstruction/Obesity (muffled voice, stridor)",
             "N = Neck mobility",
             "A single test that is the best is the upper lip bite test",
@@ -555,6 +727,14 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "D = Disrupted or distorted airway",
             "S = Short thyromental distance",
             "Difficult cricothyrotomy (skip for now)",
+        ]),
+        ("Hemodynamics", [
+            "Shock index > 0.8 means high risk of post-intubation hypotension",
+            "Step 1: Replete volume loss",
+            "Fluid resuscitation that does not lead to increased cardiac output or blood "
+            "pressure is either because volume is too low, because at least one ventricle "
+            "is on the flat part of the FS curve, or significant vasoplegia",
+            "Step 2: Reduce unstressed volume and vasoplegia",
         ]),
         ("Preoxygenation", [
             "Optimal preoxygenation increases the safe apnea time (when O₂ > 90%)",
@@ -621,6 +801,10 @@ def render() -> None:
     _render_iron_deficit()
     st.divider()
     _render_corrected_sodium()
+    st.divider()
+    _render_apri()
+    st.divider()
+    _render_retic_index()
     st.divider()
     _render_empiric_abx()
     st.divider()
