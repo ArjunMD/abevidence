@@ -532,7 +532,31 @@ def _render_empiric_abx() -> None:
 # procedure; sections are filled in as they're written.
 _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
     "Tracheal intubation": [
-        ("Preoxygenation and apneic oxygenation", [
+        ("Airway evaluation", [
+            "Assess 4 aspects: Difficult laryngoscopy, Difficult BVM, Difficult "
+            "extraglottic device, and Difficult cricothyrotomy",
+            "Difficult laryngoscopy is assessed by LEMON (very crude)",
+            "L = Look externally (simply gestalt)",
+            "E = Evaluate 3-3-2. 3 fingers in the mouth, 3 fingers under the chin, "
+            "2 fingers from base of chin to hyoid notch",
+            "M = Mallampati",
+            "O = Obstruction/Obesity (muffled voice, stridor)",
+            "N = Neck mobility",
+            "A single test that is the best is the upper lip bite test",
+            "Difficult BVM is assessed by ROMAN",
+            "R = Radiation therapy/Resistance (such as COPD/asthma, ARDS)",
+            "O = Obesity/Obstruction/OSA",
+            "M = Mask seal/Mallampati/Male sex (beard, trauma)",
+            "A = Age (> 55)",
+            "N = No teeth. (Teeth support the mask. Leave dentures in if possible)",
+            "Difficult EGD is assessed by RODS",
+            "R = Restriction again (high resistance means high pressures are needed)",
+            "O = Obstruction/Obesity",
+            "D = Disrupted or distorted airway",
+            "S = Short thyromental distance",
+            "Difficult cricothyrotomy (skip for now)",
+        ]),
+        ("Preoxygenation", [
             "Optimal preoxygenation increases the safe apnea time (when O₂ > 90%)",
             "The process is also called denitrogenation",
             "Upright (or at least reverse Trendelenburg) position maximizes the FRC",
@@ -541,7 +565,7 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "Preoxygenation device should be left in place until the laryngoscope blade "
             "enters the mouth",
             "Options if not apneic: NRB at flush flow rate (>40 L/min), NIPPV, HFNO",
-            "If patient is apneic or nearly apneic, BMV with PEEP valve must be used",
+            "If patient is apneic or nearly apneic, BVM with PEEP valve must be used",
             "When using NIPPV, start with inspiratory pressure of 10–15 and PEEP of 5",
             "After paralytic is administered, NIPPV should stay in place and jaw thrust "
             "should be performed to maintain a patent airway",
