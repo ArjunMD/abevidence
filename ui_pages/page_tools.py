@@ -742,8 +742,7 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "Step 3: Augment LV performance",
             "Later — there is a concept (and quantification) of VA (ventriculo-arterial) "
             "uncoupling",
-            "If LVEF is < 30% it will not be able to compensate for the reduced afterload, "
-            "so they need an inotrope",
+            "If LVEF is < 30% they need an inotrope",
             "Check LVEF after norepinephrine though, as LVEF changes",
             "In patients with HFpEF and LVH, preload optimization is needed",
             "Step 4: Mitigate effect of the induction agent",
@@ -758,7 +757,8 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "PLAX: LV function, wall thickness (augment preload), pericardial effusion "
             "(diastolic collapse), large RV",
             "PSAX: septal flattening",
-            "Apical: VTI (volume responsiveness), e' and E/A (restrictive physiology), "
+            "Apical: VTI variation (volume responsiveness), e' and E/A (restrictive "
+            "physiology), "
             "TAPSE, RV dilation, septal flattening",
         ]),
         ("Preoxygenation", [
@@ -783,6 +783,18 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "or HFNO.",
             "Rescue oxygenation refers to BVM after a failed intubation attempt or when "
             "O₂ < 93%. If it is difficult, use an extraglottic device.",
+        ]),
+        ("Metabolic acidosis, induction drugs, and PPV", [
+            "Severe metabolic acidosis causes myocardial depression and a blunted "
+            "response to catecholamines",
+            "Be confident that you can match the active spontaneous ventilation with your "
+            "ventilator (start at a TV of 8 cc/kg and RR in the 30s)",
+            "Propofol and midazolam cause venodilation and reduce preload",
+            "Etomidate is considered hemodynamically neutral",
+            "Ketamine can be sympathomimetic but can cause myocardial depression in a "
+            "different patient",
+            "I don't see why etomidate isn't just standard",
+            "PPV reduces venous return",
         ]),
     ],
 }
