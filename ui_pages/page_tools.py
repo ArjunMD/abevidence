@@ -735,6 +735,31 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
             "pressure is either because volume is too low, because at least one ventricle "
             "is on the flat part of the FS curve, or significant vasoplegia",
             "Step 2: Reduce unstressed volume and vasoplegia",
+            "Underlying vasoplegic states include cirrhosis, hypothyroidism, adrenal "
+            "insufficiency, postcardioplegia, and gram-negative sepsis",
+            "Start vasopressors before intubation rather than using them as a rescue",
+            "Phenylephrine is contraindicated in RHF",
+            "Step 3: Augment LV performance",
+            "Later — there is a concept (and quantification) of VA (ventriculo-arterial) "
+            "uncoupling",
+            "If LVEF is < 30% it will not be able to compensate for the reduced afterload, "
+            "so they need an inotrope",
+            "Check LVEF after norepinephrine though, as LVEF changes",
+            "In patients with HFpEF and LVH, preload optimization is needed",
+            "Step 4: Mitigate effect of the induction agent",
+            "Consider reduced dose in patients with hemodynamic instability",
+            "Step 5: Protect the right ventricle",
+            "Measure TAPSE",
+            "Always remember the RV spiral of death",
+            "Starts with managing LV function though",
+            "Fluids dependent on IVC ultrasound",
+        ]),
+        ("POCUS assessment", [
+            "PLAX: LV function, wall thickness (augment preload), pericardial effusion "
+            "(diastolic collapse), large RV",
+            "PSAX: septal flattening",
+            "Apical: VTI (volume responsiveness), e' and E/A (restrictive physiology), "
+            "TAPSE, RV dilation, septal flattening",
         ]),
         ("Preoxygenation", [
             "Optimal preoxygenation increases the safe apnea time (when O₂ > 90%)",
