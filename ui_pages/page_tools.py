@@ -707,13 +707,14 @@ _PROCEDURE_CHECKLISTS: dict[str, list[tuple[str, list[str]]]] = {
         ("Airway evaluation", [
             "Assess 4 aspects: Difficult laryngoscopy, Difficult BVM, Difficult "
             "extraglottic device, and Difficult cricothyrotomy",
-            "Difficult laryngoscopy is assessed by LEMON (very crude)",
+            "Difficult laryngoscopy is assessed by LEMONS (very crude)",
             "L = Look externally (simply gestalt)",
             "E = Evaluate 3-3-2. 3 fingers in the mouth, 3 fingers under the chin, "
             "2 fingers from base of chin to hyoid notch",
             f"M = [Mallampati]({_MALLAMPATI_IMAGE_URL})",
             "O = Obstruction/Obesity (muffled voice, stridor)",
             "N = Neck mobility",
+            "S = Soiled airway (blood, vomit, secretions)",
             "A single test that is the best is the upper lip bite test",
             "Difficult BVM is assessed by ROMAN",
             "R = Radiation therapy/Resistance (such as COPD/asthma, ARDS)",
