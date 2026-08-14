@@ -90,8 +90,12 @@ def render() -> None:
         plan = [str(x).strip() for x in plan if str(x).strip()]
 
         if i == 1:
-            # Admitting diagnosis: narrative lead, then the plan as bullets.
-            lines = ([lead] if lead else []) + [f"- {item}" for item in plan]
+            # Admitting diagnosis: narrative lead, then the contributory history
+            # as the first bullet, then the plan.
+            history = (p.get("history") or "").strip()
+            lines = ([lead] if lead else [])
+            lines += [f"- {history}"] if history else []
+            lines += [f"- {item}" for item in plan]
         else:
             # Everything else collapses to one bullet: "Due to X, <plan>".
             lines = [f"- {_one_line(lead, plan)}"] if (lead or plan) else []

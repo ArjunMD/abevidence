@@ -994,6 +994,14 @@ def _openai_model() -> str:
     return ("gpt-5.5")
 
 
+def _openai_model_reasoning() -> str:
+    """Model for the calls where depth of reasoning is worth the extra cost and
+    latency — currently just the A&P tool. The frontier model is gpt-5.6-sol,
+    but this API key's org isn't enabled for it (model_not_found); gpt-5.5 is
+    the most capable model it can reach. Bump this once 5.6 is available."""
+    return ("gpt-5.5")
+
+
 # ---------------- Semantic Scholar helpers ----------------
 
 SEMANTIC_SCHOLAR_RECOMMEND_FORPAPER_URL = "https://api.semanticscholar.org/recommendations/v1/papers/forpaper/"
@@ -3523,7 +3531,8 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     in prose (including notable vitals, exam, labs, imaging). `considerations` is
     optional free text — specific elements, differentials, or thoughts the
     clinician wants the model to be sure to address. Returns
-    {"summary": str, "problems": [{"problem", "lead", "plan": [...], "discussion"}]}.
+    {"summary": str, "problems": [{"problem", "lead", "history", "plan": [...],
+    "discussion"}]}.
     Cached for a day so re-running the same inputs doesn't re-bill."""
     hpi = (hpi or "").strip()
     considerations = (considerations or "").strip()
@@ -3556,15 +3565,29 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "phrasing ('AKI on CKD', 'hypoxia', 'sepsis - likely pulmonary source'), and never "
         "append your own commentary to the title. Do NOT include the numeric code.\n"
         "   * 'lead': the opening line of that problem's plan.\n"
-        "       - For problem 1 (the admitting diagnosis): start with 'Patient presented "
-        "with' and give the key symptoms, signs, and findings that establish the diagnosis "
-        "— one sentence, no plan content (e.g. 'Patient presented with fever, productive "
-        "cough, and hypoxia, with leukocytosis and a RLL infiltrate on CXR.').\n"
+        "       - For problem 1 (the admitting diagnosis): begin with the exact words "
+        "'Patient presented with' — never 'Presented with' — then give the salient HPI: "
+        "the presenting symptoms with their tempo and character, the pertinent positives "
+        "and negatives that shape the differential, and the vitals, exam, lab, and imaging "
+        "findings that establish the diagnosis. One to three sentences, no plan content "
+        "(e.g. 'Patient presented with three days of fever, productive cough, and pleuritic "
+        "chest pain, without orthopnea or leg swelling. Febrile, tachypneic, and hypoxic on "
+        "arrival, with rales at the right base, leukocytosis, and a RLL infiltrate on CXR.').\n"
         "       - For every later problem: start with 'Due to ' + the problem 1 diagnosis "
         "whenever that problem is genuinely caused by or attributable to it (e.g. 'Due to "
         "sepsis, ...'). If it is not — a chronic comorbidity, a home med, an unrelated "
         "finding — open with the actual driver instead ('Due to home lisinopril, ...', "
         "'Chronic, on home ...'). Never assert a causal link you do not believe.\n"
+        "   * 'history': ONLY for problem 1 — one sentence, opening with 'Contributory "
+        "history includes', naming the historical factors that actually bear on this "
+        "presentation or change its management: relevant PMHx and PSHx, home medications by "
+        "name (and any that are implicated, held, or continued), immunosuppression, recent "
+        "hospitalizations, procedures or antibiotics, exposures, substance use, and the "
+        "functional or social factors that will drive disposition. Name only what is "
+        "contributory — no laundry list of every diagnosis in the chart. Leave it an empty "
+        "string when nothing in the history contributes, and always leave it empty for every "
+        "problem after problem 1 (e.g. 'Contributory history includes COPD on home tiotropium, "
+        "poorly controlled T2DM, and a 40-pack-year smoking history.').\n"
         "   * 'plan': the action items — orders, drugs with dose/route/frequency, "
         "monitoring, consults, disposition — as a list of strings, each a few words in "
         "clipped shorthand (e.g. ['CTX 1g IV q24h + azithro 500mg IV q24h', 'blood cx x2', "
@@ -3593,26 +3616,31 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "adding a problem if needed. Weigh them, and if one is unlikely, say briefly why in "
         "'discussion' rather than silently dropping it.\n"
         'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
-        '"lead": "...", "plan": ["...", "..."], "discussion": "..."}]}'
+        '"lead": "...", "history": "...", "plan": ["...", "..."], "discussion": "..."}]}'
     )
     user_input = f"Deidentified HPI:\n{hpi}\n\n"
     if considerations:
         user_input += f"Clinician's considerations to address:\n{considerations}\n\n"
     user_input += "JSON:"
+    # The one call in the app that gets the strongest model at its top reasoning
+    # effort — clinical reasoning is what this tool sells, and it runs once per
+    # case. 'xhigh' is the highest effort gpt-5.5 accepts ('max' is rejected).
+    # Reasoning tokens count against max_output_tokens, so the ceiling is
+    # generous enough that deep thinking can't truncate the JSON.
     payload = {
-        "model": _openai_model(),
+        "model": _openai_model_reasoning(),
         "instructions": instructions,
         "input": user_input,
-        "reasoning": {"effort": "medium"},
+        "reasoning": {"effort": "xhigh"},
         "text": {"verbosity": "medium"},
-        "max_output_tokens": 8000,
+        "max_output_tokens": 32000,
         "store": False,
     }
     r = _post_with_retries(
         OPENAI_RESPONSES_URL,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json=payload,
-        timeout=120,
+        timeout=420,
     )
     data = _parse_json_from_model(_extract_output_text(r.json()))
     if not isinstance(data, dict):
@@ -3635,6 +3663,7 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         problems.append({
             "problem": name,
             "lead": _join_csv(p.get("lead")),
+            "history": _join_csv(p.get("history")),
             "plan": plan,
             "discussion": str(p.get("discussion") or "").strip(),
         })
