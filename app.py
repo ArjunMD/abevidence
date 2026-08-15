@@ -20,6 +20,7 @@ from pages_shared import (
     is_public_mode,
 )
 from ui_pages.page_about import render as render_about
+from ui_pages.page_billing import render as render_billing
 from ui_pages.page_dashboard import render as render_dashboard
 from ui_pages.page_db_browse import render as render_db_browse
 from ui_pages.page_db_search import render as render_db_search
@@ -57,6 +58,7 @@ _PAGES = {
     "Suggest an article": render_suggest,
     "About": render_about,
     "Assessment and Plan": render_ap,
+    "Inpatient Billing": render_billing,
 }
 
 # In public mode (ABEV_MODE=public — set on the hosted .com instance), only
@@ -67,7 +69,10 @@ _PAGES = {
 # reaches it by clicking a study on Browse and returns via its "Back to studies"
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
-_PUBLIC_SIDEBAR_PAGES = {"Browse studies", "Reviews", "Readmissions", "Tools", "RRT meds", "Assessment and Plan"}
+_PUBLIC_SIDEBAR_PAGES = {
+    "Browse studies", "Reviews", "Readmissions", "Tools", "RRT meds",
+    "Assessment and Plan", "Inpatient Billing",
+}
 
 _IS_PUBLIC = is_public_mode()
 _SIDEBAR_PAGES = [p for p in _PAGES if not _IS_PUBLIC or p in _PUBLIC_SIDEBAR_PAGES]
