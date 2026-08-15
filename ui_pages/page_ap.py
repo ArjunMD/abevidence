@@ -80,6 +80,15 @@ def render() -> None:
         st.info("No problems came back — try adding more detail to the HPI.")
         return
 
+    _render_problems(problems)
+
+    # Utilization-review line: the inpatient-level services that justify the stay.
+    reason = (result.get("hospitalization_reason") or "").strip()
+    if reason:
+        st.markdown(f"**Reason care requires hospitalization:** {reason}")
+
+
+def _render_problems(problems: list[dict]) -> None:
     for i, p in enumerate(problems, 1):
         st.markdown(f"**{i}. {p.get('problem', '')}**")
 

@@ -3532,7 +3532,7 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     optional free text — specific elements, differentials, or thoughts the
     clinician wants the model to be sure to address. Returns
     {"summary": str, "problems": [{"problem", "lead", "history", "plan": [...],
-    "discussion"}]}.
+    "discussion"}], "hospitalization_reason": str}.
     Cached for a day so re-running the same inputs doesn't re-bill."""
     hpi = (hpi or "").strip()
     considerations = (considerations or "").strip()
@@ -3616,8 +3616,16 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "differentials, or thoughts), explicitly address each one in the relevant problem — "
         "adding a problem if needed. Weigh them, and if one is unlikely, say briefly why in "
         "'discussion' rather than silently dropping it.\n"
+        "- 'hospitalization_reason': the inpatient-level services this patient needs that "
+        "cannot be delivered outpatient — the billing/utilization-review justification for "
+        "the stay. One short comma-separated line naming the actual interventions or "
+        "monitoring (e.g. 'IV diuretics', 'IV antibiotics, supplemental O2', 'IV heparin "
+        "with serial troponins', 'telemetry monitoring for arrhythmia', 'IV fluids and "
+        "electrolyte repletion with q6h labs'). Multiple reasons are fine. No diagnoses, "
+        "no restating the assessment, no full sentence — services only.\n"
         'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
-        '"lead": "...", "history": "...", "plan": ["...", "..."], "discussion": "..."}]}'
+        '"lead": "...", "history": "...", "plan": ["...", "..."], "discussion": "..."}], '
+        '"hospitalization_reason": "..."}'
     )
     user_input = f"Deidentified HPI:\n{hpi}\n\n"
     if considerations:
@@ -3668,4 +3676,9 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
             "plan": plan,
             "discussion": str(p.get("discussion") or "").strip(),
         })
-    return {"summary": str(data.get("summary") or "").strip(), "problems": problems}
+    return {
+        "summary": str(data.get("summary") or "").strip(),
+        "problems": problems,
+        # Comes back as a line, but the model sometimes lists the reasons.
+        "hospitalization_reason": _join_csv(data.get("hospitalization_reason")),
+    }
