@@ -3531,7 +3531,7 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     in prose (including notable vitals, exam, labs, imaging). `considerations` is
     optional free text — specific elements, differentials, or thoughts the
     clinician wants the model to be sure to address. Returns
-    {"summary": str, "problems": [{"problem", "lead", "history", "plan": [...],
+    {"summary": str, "problems": [{"problem", "lead", "plan": [...],
     "discussion"}], "hospitalization_reason": str}.
     Cached for a day so re-running the same inputs doesn't re-bill."""
     hpi = (hpi or "").strip()
@@ -3579,16 +3579,6 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "sepsis, ...'). If it is not — a chronic comorbidity, a home med, an unrelated "
         "finding — open with the actual driver instead ('Due to home lisinopril, ...', "
         "'Chronic, on home ...'). Never assert a causal link you do not believe.\n"
-        "   * 'history': ONLY for problem 1 — one sentence, opening with 'Contributory "
-        "history includes', naming the historical factors that actually bear on this "
-        "presentation or change its management: relevant PMHx and PSHx, home medications by "
-        "name (and any that are implicated, held, or continued), immunosuppression, recent "
-        "hospitalizations, procedures or antibiotics, exposures, substance use, and the "
-        "functional or social factors that will drive disposition. Name only what is "
-        "contributory — no laundry list of every diagnosis in the chart. Leave it an empty "
-        "string when nothing in the history contributes, and always leave it empty for every "
-        "problem after problem 1 (e.g. 'Contributory history includes COPD on home tiotropium, "
-        "poorly controlled T2DM, and a 40-pack-year smoking history.').\n"
         "   * 'plan': the action items — orders, drugs with dose/route/frequency, "
         "monitoring, consults, disposition — as a list of strings, each a few words in "
         "clipped shorthand (e.g. ['CTX 1g IV q24h + azithro 500mg IV q24h', 'blood cx x2', "
@@ -3624,7 +3614,7 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "electrolyte repletion with q6h labs'). Multiple reasons are fine. No diagnoses, "
         "no restating the assessment, no full sentence — services only.\n"
         'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
-        '"lead": "...", "history": "...", "plan": ["...", "..."], "discussion": "..."}], '
+        '"lead": "...", "plan": ["...", "..."], "discussion": "..."}], '
         '"hospitalization_reason": "..."}'
     )
     user_input = f"Deidentified HPI:\n{hpi}\n\n"
@@ -3672,7 +3662,6 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         problems.append({
             "problem": name,
             "lead": _join_csv(p.get("lead")),
-            "history": _join_csv(p.get("history")),
             "plan": plan,
             "discussion": str(p.get("discussion") or "").strip(),
         })
