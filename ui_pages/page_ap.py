@@ -72,9 +72,6 @@ def render() -> None:
     if not result:
         return
 
-    if result.get("summary"):
-        st.markdown(f"**{result['summary']}**")
-
     problems = result.get("problems") or []
     if not problems:
         st.info("No problems came back — try adding more detail to the HPI.")
@@ -86,6 +83,8 @@ def render() -> None:
     reason = (result.get("hospitalization_reason") or "").strip()
     if reason:
         st.markdown(f"**Reason care requires hospitalization:** {reason}")
+
+    _render_discussion(problems)
 
 
 def _render_problems(problems: list[dict]) -> None:
@@ -109,6 +108,19 @@ def _render_problems(problems: list[dict]) -> None:
         if lines:
             st.markdown("\n".join(lines))
 
-        discussion = (p.get("discussion") or "").strip()
-        if discussion:
-            st.markdown(discussion)
+
+def _render_discussion(problems: list[dict]) -> None:
+    """The model's reasoning, pulled out of the problems and pooled here so the
+    plans stay terse and the pontification can be skimmed in one pass at the end."""
+    items = [
+        (p.get("problem", ""), (p.get("discussion") or "").strip())
+        for p in problems
+    ]
+    items = [(name, text) for name, text in items if text]
+    if not items:
+        return
+
+    st.markdown("---")
+    st.markdown("**Discussion**")
+    for name, text in items:
+        st.markdown(f"- **{name}** — {text}" if name else f"- {text}")

@@ -3531,8 +3531,9 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     in prose (including notable vitals, exam, labs, imaging). `considerations` is
     optional free text — specific elements, differentials, or thoughts the
     clinician wants the model to be sure to address. Returns
-    {"summary": str, "problems": [{"problem", "lead", "plan": [...],
-    "discussion"}], "hospitalization_reason": str}.
+    {"problems": [{"problem", "lead", "plan": [...], "discussion"}],
+    "hospitalization_reason": str}. 'discussion' stays attached to its problem
+    but the UI pools them into one section at the end.
     Cached for a day so re-running the same inputs doesn't re-bill."""
     hpi = (hpi or "").strip()
     considerations = (considerations or "").strip()
@@ -3550,9 +3551,6 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "The reader is a physician or other healthcare staff — write in clipped clinical "
         "shorthand, not full sentences, and never explain basic medicine.\n"
         "Rules:\n"
-        "- 'summary': one line, exactly this shape — '[age/sex] who presented with "
-        "[main symptoms], found to have [primary diagnosis]'. Do NOT recite past medical "
-        "history unless it is directly driving the presentation. No identifiers.\n"
         "- 'problems': a prioritized list. Problem 1 is the admitting diagnosis; the rest "
         "follow, most acute/important first. For each:\n"
         "   * 'problem': the problem name written verbatim as an ICD-10-CM diagnosis "
@@ -3593,6 +3591,11 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "entity to exclude, an anticipated complication, a pivotal datum that is missing — "
         "give it as one or two sentences of prose. This is the one field where you may "
         "reason rather than list. Use it mostly on problem 1; later problems rarely need it.\n"
+        "       - These are NOT shown with the problem: every 'discussion' is pulled out and "
+        "collected into a single section at the end, read after the plans. So it must stand "
+        "on its own — name the entity or question it is about, and never rely on the reader "
+        "having just read that problem's lead or plan. Nothing load-bearing goes here; the "
+        "'lead' and 'plan' must be complete and actionable without it.\n"
         "- Numbers: describe findings qualitatively — 'leukocytosis', 'hyponatremia', "
         "'transaminitis', 'AKI' — rather than reciting values. Give an actual number or "
         "magnitude ONLY when it changes management or the degree is the point (e.g. "
@@ -3613,7 +3616,7 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         "with serial troponins', 'telemetry monitoring for arrhythmia', 'IV fluids and "
         "electrolyte repletion with q6h labs'). Multiple reasons are fine. No diagnoses, "
         "no restating the assessment, no full sentence — services only.\n"
-        'Return ONLY JSON: {"summary": "...", "problems": [{"problem": "...", '
+        'Return ONLY JSON: {"problems": [{"problem": "...", '
         '"lead": "...", "plan": ["...", "..."], "discussion": "..."}], '
         '"hospitalization_reason": "..."}'
     )
@@ -3666,7 +3669,6 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
             "discussion": str(p.get("discussion") or "").strip(),
         })
     return {
-        "summary": str(data.get("summary") or "").strip(),
         "problems": problems,
         # Comes back as a line, but the model sometimes lists the reasons.
         "hospitalization_reason": _join_csv(data.get("hospitalization_reason")),
