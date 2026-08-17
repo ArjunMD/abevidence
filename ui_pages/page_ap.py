@@ -7,20 +7,6 @@ from extract import assessment_and_plan
 _AP_PASSWORD = "BeCareful"
 
 
-def _one_line(lead: str, plan: list[str]) -> str:
-    """Fold a problem's lead-in and its plan items into a single readable bullet."""
-    body = ", ".join(plan)
-    if not lead:
-        return body
-    if not body:
-        return lead
-    # A lead that already ends a sentence starts a new clause; otherwise the plan
-    # flows on from it as another comma-separated fragment.
-    if lead.endswith((".", ";", ":")):
-        return f"{lead} {body}"
-    return f"{lead.rstrip(',')}, {body}"
-
-
 def render() -> None:
     st.title("🧠 Assessment and Plan")
 
@@ -102,8 +88,8 @@ def _render_problems(problems: list[dict]) -> None:
             lines = ([lead] if lead else [])
             lines += [f"- {item}" for item in plan]
         else:
-            # Everything else collapses to one bullet: "Due to X, <plan>".
-            lines = [f"- {_one_line(lead, plan)}"] if (lead or plan) else []
+            # Everything else is actions only — the problem name is the description.
+            lines = [f"- {item}" for item in plan]
 
         if lines:
             st.markdown("\n".join(lines))
@@ -120,7 +106,6 @@ def _render_discussion(problems: list[dict]) -> None:
     if not items:
         return
 
-    st.markdown("---")
     st.markdown("**Discussion**")
     for name, text in items:
         st.markdown(f"- **{name}** — {text}" if name else f"- {text}")
