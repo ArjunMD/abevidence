@@ -13,9 +13,8 @@ _QA: list[tuple[str, str]] = [
     (
         "What is the Medicare 2-midnight rule?",
         """
-- **Still active in 2026** — The Two-Midnight Rule remains CMS's central framework for
-  deciding inpatient (Part A) vs. outpatient/observation (Part B) payment. It was last
-  updated in the CY 2026 OPPS/ASC final rule released November 25, 2025.
+- **One liner** — The Two-Midnight Rule remains CMS's central framework for deciding
+  inpatient (Part A) vs. outpatient/observation (Part B) payment.
 - **The core rule** — In effect since October 1, 2013. If the admitting physician
   reasonably expects the patient to need hospital care spanning at least two midnights,
   and the record supports it, the stay is generally appropriate for Part A. The
@@ -27,18 +26,15 @@ _QA: list[tuple[str, str]] = [
      the initiation of care, including pre-order ED/observation time, toward your
      two-midnight expectation. Guides the admission decision.
    - **Presumption** = an audit-selection safe harbor aimed at reviewers (MACs, RACs):
-     "Should auditors leave this claim alone?" A stay spanning two+ midnights after the
-     inpatient order is presumed appropriate for Part A and shouldn't be targeted for
-     status second-guessing, absent evidence of gaming.
-   - A stay can meet the benchmark (correct inpatient decision) yet fall outside the
-     presumption (still reviewable) — not a contradiction; if reviewed, it should be
-     upheld.
-- **When the clock starts (the key distinction)** — The presumption counts only midnights
-  after the inpatient admission order; pre-order ED/observation time does not count. The
-  benchmark does count that pre-order time. So a patient with one observation midnight +
-  one inpatient midnight meets the benchmark but not the presumption. Practical upshot:
-  place the inpatient order promptly once the two-midnight expectation is clear —
-  pre-order midnights count for the benchmark but not your audit protection.
+     "Should auditors leave this claim alone?" Counts only midnights after the inpatient
+     admission order — pre-order ED/observation time does not count. A stay spanning two+
+     midnights after the order is presumed appropriate for Part A and shouldn't be
+     targeted for status second-guessing, absent evidence of gaming.
+   - So a patient with one observation midnight + one inpatient midnight meets the
+     benchmark (correct inpatient decision) but falls outside the presumption (still
+     reviewable) — not a contradiction; if reviewed, it should be upheld. Practical
+     upshot: place the inpatient order promptly once the two-midnight expectation is
+     clear — pre-order midnights count for the benchmark but not your audit protection.
 - **Unforeseen-circumstances carve-out** — A reasonable, documented two-midnight
   expectation still qualifies for Part A even if the actual stay was shorter due to
   death, transfer, rapid improvement, or leaving AMA.
@@ -50,20 +46,15 @@ _QA: list[tuple[str, str]] = [
   They can review stays of any length — even ones several midnights past the order that
   would be untouchable under traditional Medicare — which is the mechanism behind
   persistent MA short-stay denials and observation downgrades.
-- **Newest 2026 updates** — The CY 2026 OPPS/ASC final rule changed which entities
-  conduct short-stay/patient-status reviews; the CY 2026 MA final rule (CMS-4208-F)
-  clarified terminology around status changes and patient notification when a stay is
-  reclassified.
-- **Inpatient-Only (IPO) list — what it is** — Created in 2000, the IPO list is CMS's
+- **Inpatient-Only (IPO) list and its phase-out** — Created in 2000, the IPO list is CMS's
   annual catalog of surgical/interventional procedures (HCPCS codes) it considers too
-  complex, high-risk, or resource-intensive to be safely done outpatient. If a procedure
-  is on the list, Medicare pays for it only when performed inpatient and covers it
-  automatically under Part A — regardless of expected length of stay, so the Two-Midnight
-  Rule doesn't apply to it. Bill an IPO procedure as outpatient and Medicare denies the
-  claim. As of 2025 it held roughly 1,700+ procedures.
-- **IPO list — the phase-out** — CMS has tried to unwind the list before (total knee
+  complex, high-risk, or resource-intensive to be safely done outpatient (~1,700+
+  procedures as of 2025). If a procedure is on the list, Medicare pays for it only when
+  performed inpatient and covers it automatically under Part A — regardless of expected
+  length of stay, so the Two-Midnight Rule doesn't apply to it; bill it as outpatient and
+  Medicare denies the claim. CMS has tried to unwind the list before (total knee
   arthroplasty removed 2018, total hip 2020; a 2020 plan to eliminate it was reversed by
-  the Biden administration in 2022). The CY 2026 OPPS final rule now finalizes full
+  the Biden administration in 2022), but the CY 2026 OPPS final rule now finalizes full
   elimination by January 1, 2028, starting January 1, 2026 with ~285 musculoskeletal
   procedures moved off (and the ASC-payable list expanded in parallel). Two consequences:
   (1) procedures removed from the IPO list are temporarily exempt from Two-Midnight
