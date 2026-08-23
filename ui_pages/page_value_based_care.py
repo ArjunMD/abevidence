@@ -42,6 +42,7 @@ VBC_SUBSECTIONS: dict[tuple[str, str], list[str]] = {
         "Decongestion Before Discharge",
         "IV-to-Oral Diuretic Transition",
         "Discharge Education & Early Follow-up",
+        "Risk Scores",
     ],
 }
 
@@ -51,6 +52,15 @@ _KEY_BY_LABEL = {p["label"]: p["key"] for p in VBC_PROGRAMS}
 # Big enough to include every saved abstract; the picker and the display both
 # read from this one snapshot so a paper is only looked up once.
 _PAPERS_LIMIT = 30000
+
+# The measure names (HF, Pneumonia, …) are the only h3 headings on this page — they
+# come from st.subheader, which renders markdown and so can't carry an <u>. Underline
+# them with CSS instead, which keeps the native heading anchor and hover link.
+_CSS = """
+<style>
+[data-testid="stHeading"] h3 { text-decoration: underline; }
+</style>
+"""
 
 
 def _slug(text: str) -> str:
@@ -264,6 +274,7 @@ def _render_manage(pmap: dict[str, dict[str, str]], tags: list[dict[str, str]]) 
 
 
 def render() -> None:
+    st.markdown(_CSS, unsafe_allow_html=True)
     st.title("📊 Readmissions")
     st.markdown("Studies relevant to reducing hospital readmissions.")
 
