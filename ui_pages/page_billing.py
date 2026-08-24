@@ -219,9 +219,10 @@ drug coverage from private plans.
      benefit-period hospital days and lifetime reserve days as any hospital admission, but
      it isn't cut off at 100 days. Once the 60 lifetime reserve days are exhausted, though,
      Medicare pays nothing and the patient owes the full cost — a hard stop that lands at day
-     150 within a single benefit period (days 1–90 plus 60 reserve days). The day counts
-     reset only after the 60-day benefit-period break above, and supplemental coverage
-     (Medigap) softens this — both discussed elsewhere.
+     150 within a single benefit period (days 1–90 plus 60 reserve days).
+   - **Resets and backstops** — The day counts reset only after the 60-day benefit-period
+     break above, and supplemental coverage (Medigap) softens this — both discussed
+     elsewhere.
 - **Part B — Medical Insurance** — The outpatient/physician side, funded by the SMI trust
   fund (beneficiary premiums plus general Treasury revenue).
    - **Covers** — Physician and outpatient services, labs, imaging, durable medical
