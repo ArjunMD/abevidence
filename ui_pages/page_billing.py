@@ -1,11 +1,7 @@
-"""Static inpatient-billing Q&A reference. No AI, no DB — just answers behind a
-shared page password. Add a question by appending to _QA."""
+"""Static inpatient-billing Q&A reference. No AI, no DB — just answers behind
+expanders. Add a question by appending to _QA."""
 
 import streamlit as st
-
-# Soft access gate — same idea as the A&P page. Not a real credential; it's a
-# shared page password.
-_BILLING_PASSWORD = "Billing"
 
 # (question, markdown answer). Answers are plain markdown bullets; indent a
 # sub-bullet by three spaces.
@@ -68,6 +64,71 @@ _QA: list[tuple[str, str]] = [
   patient.
 """,
     ),
+    (
+        "Social Security",
+        """
+- **Relevance** — People already drawing from SS are automatically enrolled in Medicare
+  Part A and Part B (opt-out). So here is a brief overview.
+- **Eligibility — the 40-credit rule** — Must have worked 40 quarters (10 years) and paid
+  into social security. A spouse's work can count.
+- **Claiming at FRA** — FRA (full retirement age) is currently 67:
+   - **What you get** — Claiming at FRA pays 100% of your benefit — your full Primary
+     Insurance Amount (PIA), with no reduction.
+   - **How the PIA is set** — It's based on your highest 35 years of earnings, indexed for
+     wage inflation and averaged into a monthly figure.
+   - **Typical amount (2026)** — Somewhere between about \$1,100 and \$4,207 a month,
+     depending on your lifetime earnings.
+- **Claiming early** — You can start as early as 62:
+   - **Permanent reduction** — Claiming before FRA locks in a lasting cut, roughly 30%
+     below your full benefit at 62 (shrinking the closer you claim to FRA).
+   - **Earnings test** — If you keep working before FRA, some benefits are withheld once
+     your earnings pass an annual limit (about \$24,480 in 2026, with a higher limit in the
+     year you reach FRA). The test goes away entirely once you hit FRA, and withheld money
+     isn't lost — your benefit is recalculated upward at FRA.
+- **Claiming late** *(not Medicare-relevant)* — Delaying past FRA earns delayed retirement
+  credits of 8% a year up to age 70 (about 24% above your full benefit); no reason to wait
+  beyond 70.
+- **Other pathway — disability (SSDI)** — Besides retirement, you can draw Social Security
+  through disability if a qualifying medical condition keeps you from working. It still
+  requires work credits (including recent ones), and the benefit is based on your earnings
+  record much like a retirement benefit. Relevant here because after 24 months on SSDI you
+  qualify for Medicare regardless of age.
+- **Not the same as SSI** — Supplemental Security Income (SSI) is a separate needs-based
+  program that SSA administers but that isn't funded by the payroll tax or tied to your
+  work record. It generally leads to Medicaid, not Medicare, so it isn't a Medicare
+  enrollment pathway.
+- **How to claim** — Apply through SSA — online at ssa.gov, by phone, or at a local
+  office.
+- **How it's funded** — The FICA payroll tax: you pay 6.2% of your income up to the wage
+  cap (\$184,500 in 2026) — so at most about \$11,400 out of your paycheck — matched by
+  another 6.2% from your employer (self-employed pay the full 12.4%). Today's workers fund
+  today's retirees; surpluses sit in the trust funds.
+- **Note** — The above primarily concerns the Old-Age and Survivors Insurance (OASI)
+  portion of Social Security — the retirement side — not the separate Disability Insurance
+  (DI) fund.
+- **Current status** — Per SSA.gov:
+   - "The Old-Age and Survivors Insurance (OASI) Trust Fund will be able to pay 100 percent
+     of total scheduled benefits until the fourth quarter of 2032, one quarter earlier than
+     projected last year. At that time, the fund's reserves will become depleted and
+     continuing program income will be sufficient to pay 78 percent of total scheduled
+     benefits."
+   - "The Disability Insurance (DI) Trust Fund is projected to be able to pay 100 percent of
+     total scheduled benefits through at least 2100, the last year of this report's
+     projection period."
+   - And on Medicare's own fund (Part A / Hospital Insurance): "The Hospital Insurance (HI)
+     Trust Fund will be able to pay 100 percent of total scheduled benefits until the second
+     quarter of 2033, one quarter earlier than projected last year. At that point, that
+     fund's reserves will become depleted and continuing program income will be sufficient
+     to pay 89 percent of total scheduled benefits."
+   - And on Medicare Part B / Part D (Supplementary Medical Insurance): "The Supplementary
+     Medical Insurance (SMI) Trust Fund is adequately financed into the indefinite future
+     because, unlike the other trust funds, its main financing sources — enrolled
+     beneficiary premiums and the associated federal contributions from the Treasury — are
+     automatically adjusted each year to cover costs for the upcoming year. Although the
+     financing is assured, rapidly rising SMI expenditures have been placing steadily
+     increasing demands on beneficiaries and general taxpayers."
+""",
+    ),
 ]
 
 _CSS = """
@@ -81,28 +142,8 @@ _CSS = """
 """
 
 
-def _gate() -> bool:
-    """Show the password prompt until unlocked. True once the page may render."""
-    if st.session_state.get("billing_unlocked"):
-        return True
-
-    st.caption("Password-protected reference.")
-    st.text_input("Password", type="password", key="billing_pw",
-                  placeholder="Password", label_visibility="collapsed")
-    if st.button("Unlock", key="billing_unlock"):
-        if st.session_state.get("billing_pw") == _BILLING_PASSWORD:
-            st.session_state["billing_unlocked"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect password.")
-    return False
-
-
 def render() -> None:
     st.title("🧾 Inpatient Billing")
-
-    if not _gate():
-        return
 
     st.caption("Reference only — payer policy changes; verify against current CMS guidance.")
     st.markdown(_CSS, unsafe_allow_html=True)
