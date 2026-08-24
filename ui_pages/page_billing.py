@@ -230,6 +230,12 @@ has its own detailed section.)
    - **Costs (2026)** — Standard premium \$202.90/month (higher earners pay IRMAA on top),
      a \$283 annual deductible, then 20% coinsurance on most services — with no out-of-pocket
      cap under Original Medicare.
+   - **Dialysis / ESRD** — Outpatient dialysis (in-center or home) is a Part B benefit, paid
+     under the ESRD bundled per-treatment rate — and ESRD is itself a Medicare pathway
+     regardless of age. But since Part B has no out-of-pocket cap, the patient owes 20% of
+     every treatment with no ceiling; on ongoing dialysis that runs to several thousand
+     dollars a year, so it isn't free. Supplemental coverage (Medigap, Medicaid, or a
+     Medicare Advantage out-of-pocket max) is what makes it affordable.
 """,
     ),
     (
