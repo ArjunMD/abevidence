@@ -185,10 +185,10 @@ _QA: list[tuple[str, str]] = [
 """,
     ),
     (
-        "The parts of Medicare (A, B, D)",
+        "The parts of Medicare (A, B)",
         r"""
-Original Medicare is Part A + Part B, run directly by the government; Part D is optional
-drug coverage from private plans.
+Original Medicare is Part A + Part B, run directly by the government. (Part D drug coverage
+has its own detailed section.)
 - **Part A — Hospital Insurance** — The inpatient side, funded by the payroll-tax HI trust
   fund.
    - **Covers** — Inpatient hospital stays, skilled nursing facility (SNF) care after a
@@ -230,20 +230,44 @@ drug coverage from private plans.
    - **Costs (2026)** — Standard premium \$202.90/month (higher earners pay IRMAA on top),
      a \$283 annual deductible, then 20% coinsurance on most services — with no out-of-pocket
      cap under Original Medicare.
-- **Part D — Prescription Drugs** — Optional outpatient drug coverage bought from private
-  plans; requires Part A and/or B first.
-   - **Covers** — Self-administered prescription drugs, via standalone plans or bundled into
-     a Medicare Advantage plan.
-   - **Costs (2026)** — Premiums vary by plan (national base around \$39/month), with IRMAA
-     surcharges for higher earners.
-   - **The "donut hole"** — Part D used to have a coverage gap: once a person's drug
-     spending passed a certain point, the plan stopped chipping in as much and the person had
-     to pay a big share out of pocket (at one time 100% of the cost, later 25%) until their
-     spending climbed high enough to trigger extra "catastrophic" help. That gap was
-     nicknamed the donut hole. It's now basically gone — since 2025 there's a firm yearly
-     out-of-pocket limit (\$2,000, rising a little each year). Once a person's own drug
-     spending reaches that limit, the plan pays 100% of covered drugs for the rest of the
-     year.
+""",
+    ),
+    (
+        "Medicare Part D (drug coverage) in detail",
+        r"""
+- **Public program, private plans** — This is the confusing part: Part D is a government
+  benefit, but Medicare doesn't sell drug coverage directly. Instead, Medicare defines the
+  rules, sets a minimum "standard" benefit and consumer protections, and pays a subsidy
+  covering roughly three-quarters of the cost — while private insurers design the actual
+  plans, set premiums and drug formularies, and run the coverage. So enrollees buy from and
+  pay a private company, yet the benefit, protections, and most of the funding are federal.
+  That public-rules / private-delivery split is why it's both "Medicare" and "private pay."
+- **How it's funded** — Through the SMI trust fund (the same one that covers Part B), not
+  the payroll tax. Three sources fill it each year: general federal revenue from the
+  Treasury covers roughly 73–75% (that's the subsidy), enrollee premiums cover about
+  15–25%, and states make "clawback" payments for dual-eligibles whose drug coverage moved
+  from Medicaid to Part D. Because the law automatically tops the fund up from the Treasury
+  to match projected costs, it can't run dry — but rising drug spending means an ever-larger
+  annual draw on general revenue.
+- **Two ways to get it** — Either a standalone Prescription Drug Plan (PDP) added onto
+  Original Medicare, or drug coverage bundled into a Medicare Advantage plan (MA-PD). Part A
+  and/or B is required first.
+- **How to enroll** — Pick a plan through Medicare's Plan Finder (medicare.gov), directly
+  with an insurer, or with a broker. Sign up during the Initial Enrollment Period, the
+  annual Open Enrollment window (Oct 15–Dec 7), or a Special Enrollment Period. Going
+  without creditable drug coverage triggers a permanent late penalty of about 1% of the
+  national base premium per month missed.
+- **What it costs (2026)** — Premiums average roughly \$35/month (national base \$38.99;
+  some \$0 plans exist; higher earners pay an IRMAA surcharge on top). A plan's deductible
+  can be at most \$615. After that, cost-sharing continues until out-of-pocket drug spending
+  reaches the \$2,100 annual cap — beyond which covered drugs cost \$0 for the rest of the
+  year.
+- **Help for low income** — The federal Extra Help / Low-Income Subsidy program sharply
+  reduces or eliminates Part D premiums, deductibles, and copays for those who qualify
+  financially.
+- **Spreading the cost** — The Medicare Prescription Payment Plan lets enrollees spread
+  their out-of-pocket drug costs over monthly installments across the year instead of paying
+  large amounts at the pharmacy counter.
 """,
     ),
 ]
