@@ -7,6 +7,9 @@ computes whatever the supplied values support and says what's missing:
   * BMP only (Na + Cl + HCO₃⁻, no gas) → anion gap, delta ratio, and the
     metabolic direction from the bicarbonate (respiratory component can't be
     assessed without a gas).
+  * Na + Cl alone → strong ion difference (Stewart view): chloride read
+    relative to sodium, which gives the acidifying/alkalinizing direction
+    even with no bicarbonate in hand.
   * Optional lactate, β-hydroxybutyrate, and glucose → "explain the gap":
     severity flags plus a quantitative check of whether the measured anions
     account for the gap excess (each mmol/L ≈ 1 of anion gap).
@@ -15,14 +18,35 @@ Formulas are the standard bedside ones: Winter's for metabolic acidosis, the
 expected-pCO₂ rule for metabolic alkalosis, the acute/chronic HCO₃⁻ rules for
 respiratory disorders, and the delta ratio for mixed metabolic pictures.
 
+The strong ion difference here is the bedside simplification Na⁺−Cl⁻, not a
+full Stewart calculation: potassium, calcium and magnesium are left out of the
+cation side, and the weak acids (albumin, phosphate) are handled separately by
+the albumin-corrected anion gap. It reads the direction and rough size of the
+chloride force, not an exact strong ion gap.
+
 Reference values: pH 7.40, pCO2 40 mmHg, HCO3 24 mmol/L, anion gap 12,
-lactate ≤2 mmol/L, β-hydroxybutyrate <0.6 mmol/L.
+SID (Na−Cl) 38-42, lactate ≤2 mmol/L, β-hydroxybutyrate <0.6 mmol/L.
 """
 
 NORMAL_HCO3 = 24.0
 NORMAL_AG = 12.0
 LACTATE_UPPER = 2.0   # upper normal lactate (mmol/L)
 BHB_UPPER = 0.6       # upper normal β-hydroxybutyrate (mmol/L)
+
+# Strong ion difference bands on the (Na⁺+K⁺)−Cl⁻ scale, normalised to a sodium
+# of 140. Below SID_LOW chloride is exerting an acidifying force; below
+# SID_MARKED_LOW it is large enough to call a hyperchloremic non-gap acidosis on
+# its own. Mirror-image thresholds apply on the alkalinizing side.
+#
+# The anchor is electroneutrality: Na⁺+K⁺ = Cl⁻ + HCO₃⁻ + anion gap, so a normal
+# SID is just a normal HCO₃⁻ plus a normal gap plus the potassium, 24+12+4 = 40.
+# Without a potassium the whole band shifts down by ASSUMED_K, which is why a
+# bare Na⁻Cl of 36 is normal while an (Na+K)−Cl of 36 is not.
+SID_LOW = 38.0
+SID_HIGH = 42.0
+SID_MARKED_LOW = 34.0
+SID_MARKED_HIGH = 46.0
+ASSUMED_K = 4.0
 
 # One-line differentials keyed by disorder. Kept short on purpose.
 _DIFFERENTIALS = {
@@ -60,7 +84,7 @@ def _standard_base_excess(pH: float, hco3: float) -> float:
 
 def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
               lactate=None, bhb=None, glucose=None, bun=None, creatinine=None,
-              osm=None) -> dict:
+              osm=None, k=None) -> dict:
     """Interpret whatever blood-gas / lab values are supplied (all optional).
     Returns {headline, steps, differential, warnings, summary} where summary is
     a compact one-line recap of the entered values (used to prime the optional
@@ -238,6 +262,7 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
     # --- anion gap (whenever Na, Cl, HCO₃⁻ are all present) --------------
     high_ag = False
     corrected = None
+    delta_ratio = None
     metabolic_acidosis_present = (
         (primary is not None and "metabolic acidosis" in primary)
         or metabolic_dir == "metabolic acidosis"
@@ -274,29 +299,37 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             high_ag = True
             denom = NORMAL_HCO3 - hco3
             if denom > 0.5:
-                ratio = (corrected - NORMAL_AG) / denom
+                delta_ratio = (corrected - NORMAL_AG) / denom
                 steps.append(
-                    f"Delta ratio = ({_fmt(corrected)}−12)/(24−{_fmt(hco3)}) = {ratio:.1f}."
+                    f"Delta ratio = ({_fmt(corrected)}−12)/(24−{_fmt(hco3)}) = {delta_ratio:.1f}."
                 )
-                if ratio < 1:
+                if delta_ratio < 1:
                     steps.append("→ mixed high-gap and non-gap metabolic acidosis.")
                     extras.append("concurrent non-gap metabolic acidosis")
                     diff_keys.append("nagma")
-                elif ratio <= 2:
+                elif delta_ratio <= 2:
                     steps.append("→ pure high anion gap metabolic acidosis.")
                 else:
-                    steps.append("→ concurrent metabolic alkalosis or chronic respiratory acidosis.")
+                    steps.append(
+                        "→ the gap has risen further than the HCO₃⁻ has fallen: the high "
+                        "anion gap acidosis is real, with a concurrent metabolic alkalosis "
+                        "(or chronic respiratory acidosis) propping the HCO₃⁻ up."
+                    )
                     extras.append("concurrent metabolic alkalosis")
                     diff_keys.append("met_alk")
             elif metabolic_alkalosis_present:
                 steps.append(
-                    "→ the elevated gap reveals a superimposed high anion gap "
-                    "metabolic acidosis."
+                    "→ an elevated gap with a HCO₃⁻ that is not low still means a high "
+                    "anion gap metabolic acidosis is present — superimposed on the "
+                    "metabolic alkalosis, which is holding the HCO₃⁻ up."
                 )
+                extras.append("metabolic alkalosis")
             else:
                 steps.append(
-                    "→ HCO₃⁻ not low despite the elevated gap: concurrent "
-                    "metabolic alkalosis (or chronic respiratory acidosis)."
+                    f"→ HCO₃⁻ {_fmt(hco3)} is not low, but the elevated gap still means a "
+                    "high anion gap metabolic acidosis is present: a second, alkalinizing "
+                    "process (metabolic alkalosis, or chronic respiratory acidosis) is "
+                    "masking it by keeping the HCO₃⁻ up."
                 )
                 extras.append("concurrent metabolic alkalosis")
                 diff_keys.append("met_alk")
@@ -382,6 +415,124 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             else:
                 steps.append(f"Creatinine {_fmt(creatinine)} — not significantly elevated; uremia unlikely to explain the gap.")
 
+    # --- chloride / strong ion difference (Stewart view) ------------------
+    # SID = Na⁺ − Cl⁻. Electroneutrality forces HCO₃⁻ to track it: chloride
+    # gained relative to sodium narrows the SID and drives HCO₃⁻ down (the
+    # force behind saline-induced hyperchloremic non-gap acidosis), chloride
+    # lost relative to sodium widens it and pulls HCO₃⁻ up (the chloride
+    # depletion of vomiting, NG suction and diuretics). Needs no bicarbonate,
+    # so it reads out on a sodium and chloride alone.
+    sid_core = None
+    if na is not None and cl is not None and na > 0:
+        if k is not None:
+            sid = na + k - cl
+            expr = f"(Na⁺+K⁺)−Cl⁻ = {_fmt(na)}+{_fmt(k)}−{_fmt(cl)}"
+            shift = 0.0
+        else:
+            sid = na - cl
+            expr = f"Na⁺−Cl⁻ = {_fmt(na)}−{_fmt(cl)}"
+            shift = -ASSUMED_K   # no potassium: whole band drops by a typical K⁺
+        low, high = SID_LOW + shift, SID_HIGH + shift
+        marked_low, marked_high = SID_MARKED_LOW + shift, SID_MARKED_HIGH + shift
+
+        sid_n = sid * 140.0 / na    # normalised to a sodium of 140
+        cl_corr = cl * 140.0 / na   # the "corrected chloride"
+        line = (f"Strong ion difference {expr} = {_fmt(sid)} "
+                f"(normal ≈ {_fmt(low)}–{_fmt(high)}{'' if k is not None else ', no K⁺ entered'})")
+        if abs(na - 140) >= 3:
+            line += (f"; corrected to Na 140 → SID {_fmt(sid_n)}, "
+                     f"chloride {_fmt(cl_corr)}.")
+        else:
+            line += "."
+        steps.append(line)
+
+        if sid_n < low:
+            marked = sid_n < marked_low
+            # the delta ratio splits the same acidosis a different way — don't name a
+            # second diagnosis it contradicts
+            if high_ag and delta_ratio is not None and delta_ratio >= 1:
+                marked = False
+            steps.append(
+                f"→ chloride is high relative to sodium (corrected Cl⁻ {_fmt(cl_corr)}): "
+                f"{'markedly ' if marked else ''}low SID, which forces HCO₃⁻ down — "
+                f"{'a hyperchloremic non-gap metabolic acidosis' if marked else 'a mild chloride-mediated acidifying force'}. "
+                "Sources: normal saline or other chloride-rich fluids, diarrhea, renal "
+                "tubular acidosis, TPN, acetazolamide."
+            )
+            if marked:
+                diff_keys.append("nagma")
+            if high_ag:
+                # the delta ratio measures the same split a different way; where the
+                # two disagree, defer to it rather than asserting both readings
+                if delta_ratio is not None and delta_ratio >= 1:
+                    steps.append(
+                        f"→ the delta ratio of {delta_ratio:.1f} still reads as a "
+                        "predominantly high-gap acidosis, so take the low SID as a minor "
+                        "hyperchloremic contribution rather than a second diagnosis."
+                    )
+                else:
+                    cross = ("→ alongside the elevated gap this is a mixed high-gap and "
+                             "hyperchloremic non-gap acidosis")
+                    if delta_ratio is not None:
+                        cross += f" — which is what the delta ratio of {delta_ratio:.1f} (<1) already showed."
+                    else:
+                        cross += "; the chloride is a second acid load on top of the unmeasured anions."
+                    steps.append(cross)
+                    if marked and "concurrent non-gap metabolic acidosis" not in extras:
+                        extras.append("hyperchloremic non-gap component")
+            elif metabolic_acidosis_present:
+                steps.append("→ with a normal gap, the chloride is the acidosis.")
+            elif marked and hco3 is not None and hco3 >= 22:
+                steps.append(
+                    "→ HCO₃⁻ is holding up despite the low SID: an alkalinizing process "
+                    "is offsetting the chloride load."
+                )
+            if marked and not metabolic_acidosis_present and not high_ag:
+                sid_core = "hyperchloremic (low SID) acidifying pattern"
+
+        elif sid_n > high:
+            marked = sid_n > marked_high
+            if high_ag and delta_ratio is not None and delta_ratio <= 2:
+                marked = False
+            steps.append(
+                f"→ chloride is low relative to sodium (corrected Cl⁻ {_fmt(cl_corr)}): "
+                f"{'markedly ' if marked else ''}high SID, which pulls HCO₃⁻ up — "
+                f"{'a chloride-depletion metabolic alkalosis' if marked else 'a mild chloride-depletion alkalinizing force'}. "
+                "Sources: vomiting or NG suction, loop and thiazide diuretics, "
+                "chloride-poor intake."
+            )
+            if marked:
+                diff_keys.append("met_alk")
+            if high_ag:
+                # a pure high-gap acidosis replaces HCO₃⁻ with unmeasured anion and
+                # leaves the SID untouched, so a raised SID here is a second process
+                if delta_ratio is not None and delta_ratio <= 2:
+                    steps.append(
+                        f"→ the delta ratio of {delta_ratio:.1f} still reads as a "
+                        "predominantly high-gap acidosis, so take the raised SID as a "
+                        "minor chloride-depletion contribution rather than a second "
+                        "diagnosis."
+                    )
+                else:
+                    cross = ("→ a pure high-gap acidosis would leave the SID unchanged, so "
+                             "the raised SID is a separate chloride-depletion force holding "
+                             "the HCO₃⁻ up and masking part of the acidosis")
+                    if delta_ratio is not None:
+                        cross += f" — consistent with the delta ratio of {delta_ratio:.1f} (>2)."
+                    else:
+                        cross += "."
+                    steps.append(cross)
+                    if (marked and not metabolic_alkalosis_present
+                            and "concurrent metabolic alkalosis" not in extras):
+                        extras.append("concurrent metabolic alkalosis")
+            if marked and not metabolic_alkalosis_present and not high_ag:
+                sid_core = "chloride-depletion (high SID) alkalinizing pattern"
+        else:
+            steps.append(
+                "→ SID normal: chloride is not exerting a meaningful acidifying or "
+                "alkalinizing force here."
+            )
+
     # --- osmolar gap (toxic-alcohol screen) ------------------------------
     if osm is not None:
         if na is not None and glucose is not None and bun is not None:
@@ -411,10 +562,17 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
         core = primary
         if high_ag and "metabolic acidosis" in (primary or "") and "high anion gap" not in primary:
             core = primary.replace("metabolic acidosis", "high anion gap metabolic acidosis", 1)
+        elif high_ag and primary == "normal acid-base status":
+            # an elevated gap is a metabolic acidosis whatever the pH says
+            core = "mixed disorder: high anion gap metabolic acidosis with a normal pH"
     elif high_ag:
         core = "high anion gap metabolic acidosis (from BMP; no gas)"
     elif metabolic_dir:
         core = metabolic_dir + " (gas needed to confirm)"
+    elif sid_core:
+        core = sid_core
+        if hco3 is None:
+            core += " (bicarbonate needed to confirm)"
     elif hco3 is not None:
         core = "no metabolic derangement on these values (gas needed for respiratory assessment)"
     else:
@@ -429,23 +587,40 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             )
     else:
         headline = core[0].upper() + core[1:]
-        uniq_extras = [e for e in dict.fromkeys(extras) if e not in core]
+        # "superimposed X" and "concurrent X" are the same claim about the same
+        # disorder — keep whichever was found first, drop the rest
+        cands = []
+        for e in dict.fromkeys(extras):
+            base = e.replace("superimposed ", "").replace("concurrent ", "")
+            if e not in core and base not in core:
+                cands.append((e, base))
+        uniq_extras = []
+        named: set[str] = set()
+        for e, base in cands:
+            # a bare "metabolic acidosis" adds nothing once a specific type of it
+            # (high anion gap, non-gap) is already named
+            if any(o != base and o.endswith(base) for _, o in cands):
+                continue
+            if base in named:
+                continue
+            named.add(base)
+            uniq_extras.append(e)
         if uniq_extras:
             headline += " + " + " + ".join(uniq_extras)
 
     # de-duplicate differential keys, preserving order
     seen: set[str] = set()
     differential = []
-    for k in diff_keys:
-        if k not in seen:
-            seen.add(k)
-            differential.append(_DIFFERENTIALS[k])
+    for key in diff_keys:
+        if key not in seen:
+            seen.add(key)
+            differential.append(_DIFFERENTIALS[key])
 
     # compact recap of entered values, for the optional AI layer
     parts = []
     for label, val, unit in [
         ("pH", pH, ""), ("pCO₂", pco2, " mmHg"), ("HCO₃⁻", hco3, " mmol/L"),
-        ("Na", na, ""), ("Cl", cl, ""), ("albumin", albumin, " g/dL"),
+        ("Na", na, ""), ("K", k, ""), ("Cl", cl, ""), ("albumin", albumin, " g/dL"),
         ("lactate", lactate, " mmol/L"), ("BHB", bhb, " mmol/L"),
         ("glucose", glucose, " mg/dL"), ("BUN", bun, " mg/dL"),
         ("creatinine", creatinine, " mg/dL"), ("osmolality", osm, " mOsm/kg"),
@@ -454,6 +629,11 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             parts.append(f"{label} {_fmt(val)}{unit}")
     if corrected is not None:
         parts.append(f"anion gap {_fmt(corrected)}")
+    if na is not None and cl is not None:
+        if k is not None:
+            parts.append(f"SID (Na+K−Cl) {_fmt(na + k - cl)}")
+        else:
+            parts.append(f"SID (Na−Cl) {_fmt(na - cl)}")
     summary = ", ".join(parts)
 
     return {

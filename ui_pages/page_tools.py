@@ -22,18 +22,21 @@ def _render_acid_base() -> None:
 
     c4, c5, c6 = st.columns(3)
     na = _num(c4, "Na⁺", "tools_ab_na", 1.0)
-    cl = _num(c5, "Cl⁻", "tools_ab_cl", 1.0)
-    alb = _num(c6, "Albumin g/dL", "tools_ab_alb", 0.1, "%.1f")
+    k = _num(c5, "K⁺", "tools_ab_k", 0.1, "%.1f")
+    cl = _num(c6, "Cl⁻", "tools_ab_cl", 1.0)
 
     c7, c8, c9 = st.columns(3)
-    lactate = _num(c7, "Lactate mmol/L", "tools_ab_lac", 0.1, "%.1f")
-    bhb = _num(c8, "β-hydroxybutyrate mmol/L", "tools_ab_bhb", 0.1, "%.1f")
-    glucose = _num(c9, "Glucose mg/dL", "tools_ab_glu", 1.0)
+    alb = _num(c7, "Albumin g/dL", "tools_ab_alb", 0.1, "%.1f")
+    lactate = _num(c8, "Lactate mmol/L", "tools_ab_lac", 0.1, "%.1f")
+    bhb = _num(c9, "β-hydroxybutyrate mmol/L", "tools_ab_bhb", 0.1, "%.1f")
 
     c10, c11, c12 = st.columns(3)
-    bun = _num(c10, "BUN mg/dL", "tools_ab_bun", 1.0)
-    creat = _num(c11, "Creatinine mg/dL", "tools_ab_cr", 0.1, "%.1f")
-    osm = _num(c12, "Measured osmolality mOsm/kg", "tools_ab_osm", 1.0)
+    glucose = _num(c10, "Glucose mg/dL", "tools_ab_glu", 1.0)
+    bun = _num(c11, "BUN mg/dL", "tools_ab_bun", 1.0)
+    creat = _num(c12, "Creatinine mg/dL", "tools_ab_cr", 0.1, "%.1f")
+
+    c13, _, _ = st.columns(3)
+    osm = _num(c13, "Measured osmolality mOsm/kg", "tools_ab_osm", 1.0)
 
     context = st.text_input(
         "Clinical context (optional — adds an AI interpretation)",
@@ -43,7 +46,7 @@ def _render_acid_base() -> None:
     )
 
     if st.button("Interpret", type="primary", key="tools_ab_go"):
-        anything = any(v is not None for v in (ph, pco2, hco3, na, cl, alb,
+        anything = any(v is not None for v in (ph, pco2, hco3, na, cl, k, alb,
                                                lactate, bhb, glucose, bun, creat, osm))
         if not anything and not context.strip():
             st.warning("Enter at least a bicarbonate (or a clinical context).")
@@ -51,7 +54,8 @@ def _render_acid_base() -> None:
             st.session_state.pop("tools_ab_ai", None)
         else:
             result = interpret_acid_base(ph, pco2, hco3, na, cl, alb,
-                                         lactate, bhb, glucose, bun, creat, osm)
+                                         lactate, bhb, glucose, bun, creat, osm,
+                                         k=k)
             st.session_state["tools_ab_result"] = result
             st.session_state.pop("tools_ab_ai", None)
             if context.strip():
