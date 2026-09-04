@@ -597,6 +597,85 @@ def _render_apri() -> None:
     )
 
 
+# R factor = (ALT / ALT ULN) / (ALP / ALP ULN). Classifies the pattern of liver
+# injury (Hy's law / RUCAM convention, adopted in the ACG DILI guideline). ULNs
+# default to Arjun's lab (ALT 65, ALP 116) but stay editable inputs since the
+# ratio is built on the reporting lab's own limits.
+_R_DEFAULT_ALT_ULN = 65.0
+_R_DEFAULT_ALP_ULN = 116.0
+# ≥5 hepatocellular, ≤2 cholestatic, in between mixed.
+_R_HEPATOCELLULAR = 5.0
+_R_CHOLESTATIC = 2.0
+
+
+def _render_r_factor() -> None:
+    st.subheader("R factor (pattern of liver injury)")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2 = st.columns(2)
+    alt = _num(c1, "ALT (U/L)", "tools_rf_alt", 1.0)
+    alt_uln = _num(c2, f"ALT upper limit of normal (default {_R_DEFAULT_ALT_ULN:.0f})",
+                   "tools_rf_alt_uln", 1.0)
+
+    c3, c4 = st.columns(2)
+    alp = _num(c3, "ALP (U/L)", "tools_rf_alp", 1.0)
+    alp_uln = _num(c4, f"ALP upper limit of normal (default {_R_DEFAULT_ALP_ULN:.0f})",
+                   "tools_rf_alp_uln", 1.0)
+
+    if st.button("Compute", type="primary", key="tools_rf_go"):
+        if alt is None or alp is None:
+            st.warning("Enter both the ALT and the ALP.")
+            st.session_state.pop("tools_rf_result", None)
+        elif alt <= 0 or alp <= 0 or (alt_uln is not None and alt_uln <= 0) \
+                or (alp_uln is not None and alp_uln <= 0):
+            st.warning("ALT, ALP, and the upper limits of normal must be positive.")
+            st.session_state.pop("tools_rf_result", None)
+        else:
+            alt_limit = _R_DEFAULT_ALT_ULN if alt_uln is None else alt_uln
+            alp_limit = _R_DEFAULT_ALP_ULN if alp_uln is None else alp_uln
+            st.session_state["tools_rf_result"] = {
+                "alt": alt, "alt_uln": alt_limit, "alp": alp, "alp_uln": alp_limit,
+                "r": (alt / alt_limit) / (alp / alp_limit),
+            }
+
+    result = st.session_state.get("tools_rf_result")
+    if not result:
+        return
+
+    r = result["r"]
+    st.markdown(f"**R = {r:.1f}**")
+    st.markdown(
+        f"- ({result['alt']:.0f} / {result['alt_uln']:.0f}) ÷ "
+        f"({result['alp']:.0f} / {result['alp_uln']:.0f}) = **{r:.1f}**"
+    )
+
+    if r >= _R_HEPATOCELLULAR:
+        st.error(
+            f"≥{_R_HEPATOCELLULAR:.0f} — hepatocellular pattern. If the bilirubin is also "
+            "≥2× ULN without significant cholestasis, that is Hy's law territory "
+            "(~10% mortality in drug-induced cases)."
+        )
+    elif r <= _R_CHOLESTATIC:
+        st.warning(
+            f"≤{_R_CHOLESTATIC:.0f} — cholestatic pattern. Image the biliary tree before "
+            "pinning it on a drug; obstruction and infiltration produce the same ratio."
+        )
+    else:
+        st.info(
+            f"Between {_R_CHOLESTATIC:.0f} and {_R_HEPATOCELLULAR:.0f} — mixed pattern."
+        )
+
+    st.caption(
+        "Compute R from the first labs at presentation — the pattern drifts cholestatic as "
+        "the injury evolves. It classifies the injury pattern (and steers the differential "
+        "and workup); it is not a severity score."
+    )
+
+
 # Retic % is corrected for the degree of anemia against a normal hematocrit, then
 # divided by a maturation factor: the more anemic the marrow, the earlier retics
 # are released and the longer they persist in blood, which otherwise inflates the
@@ -845,6 +924,8 @@ def render() -> None:
     _render_corrected_sodium()
     st.divider()
     _render_apri()
+    st.divider()
+    _render_r_factor()
     st.divider()
     _render_retic_index()
     st.divider()
