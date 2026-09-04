@@ -83,13 +83,11 @@ def _render_problems(problems: list[dict]) -> None:
             plan = [plan]
         plan = [str(x).strip() for x in plan if str(x).strip()]
 
-        if i == 1:
-            # Admitting diagnosis: narrative lead, then the plan as bullets.
-            lines = ([lead] if lead else [])
-            lines += [f"- {item}" for item in plan]
-        else:
-            # Everything else is actions only — the problem name is the description.
-            lines = [f"- {item}" for item in plan]
+        # Narrative lead (presentation for problem 1; attribution and optional
+        # differential for later problems), then the plan as bullets. A lead can
+        # span multiple lines — trailing double-space keeps them as hard breaks.
+        lines = [f"{ln.strip()}  " for ln in lead.splitlines() if ln.strip()]
+        lines += [f"- {item}" for item in plan]
 
         if lines:
             st.markdown("\n".join(lines))
