@@ -482,6 +482,74 @@ has its own detailed section.)
 """,
     ),
     (
+        "Washington Medicaid (Apple Health) — the managed care plans",
+        r"""
+- **One liner** — Washington's Medicaid program is called **Apple Health**, run by the
+  state Health Care Authority (HCA). Most enrollees don't deal with the state directly —
+  they're assigned to one of five private **managed care organizations (MCOs)** that the
+  state pays a monthly capitation rate to cover each member.
+- **The five MCOs (2026)** — All five run "Integrated Managed Care," meaning physical and
+  behavioral health under one plan:
+   - **Molina Healthcare of Washington** — The largest Apple Health plan by enrollment;
+     the name most often seen on inpatient face sheets. Molina is a national Medicaid-focused
+     insurer that was actually *founded on Medicaid* (started by an ER physician, C. David
+     Molina, as clinics for underserved patients), and Washington is one of its biggest
+     markets.
+   - **Community Health Plan of Washington (CHPW)** — The only local, nonprofit option:
+     founded and still owned by Washington's community health centers, so its network is
+     anchored in the state's FQHCs. The only one of the five that operates *nowhere but
+     Washington*.
+   - **Coordinated Care** — Centene's Washington subsidiary (Centene is the largest
+     Medicaid insurer nationally). Its distinctive role: it holds the single statewide
+     contract for **foster care** — every child in foster care and adoption support is in
+     its Apple Health Core Connections plan, regardless of county.
+   - **UnitedHealthcare Community Plan** — UnitedHealth's Medicaid arm; the smallest
+     footprint feel of the national carriers here, but backed by the biggest parent
+     company.
+   - **Wellpoint Washington** — Elevance's (formerly Anthem's) Medicaid arm; this is the
+     plan formerly named **Amerigroup** (rebranded January 2024), so older records and
+     older patients may show/say either name.
+- **Same core benefit, different payer** — The covered benefit package is set by the state
+  and is essentially identical across the five; drug coverage even uses a single statewide
+  Apple Health Preferred Drug List. Where they genuinely differ:
+   - **Service area** — Not every plan operates in every county; rural counties may have
+     only two or three of the five. Molina and Coordinated Care have the broadest
+     statewide spread.
+   - **Network** — CHPW skews toward community health centers; the national plans rent
+     broader commercial-style networks. Same hospital, different contracted rates and
+     prior-auth portals.
+   - **Quality scores** — HCA publishes an annual plan "report card" (access to care,
+     child health, chronic disease management, member satisfaction) comparing the five;
+     all must hold NCQA accreditation. Rankings shuffle year to year — no plan dominates.
+   - **Extras ("value-added benefits")** — The most visible member-facing differences,
+     from HCA's 2026 comparison chart: **Molina** gives a free Costco Gold membership and
+     free eyeglasses for adults; **UnitedHealthcare** offers a free phone with 10 GB data
+     and a Walmart+ discount, plus $50 ORCA/gas/ferry cards for medical transportation;
+     **Coordinated Care** covers 20 combined acupuncture/chiropractic/massage visits per
+     year with no referral, plus Boys & Girls Club memberships; **CHPW** funds a Diabetes
+     Prevention Program with free YMCA membership and $150 in gift cards for completing
+     prenatal/postpartum visits; **Wellpoint** offers a Weight Watchers voucher, swim
+     lessons, free newborn diapers up to 12 months, and traditional healing benefits
+     (sweat lodge, smudging) for American Indian/Alaska Native members. All five pay up
+     to $200/year in preventive-care rewards and offer some flavor of Amazon Prime
+     discount and post-hospital meal delivery — the extras converge more than they
+     diverge.
+- **Fee-for-service still exists** — A minority of enrollees have "coverage without a
+  managed care plan" (classic fee-for-service paid directly by HCA) — mainly American
+  Indian/Alaska Native members who opt out, some dual-eligibles, and certain limited
+  programs. Those claims go to the state, not an MCO.
+- **Why it matters for inpatient billing** — The MCO, not the state, is the payer:
+  authorization for the admission, concurrent review, status downgrades, and the claim
+  itself all run through the member's plan under its hospital contract. Medicare rules like
+  the Two-Midnight presumption don't apply — each MCO applies its own utilization criteria.
+  Always check *which* Apple Health plan the patient carries; "Medicaid" alone doesn't say
+  where the claim goes.
+- **Duals note** — For patients with Medicare + Apple Health, Medicare is primary for the
+  inpatient stay and Medicaid (or the MCO) picks up cost-sharing secondarily — the
+  admission is adjudicated under Medicare rules, not the MCO's.
+""",
+    ),
+    (
         "Physician (professional) services — inpatient",
         r"""
 - **Always Part B — even for an inpatient** — This trips people up: during an inpatient

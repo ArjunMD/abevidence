@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 # ---- imports from db layer (must exist in db.py) ----
 from db import (
     get_guideline_meta,
+    list_paper_titles,
     set_guideline_acronyms,
     set_guideline_rec_labels,
     update_guideline_metadata,
@@ -3515,29 +3516,30 @@ def acid_base_ai_interpretation(context: str, values_summary: str) -> dict:
     return {"summary": summary, "differential": differential}
 
 
-# ---------------- Tools: HPI → assessment and plan ----------------
+# ---------------- Tools: A&P review ----------------
 
-def _join_csv(value) -> str:
-    """Normalize a model field that should be one comma-separated line but may
-    come back as a list."""
+
+def _str_list(value) -> list[str]:
+    """Normalize a model field that should be a list of strings but may come
+    back as one string (or garbage)."""
     if isinstance(value, (list, tuple)):
-        return ", ".join(str(x).strip() for x in value if str(x).strip())
-    return str(value or "").strip()
+        return [str(x).strip() for x in value if str(x).strip()]
+    s = str(value or "").strip()
+    return [s] if s else []
 
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
-def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
-    """Draft a problem-based assessment and plan from a DEIDENTIFIED HPI written
-    in prose (including notable vitals, exam, labs, imaging). `considerations` is
-    optional free text — specific elements, differentials, or thoughts the
-    clinician wants the model to be sure to address. Returns
-    {"problems": [{"problem", "lead", "plan": [...], "discussion"}],
-    "hospitalization_reason": str}. 'discussion' stays attached to its problem
-    but the UI pools them into one section at the end.
-    Cached for a day so re-running the same inputs doesn't re-bill."""
-    hpi = (hpi or "").strip()
-    considerations = (considerations or "").strip()
-    if not hpi:
+def review_assessment_and_plan(note: str) -> dict:
+    """Review the clinician's OWN assessment and plan. `note` is a full
+    DEIDENTIFIED note — HPI, vitals, exam, labs, imaging, meds — including the
+    clinician's self-written, clearly labeled assessment and plan. Returns
+    {"main_problem": {"problem", "comments": [...], "revised"},
+     "other_problems": [{"problem", "suggestions": [...]}],
+     "missed_problems": [{"problem", "why"}],
+     "other_thoughts": [...]}.
+    Cached for a day so re-running the same note doesn't re-bill."""
+    note = (note or "").strip()
+    if not note:
         return {}
 
     key = _openai_api_key()
@@ -3545,95 +3547,65 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
         raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
 
     instructions = (
-        "You are an experienced hospital-medicine attending. Given a deidentified HPI "
-        "written in prose (including notable vital signs, exam, labs, and imaging), "
-        "produce a thoughtful, problem-based assessment and plan.\n"
-        "The reader is a physician or other healthcare staff — write in clipped clinical "
-        "shorthand, not full sentences, and never explain basic medicine.\n"
+        "You are an experienced hospital-medicine attending giving a colleague a "
+        "peer review of their note. The note is deidentified and contains the "
+        "physician's own assessment and plan (A&P), clearly labeled. Your job is to "
+        "review THEIR A&P — not to write your own from scratch. The reader is a "
+        "physician — clipped clinical shorthand, never explain basic medicine, no "
+        "praise, no hedging, no safety boilerplate.\n"
+        "Return four sections:\n"
+        "1. 'main_problem' — the FIRST problem in their A&P is the main problem.\n"
+        "   * 'problem': their heading for it, verbatim.\n"
+        "   * 'comments': what they may have missed on this problem, particularly "
+        "from a discussion and plan standpoint — a differential still in play, a "
+        "can't-miss entity to exclude, risk stratification, missing workup, "
+        "treatment gaps, monitoring, contingencies, anticipated complications. One "
+        "clipped sentence each, only points that would actually change the note or "
+        "the care. Empty list if the problem is handled well.\n"
+        "   * 'revised': your version of their write-up for this problem, staying AS "
+        "CLOSE TO THEIR TEXT AS POSSIBLE — same structure, line breaks, bullet "
+        "style, voice, and abbreviations — with your edits folded in. This is an "
+        "edit of their text, not a rewrite; keep every line you have no reason to "
+        "touch verbatim. Plain text, ready to paste back into the note.\n"
+        "2. 'other_problems' — every REMAINING problem in their A&P, in their "
+        "order: 'problem' (their heading, verbatim) and 'suggestions' — additions "
+        "worth making to that plan, each a few words of clipped shorthand (drugs "
+        "with dose/route/frequency where relevant). Empty 'suggestions' means "
+        "nothing to add; include the problem anyway so the review shows it was "
+        "considered.\n"
+        "3. 'missed_problems' — problems supported by the note's data (vitals, "
+        "exam, labs, imaging, meds, history) that the A&P does not address at all: "
+        "an unaddressed lab abnormality, an incidental imaging finding needing "
+        "follow-up, an unreconciled home med, missing prophylaxis or a dispo "
+        "issue. For each: 'problem' (short name) and 'why' — one clipped sentence "
+        "naming the datum in the note that raises it and what to do about it. Only "
+        "abnormalities genuinely worth a line in the A&P; empty list if nothing "
+        "was missed.\n"
+        "4. 'other_thoughts' — anything else worth knowing or thinking about to "
+        "make the plan better: overall framing of the case, severity scores, "
+        "disposition, documentation specificity, a pivotal datum missing from the "
+        "note itself. Short items; empty list if nothing.\n"
+        "5. 'hospitalization_reason' — the note ends with a blank 'Reason care "
+        "requires hospitalization:' line; fill it in. Name the inpatient-level "
+        "services this patient needs that cannot be delivered outpatient — the "
+        "billing/utilization-review justification for the stay. One short "
+        "comma-separated line of the actual interventions or monitoring (e.g. 'IV "
+        "diuretics', 'IV antibiotics, supplemental O2', 'telemetry monitoring for "
+        "arrhythmia'). Multiple reasons are fine. No diagnoses, no restating the "
+        "assessment, no full sentence — services only.\n"
         "Rules:\n"
-        "- 'problems': a prioritized list. Problem 1 is the admitting diagnosis; the rest "
-        "follow, most acute/important first. For each:\n"
-        "   * 'problem': the problem name written verbatim as an ICD-10-CM diagnosis "
-        "description — the exact wording of a real code's title, the kind a clinician can "
-        "search and select in Epic's problem list (e.g. 'Acute respiratory failure with "
-        "hypoxia', 'Sepsis, unspecified organism', 'Acute kidney failure, unspecified', "
-        "'Non-ST elevation (NSTEMI) myocardial infarction', 'Hyponatremia'). Include the "
-        "ICD-10 qualifiers (acute/chronic, with/without, laterality, 'unspecified') that "
-        "the real code title carries. Never use colloquial, abbreviated, or free-text "
-        "phrasing ('AKI on CKD', 'hypoxia', 'sepsis - likely pulmonary source'), and never "
-        "append your own commentary to the title. Do NOT include the numeric code.\n"
-        "   * 'lead': the short narrative that opens the plan, before the action items.\n"
-        "       - For problem 1 (the admitting diagnosis): begin with the exact words "
-        "'Patient presented with' — never 'Presented with' — then give the salient HPI: "
-        "the presenting symptoms with their tempo and character, the pertinent positives, "
-        "and the vitals, exam, lab, and imaging findings that establish the diagnosis. "
-        "Write it as two or three short natural sentences — the symptoms and their course "
-        "first, the objective findings after — never one overloaded sentence with the whole "
-        "presentation strung together on commas. Positive findings only — do NOT recite "
-        "pertinent negatives or absent symptoms ('without orthopnea', 'no leg swelling', "
-        "'denies fever'). No plan content. (e.g. 'Patient presented with three days of "
-        "fever, productive cough, and pleuritic chest pain. Febrile, tachypneic, and "
-        "hypoxic on arrival, with rales at the right base. Labs showed leukocytosis, and "
-        "CXR a RLL infiltrate.')\n"
-        "       - For each later problem: if it is a consequence of the admitting diagnosis "
-        "or of a problem listed above it, open with one short sentence 'Due to ...' naming "
-        "that problem (e.g. 'Due to sepsis.', 'Due to the diuresis for acute heart "
-        "failure.'). If the cause or diagnosis is genuinely uncertain and a differential "
-        "is in play, state it briefly on the NEXT line — a newline after the attribution "
-        "sentence (e.g. 'Due to sepsis.\\nPre-renal vs ATN; urine studies pending.'). "
-        "A differential line may also stand alone when there is no attribution. If the "
-        "problem is independent and carries no differential worth naming, leave 'lead' "
-        "empty — the diagnosis name plus the actions is enough. Never restate the "
-        "diagnosis or pad with filler.\n"
-        "   * 'plan': the action items — orders, drugs with dose/route/frequency, "
-        "monitoring, consults, disposition — as a list of strings, each a few words in "
-        "clipped shorthand (e.g. ['CTX 1g IV q24h + azithro 500mg IV q24h', 'blood cx x2', "
-        "'O2 to keep SpO2 >92%', 'ID if no defervescence by 48h']). Assume the reader knows "
-        "why: no rationale, no patient education, no hedging.\n"
-        "       - Problem 1: a handful of concise items, most important first.\n"
-        "       - Later problems: keep it to ONE item — a single comma-separated string of "
-        "the actions, starting directly with the first action and no preamble. Only split "
-        "into a second item if the problem genuinely carries two unrelated actions.\n"
-        "   * 'discussion': OPTIONAL. Omit it (empty string) unless there is something "
-        "worth saying. When there is — alternative diagnoses still in play, a can't-miss "
-        "entity to exclude, an anticipated complication, a pivotal datum that is missing — "
-        "give it as one or two sentences of prose. This is the one field where you may "
-        "reason rather than list. Use it mostly on problem 1; a later problem's brief "
-        "differential belongs on its 'lead' second line, so reserve 'discussion' for "
-        "reasoning that genuinely needs a sentence or two more.\n"
-        "       - These are NOT shown with the problem: every 'discussion' is pulled out and "
-        "collected into a single section at the end, read after the plans. So it must stand "
-        "on its own — name the entity or question it is about, and never rely on the reader "
-        "having just read that problem's lead or plan. Nothing load-bearing goes here; the "
-        "'lead' and 'plan' must be complete and actionable without it.\n"
-        "- Numbers: describe findings qualitatively — 'leukocytosis', 'hyponatremia', "
-        "'transaminitis', 'AKI' — rather than reciting values. Give an actual number or "
-        "magnitude ONLY when it changes management or the degree is the point (e.g. "
-        "'profound leukocytosis', 'transaminases in the hundreds', 'K 6.8', 'lactate 6'). "
-        "Never list a string of normal or unremarkable values.\n"
-        "- Reason only from the information provided; if a pivotal datum is missing, note it "
-        "briefly in 'discussion' rather than inventing it.\n"
-        "- Be specific and clinically useful; avoid generic boilerplate. Concision and easy "
-        "readability matter more than completeness — every line should earn its place.\n"
-        "- If the clinician supplies additional considerations (specific elements, "
-        "differentials, or thoughts), explicitly address each one in the relevant problem — "
-        "adding a problem if needed. Weigh them, and if one is unlikely, say briefly why in "
-        "'discussion' rather than silently dropping it.\n"
-        "- 'hospitalization_reason': the inpatient-level services this patient needs that "
-        "cannot be delivered outpatient — the billing/utilization-review justification for "
-        "the stay. One short comma-separated line naming the actual interventions or "
-        "monitoring (e.g. 'IV diuretics', 'IV antibiotics, supplemental O2', 'IV heparin "
-        "with serial troponins', 'telemetry monitoring for arrhythmia', 'IV fluids and "
-        "electrolyte repletion with q6h labs'). Multiple reasons are fine. No diagnoses, "
-        "no restating the assessment, no full sentence — services only.\n"
-        'Return ONLY JSON: {"problems": [{"problem": "...", '
-        '"lead": "...", "plan": ["...", "..."], "discussion": "..."}], '
+        "- Reason only from the note; if a pivotal datum is missing, say so rather "
+        "than inventing it.\n"
+        "- Every item must earn its place — a short, high-yield review beats an "
+        "exhaustive one. Never pad a section to look thorough.\n"
+        "- Never flag something as missed that their A&P already covers, even "
+        "under a different name or grouped into another problem.\n"
+        'Return ONLY JSON: {"main_problem": {"problem": "...", "comments": '
+        '["...", ...], "revised": "..."}, "other_problems": [{"problem": "...", '
+        '"suggestions": ["...", ...]}], "missed_problems": [{"problem": "...", '
+        '"why": "..."}], "other_thoughts": ["...", ...], '
         '"hospitalization_reason": "..."}'
     )
-    user_input = f"Deidentified HPI:\n{hpi}\n\n"
-    if considerations:
-        user_input += f"Clinician's considerations to address:\n{considerations}\n\n"
-    user_input += "JSON:"
     # The one call in the app that gets the strongest model at its top reasoning
     # effort — clinical reasoning is what this tool sells, and it runs once per
     # case. 'xhigh' is the highest effort gpt-5.5 accepts ('max' is rejected).
@@ -3642,7 +3614,10 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     payload = {
         "model": _openai_model_reasoning(),
         "instructions": instructions,
-        "input": user_input,
+        "input": (
+            "Deidentified note (the physician's own A&P is inside, labeled):\n"
+            f"{note}\n\nJSON:"
+        ),
         "reasoning": {"effort": "xhigh"},
         "text": {"verbosity": "medium"},
         "max_output_tokens": 32000,
@@ -3658,28 +3633,111 @@ def assessment_and_plan(hpi: str, considerations: str = "") -> dict:
     if not isinstance(data, dict):
         return {}
 
-    problems: list[dict] = []
-    for p in data.get("problems") or []:
+    main_raw = data.get("main_problem")
+    main = main_raw if isinstance(main_raw, dict) else {}
+
+    other_problems: list[dict] = []
+    for p in data.get("other_problems") or []:
         if not isinstance(p, dict):
             continue
         name = str(p.get("problem") or "").strip()
         if not name:
             continue
-        # 'plan' is a list of bullets, but the model sometimes hands back one
-        # comma-separated string instead — keep that as a single bullet.
-        raw_plan = p.get("plan")
-        if isinstance(raw_plan, (list, tuple)):
-            plan = [str(x).strip() for x in raw_plan if str(x).strip()]
-        else:
-            plan = [s for s in [str(raw_plan or "").strip()] if s]
-        problems.append({
-            "problem": name,
-            "lead": _join_csv(p.get("lead")),
-            "plan": plan,
-            "discussion": str(p.get("discussion") or "").strip(),
-        })
+        other_problems.append({"problem": name, "suggestions": _str_list(p.get("suggestions"))})
+
+    missed_problems: list[dict] = []
+    for p in data.get("missed_problems") or []:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("problem") or "").strip()
+        if not name:
+            continue
+        missed_problems.append({"problem": name, "why": str(p.get("why") or "").strip()})
+
     return {
-        "problems": problems,
+        "main_problem": {
+            "problem": str(main.get("problem") or "").strip(),
+            "comments": _str_list(main.get("comments")),
+            "revised": str(main.get("revised") or "").strip(),
+        },
+        "other_problems": other_problems,
+        "missed_problems": missed_problems,
+        "other_thoughts": _str_list(data.get("other_thoughts")),
         # Comes back as a line, but the model sometimes lists the reasons.
-        "hospitalization_reason": _join_csv(data.get("hospitalization_reason")),
+        "hospitalization_reason": ", ".join(_str_list(data.get("hospitalization_reason"))),
     }
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def related_saved_papers(note: str) -> list[dict]:
+    """Match the admission against the personal library of saved abstracts.
+    One cheap, fast call: the model sees the note plus every saved paper's
+    pmid/year/journal/title line and picks the few genuinely relevant to a
+    management decision in this admission. Returns
+    [{"pmid", "title", "year", "journal", "why"}] — often empty, by design.
+    Deliberately NOT the reasoning model: this runs after the main review and
+    must not become the bottleneck (the page shows its elapsed seconds).
+    Cached for a day so re-running the same note doesn't re-bill."""
+    note = (note or "").strip()
+    if not note:
+        return []
+
+    papers = list_paper_titles()
+    if not papers:
+        return []
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    by_pmid = {p["pmid"]: p for p in papers if p["pmid"]}
+    library = "\n".join(
+        f"{p['pmid']} | {p['year']} | {p['journal']} | {p['title']}"
+        for p in papers if p["pmid"] and p["title"]
+    )
+
+    instructions = (
+        "You match a hospital admission to a physician's personal library of saved "
+        "journal articles. You get a deidentified admission note and the library as "
+        "'pmid | year | journal | title' lines.\n"
+        "Pick ONLY papers relevant to a management decision in THIS admission — "
+        "evidence the clinician would actually cite on rounds for this patient. "
+        "Topical overlap alone is not enough. Up to 8, most relevant first; "
+        "usually 0-4, and returning none is a perfectly good answer — never "
+        "stretch.\n"
+        "For each: 'pmid' copied verbatim from the library line, and 'why' — at "
+        "most 12 words tying the paper to this specific case.\n"
+        'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": f"Deidentified note:\n{note}\n\nLibrary:\n{library}\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 4000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return []
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for p in data.get("papers") or []:
+        if not isinstance(p, dict):
+            continue
+        pmid = str(p.get("pmid") or "").strip()
+        # Hallucinated or repeated pmids are dropped — only real library rows show.
+        if pmid not in by_pmid or pmid in seen:
+            continue
+        seen.add(pmid)
+        rec = by_pmid[pmid]
+        out.append({**rec, "why": str(p.get("why") or "").strip()})
+    return out

@@ -559,6 +559,28 @@ def list_browse_items(limit: int) -> list[dict[str, str]]:
     return out
 
 
+def list_paper_titles() -> list[dict[str, str]]:
+    """Every saved abstract as a compact pmid/title/year/journal row — the
+    library list the A&P review's related-papers matcher feeds to the model."""
+    with _connect_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT pmid, title, year, journal
+            FROM abstracts
+            ORDER BY CASE WHEN year GLOB '[0-9][0-9][0-9][0-9]' THEN year END DESC;
+            """
+        ).fetchall()
+    return [
+        {
+            "pmid": (r["pmid"] or "").strip(),
+            "title": (r["title"] or "").strip(),
+            "year": (r["year"] or "").strip(),
+            "journal": (r["journal"] or "").strip(),
+        }
+        for r in rows
+    ]
+
+
 def get_record(pmid: str) -> dict[str, str]:
     with _connect_db() as conn:
         row = conn.execute(
