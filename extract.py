@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 # ---- imports from db layer (must exist in db.py) ----
 from db import (
     get_guideline_meta,
+    get_record,
     list_paper_titles,
     set_guideline_acronyms,
     set_guideline_rec_labels,
@@ -3666,12 +3667,14 @@ def review_assessment_and_plan(note: str) -> dict:
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def related_saved_papers(note: str) -> list[dict]:
     """Match the admission against the personal library of saved abstracts.
-    One cheap, fast call: the model sees the note plus every saved paper's
+    Two cheap calls: stage 1 sees the note plus every saved paper's
     pmid/year/journal/title line and picks the few genuinely relevant to a
-    management decision in this admission. Returns
-    [{"pmid", "title", "year", "journal", "why"}] — often empty, by design.
-    Deliberately NOT the reasoning model: this runs after the main review and
-    must not become the bottleneck (the page shows its elapsed seconds).
+    management decision in this admission; stage 2 sees the picked papers'
+    saved summaries and writes each 'why' as a concrete tie to the clinician's
+    own plan. Returns [{"pmid", "title", "year", "journal", "why"}] — often
+    empty, by design. Deliberately NOT the reasoning model: this runs after the
+    main review and must not become the bottleneck (the page shows its elapsed
+    seconds).
     Cached for a day so re-running the same note doesn't re-bill."""
     note = (note or "").strip()
     if not note:
@@ -3691,6 +3694,8 @@ def related_saved_papers(note: str) -> list[dict]:
         for p in papers if p["pmid"] and p["title"]
     )
 
+    # Stage 1: pick candidates from titles alone — one cheap pass over the whole
+    # library. No 'why' yet; that comes from stage 2, grounded in the abstracts.
     instructions = (
         "You match a hospital admission to a physician's personal library of saved "
         "journal articles. You get a deidentified admission note and the library as "
@@ -3700,9 +3705,8 @@ def related_saved_papers(note: str) -> list[dict]:
         "Topical overlap alone is not enough. Up to 8, most relevant first; "
         "usually 0-4, and returning none is a perfectly good answer — never "
         "stretch.\n"
-        "For each: 'pmid' copied verbatim from the library line, and 'why' — at "
-        "most 12 words tying the paper to this specific case.\n"
-        'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
+        "Copy each pmid verbatim from its library line.\n"
+        'Return ONLY JSON: {"papers": ["pmid", ...]}'
     )
     payload = {
         "model": _openai_model(),
@@ -3723,16 +3727,75 @@ def related_saved_papers(note: str) -> list[dict]:
     if not isinstance(data, dict):
         return []
 
-    out: list[dict] = []
+    candidates: list[str] = []
     seen: set[str] = set()
-    for p in data.get("papers") or []:
-        if not isinstance(p, dict):
-            continue
-        pmid = str(p.get("pmid") or "").strip()
+    for raw in data.get("papers") or []:
+        # Tolerate both the asked-for bare pmid and a {"pmid": ...} object.
+        pmid = str(raw.get("pmid") if isinstance(raw, dict) else raw or "").strip()
         # Hallucinated or repeated pmids are dropped — only real library rows show.
         if pmid not in by_pmid or pmid in seen:
             continue
         seen.add(pmid)
-        rec = by_pmid[pmid]
-        out.append({**rec, "why": str(p.get("why") or "").strip()})
-    return out
+        candidates.append(pmid)
+    if not candidates:
+        return []
+
+    # Stage 2: a second tiny call writes the 'why' lines from the papers' SAVED
+    # conclusions plus the clinician's actual plan — so each 'why' is a concrete
+    # tie to a plan item, grounded in the abstract rather than the model's memory
+    # of a title. It may also drop candidates that don't inform any plan item.
+    dossiers = []
+    for pmid in candidates:
+        rec = get_record(pmid) or {}
+        parts = [f"pmid {pmid}: {by_pmid[pmid]['title']}"]
+        for field, label in (("study_design", "design"), ("authors_conclusions", "conclusions"),
+                             ("outcomes", "outcomes")):
+            v = (rec.get(field) or "").strip()
+            if v:
+                parts.append(f"  {label}: {v[:400]}")
+        dossiers.append("\n".join(parts))
+
+    why_instructions = (
+        "A physician's admission note (with their own assessment and plan) matched "
+        "some articles saved in their library; you get the note and each article's "
+        "saved summary.\n"
+        "For each article worth keeping, write 'why': at most 15 words naming what "
+        "the article does to THEIR written plan — the specific order or plan item "
+        "it supports, argues against, or would add (e.g. 'supports your 80mg IV "
+        "BID; escalate if UOP inadequate', 'argues against your low Na diet "
+        "order', 'consider adding acetazolamide 500mg IV to the diuresis'). Ground "
+        "each 'why' in that article's saved summary — never a description of what "
+        "the study is about, and never a claim its summary doesn't support. DROP "
+        "any article you cannot tie to a specific plan item. Keep the given "
+        "order; copy each pmid verbatim.\n"
+        'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": why_instructions,
+        "input": "Deidentified note:\n" + note + "\n\nMatched articles:\n" + "\n".join(dossiers) + "\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 4000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    whys: dict[str, str] = {}
+    if isinstance(data, dict):
+        for p in data.get("papers") or []:
+            if isinstance(p, dict):
+                pmid = str(p.get("pmid") or "").strip()
+                if pmid in seen:
+                    whys[pmid] = str(p.get("why") or "").strip()
+
+    # If stage 2 came back empty/unparseable, keep the matches rather than lose
+    # them — a paper without a 'why' still beats no paper.
+    if not whys:
+        return [dict(by_pmid[pmid], why="") for pmid in candidates]
+    return [dict(by_pmid[pmid], why=whys[pmid]) for pmid in candidates if pmid in whys]
