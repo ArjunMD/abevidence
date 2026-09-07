@@ -3533,10 +3533,11 @@ def review_assessment_and_plan(note: str) -> dict:
     """Review the clinician's OWN assessment and plan. `note` is a full
     DEIDENTIFIED note — HPI, vitals, exam, labs, imaging, meds — including the
     clinician's self-written, clearly labeled assessment and plan. Returns
-    {"main_problem": {"problem", "comments": [...], "revised"},
+    {"main_problem": {"problem", "comments": [...]},
      "other_problems": [{"problem", "suggestions": [...]}],
      "missed_problems": [{"problem", "why"}],
-     "other_thoughts": [...]}.
+     "other_thoughts": [...],
+     "hospitalization_reason": str}.
     Cached for a day so re-running the same note doesn't re-bill."""
     note = (note or "").strip()
     if not note:
@@ -3562,11 +3563,6 @@ def review_assessment_and_plan(note: str) -> dict:
         "treatment gaps, monitoring, contingencies, anticipated complications. One "
         "clipped sentence each, only points that would actually change the note or "
         "the care. Empty list if the problem is handled well.\n"
-        "   * 'revised': your version of their write-up for this problem, staying AS "
-        "CLOSE TO THEIR TEXT AS POSSIBLE — same structure, line breaks, bullet "
-        "style, voice, and abbreviations — with your edits folded in. This is an "
-        "edit of their text, not a rewrite; keep every line you have no reason to "
-        "touch verbatim. Plain text, ready to paste back into the note.\n"
         "2. 'other_problems' — every REMAINING problem in their A&P, in their "
         "order: 'problem' (their heading, verbatim) and 'suggestions' — additions "
         "worth making to that plan, each a few words of clipped shorthand (drugs "
@@ -3601,7 +3597,7 @@ def review_assessment_and_plan(note: str) -> dict:
         "- Never flag something as missed that their A&P already covers, even "
         "under a different name or grouped into another problem.\n"
         'Return ONLY JSON: {"main_problem": {"problem": "...", "comments": '
-        '["...", ...], "revised": "..."}, "other_problems": [{"problem": "...", '
+        '["...", ...]}, "other_problems": [{"problem": "...", '
         '"suggestions": ["...", ...]}], "missed_problems": [{"problem": "...", '
         '"why": "..."}], "other_thoughts": ["...", ...], '
         '"hospitalization_reason": "..."}'
@@ -3658,7 +3654,6 @@ def review_assessment_and_plan(note: str) -> dict:
         "main_problem": {
             "problem": str(main.get("problem") or "").strip(),
             "comments": _str_list(main.get("comments")),
-            "revised": str(main.get("revised") or "").strip(),
         },
         "other_problems": other_problems,
         "missed_problems": missed_problems,

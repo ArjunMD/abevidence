@@ -69,7 +69,7 @@ def render() -> None:
         return
 
     main = result.get("main_problem") or {}
-    if not (main.get("comments") or main.get("revised") or result.get("other_problems")):
+    if not (main.get("comments") or result.get("other_problems")):
         st.info("Nothing came back — make sure the note includes a labeled assessment and plan.")
         return
 
@@ -95,12 +95,6 @@ def _render_main_problem(main: dict) -> None:
         st.markdown("\n".join(f"- {c}" for c in comments))
     else:
         st.markdown("Nothing missed — discussion and plan look complete.")
-
-    revised = (main.get("revised") or "").strip()
-    if revised:
-        st.markdown("**Suggested version** (yours, with edits)")
-        # Plain text so their note formatting survives, with a copy button.
-        st.code(revised, language=None)
 
 
 def _render_other_problems(problems: list[dict]) -> None:
