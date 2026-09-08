@@ -3702,9 +3702,11 @@ def related_saved_papers(note: str) -> list[dict]:
         "'pmid | year | journal | title' lines.\n"
         "Pick ONLY papers relevant to a management decision in THIS admission — "
         "evidence the clinician would actually cite on rounds for this patient. "
-        "Topical overlap alone is not enough. Up to 8, most relevant first; "
-        "usually 0-4, and returning none is a perfectly good answer — never "
-        "stretch.\n"
+        "Topical overlap alone is not enough. Focus on the FIRST 1-3 problems in "
+        "the note's assessment and plan — the main problems of the admission; "
+        "skip papers that only bear on problems listed below those. Up to 8, "
+        "most relevant first; usually 0-4, and returning none is a perfectly "
+        "good answer — never stretch.\n"
         "Copy each pmid verbatim from its library line.\n"
         'Return ONLY JSON: {"papers": ["pmid", ...]}'
     )
@@ -3766,7 +3768,8 @@ def related_saved_papers(note: str) -> list[dict]:
         "order', 'consider adding acetazolamide 500mg IV to the diuresis'). Ground "
         "each 'why' in that article's saved summary — never a description of what "
         "the study is about, and never a claim its summary doesn't support. DROP "
-        "any article you cannot tie to a specific plan item. Keep the given "
+        "any article you cannot tie to a specific plan item, and any that only "
+        "bears on a problem below the first 1-3 in their A&P. Keep the given "
         "order; copy each pmid verbatim.\n"
         'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
     )
