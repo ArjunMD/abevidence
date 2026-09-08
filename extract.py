@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from db import (
     get_guideline_meta,
     get_record,
+    get_saved_pmids,
     list_paper_titles,
     set_guideline_acronyms,
     set_guideline_rec_labels,
@@ -3802,3 +3803,239 @@ def related_saved_papers(note: str) -> list[dict]:
     if not whys:
         return [dict(by_pmid[pmid], why="") for pmid in candidates]
     return [dict(by_pmid[pmid], why=whys[pmid]) for pmid in candidates if pmid in whys]
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def suggest_new_literature(note: str) -> list[dict]:
+    """Suggest ONE article the clinician has NOT saved — an RCT or systematic
+    review from PubMed bearing on the first 1-3 problems in their A&P, with a
+    strong preference for major journals. Grounded: a cheap call writes PubMed
+    queries, esearch (restricted to those two publication types) supplies real
+    candidates, saved pmids are excluded, and a second cheap call picks the
+    single best (or none). Returns [] or [{"pmid", "title", "year", "journal",
+    "why"}]. Cached for a day so re-running the same note doesn't re-bill."""
+    note = (note or "").strip()
+    if not note:
+        return []
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    # Stage 1: turn problems 1-3 into PubMed queries.
+    instructions = (
+        "You write PubMed searches for a hospitalist. Given a deidentified "
+        "admission note whose assessment and plan lists numbered problems, write "
+        "1-2 PubMed queries that would find high-impact trial evidence for the "
+        "biggest management questions in the FIRST 1-3 problems. Each query: 2-5 "
+        "terms joined with AND (condition plus intervention or question), quotes "
+        "only around fixed phrases, and NO publication-type, journal, or date "
+        "filters — the caller adds those.\n"
+        'Return ONLY JSON: {"queries": ["...", ...]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": f"Deidentified note:\n{note}\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 1000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    queries = _str_list(data.get("queries") if isinstance(data, dict) else None)[:2]
+    if not queries:
+        return []
+
+    # Stage 2: real candidates from PubMed — RCTs and systematic reviews only
+    # (no guidelines or other study types), best-match order.
+    candidate_pmids: list[str] = []
+    seen: set[str] = set()
+    for q in queries:
+        params = {
+            "db": "pubmed",
+            "term": f"({q}) AND (randomized controlled trial[pt] OR systematic review[pt])",
+            "retmode": "json",
+            "retmax": "15",
+            "sort": "relevance",
+            **_ncbi_params_base(),
+        }
+        try:
+            resp = _get_with_retries(NCBI_ESEARCH_URL, params=params)
+            payload_js = json.loads(resp.text, strict=False) or {}
+        except Exception:
+            continue
+        for pid in (payload_js.get("esearchresult") or {}).get("idlist") or []:
+            p = str(pid or "").strip()
+            if p and p not in seen:
+                seen.add(p)
+                candidate_pmids.append(p)
+    if not candidate_pmids:
+        return []
+
+    # New-to-them only: drop anything already in the library.
+    already = get_saved_pmids(candidate_pmids)
+    candidate_pmids = [p for p in candidate_pmids if p not in already]
+    if not candidate_pmids:
+        return []
+
+    # Titles/journal/year via esummary, so the pick and the display are real
+    # PubMed records — never the model's memory of a citation.
+    meta: dict[str, dict[str, str]] = {}
+    try:
+        root = ET.fromstring(fetch_pubmed_esummary_xml(",".join(candidate_pmids)))
+    except Exception:
+        return []
+    for docsum in root.findall(".//DocSum"):
+        pid = _itertext(docsum.find("Id")).strip()
+        if not pid:
+            continue
+        rec = {"pmid": pid, "title": "", "journal": "", "year": "", "types": ""}
+        for item in docsum.findall("Item"):
+            name = item.attrib.get("Name")
+            if name == "Title":
+                rec["title"] = _itertext(item).strip()
+            elif name == "FullJournalName":
+                rec["journal"] = _itertext(item).strip()
+            elif name == "Source" and not rec["journal"]:
+                rec["journal"] = _itertext(item).strip()
+            elif name == "PubDate":
+                rec["year"] = _itertext(item).strip()[:4]
+            elif name == "PubTypeList":
+                rec["types"] = ", ".join(
+                    _itertext(t).strip() for t in item.findall("Item") if _itertext(t).strip()
+                )
+        if rec["title"]:
+            meta[pid] = rec
+    if not meta:
+        return []
+
+    candidates_txt = "\n".join(
+        f"{m['pmid']} | {m['year']} | {m['journal']} | {m['types']} | {m['title']}"
+        for m in (meta[p] for p in candidate_pmids if p in meta)
+    )
+
+    # Stage 3: pick the single best suggestion (or none).
+    pick_instructions = (
+        "You suggest at most ONE article to a hospitalist for the admission in "
+        "the note — a paper NOT in their library that best informs the plan for "
+        "the FIRST 1-3 problems in their A&P. Candidates are 'pmid | year | "
+        "journal | publication types | title' lines from a PubMed search already "
+        "restricted to randomized controlled trials and systematic reviews.\n"
+        "Rules:\n"
+        "- STRONG preference for a major journal (e.g. NEJM, Lancet, JAMA, BMJ, "
+        "Annals of Internal Medicine, JAMA Internal Medicine, Circulation, JACC, "
+        "European Heart Journal, AJRCCM, CHEST, Kidney International, JASN, "
+        "Blood, Gut, Hepatology, Clinical Infectious Diseases). A landmark trial "
+        "in a major journal beats a newer paper in a minor one.\n"
+        "- RCT or systematic review only — skip anything that reads as a "
+        "guideline, protocol, editorial, or subgroup/secondary analysis of "
+        "marginal value.\n"
+        "- It must bear on a management decision for the first 1-3 problems.\n"
+        "- 'why': at most 15 words naming what it does to THEIR written plan — "
+        "the specific order it supports, argues against, or would add.\n"
+        "- If nothing is genuinely worth the clinician's time, return an empty "
+        "list — never stretch. Copy the pmid verbatim.\n"
+        'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": pick_instructions,
+        "input": f"Deidentified note:\n{note}\n\nCandidates:\n{candidates_txt}\n\nJSON:",
+        "reasoning": {"effort": "low"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 1000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return []
+    for p in data.get("papers") or []:
+        if not isinstance(p, dict):
+            continue
+        pmid = str(p.get("pmid") or "").strip()
+        if pmid in meta:
+            m = meta[pmid]
+            return [{
+                "pmid": pmid,
+                "title": m["title"],
+                "journal": m["journal"],
+                "year": m["year"],
+                "why": str(p.get("why") or "").strip(),
+            }]
+    return []
+
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
+def learn_from_case(note: str) -> dict:
+    """The teaching half of the Learn click. One call returns
+    {"pathophys": str, "great_doctor": str}: a cohesive pathophysiology/
+    pharmacology narrative of the case (trigger → symptoms and signs →
+    diagnosis → management), and the single addition a great doctor might make.
+    Cached for a day so re-running the same note doesn't re-bill."""
+    note = (note or "").strip()
+    if not note:
+        return {}
+
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    instructions = (
+        "You are a master clinician-educator debriefing a hospitalist on their own "
+        "admission note. The reader is a physician — never explain medical-student "
+        "basics, no boilerplate, no safety disclaimers.\n"
+        "Return two fields:\n"
+        "- 'pathophys': a cohesive story of THIS case through a pathophysiologic "
+        "lens — one flowing narrative (2-4 short paragraphs, ~150-250 words) that "
+        "connects the trigger to the symptoms and signs, the signs to the "
+        "diagnosis, and the diagnosis to the medical management. Name the actual "
+        "mechanisms: the hemodynamic, neurohormonal, cellular, or biochemical "
+        "chain for the disease, and the pharmacology of the treatments — what "
+        "each key drug does to which step of that chain, including relevant "
+        "receptor/transporter targets. Use the case's own findings (this "
+        "patient's vitals, labs, imaging) as the connective tissue; every "
+        "paragraph should advance the story, never recite textbook background "
+        "detached from the case. Plain prose, no headers or bullets.\n"
+        "- 'great_doctor': the ONE thing a great doctor might add to the "
+        "diagnostic studies or management steps of this case — a move beyond "
+        "the written plan that shows mastery: the study that anticipates a "
+        "complication, the management step others forget, the detail that "
+        "changes the trajectory. One or two sentences: the move, then the "
+        "clipped rationale. Exactly one — pick the highest-yield.\n"
+        'Return ONLY JSON: {"pathophys": "...", "great_doctor": "..."}'
+    )
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": f"Deidentified note:\n{note}\n\nJSON:",
+        "reasoning": {"effort": "medium"},
+        "text": {"verbosity": "medium"},
+        "max_output_tokens": 6000,
+        "store": False,
+    }
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=180,
+    )
+    data = _parse_json_from_model(_extract_output_text(r.json()))
+    if not isinstance(data, dict):
+        return {}
+    return {
+        "pathophys": str(data.get("pathophys") or "").strip(),
+        "great_doctor": str(data.get("great_doctor") or "").strip(),
+    }

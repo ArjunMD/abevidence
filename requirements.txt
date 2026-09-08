@@ -4,3 +4,4 @@ plotly>=6,<7
 requests>=2.31,<3
 azure-ai-documentintelligence>=1.0.0
 azure-core>=1.29
+watchdog>=4

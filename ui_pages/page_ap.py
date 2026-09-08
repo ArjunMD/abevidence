@@ -2,7 +2,12 @@ import time
 
 import streamlit as st
 
-from extract import related_saved_papers, review_assessment_and_plan
+from extract import (
+    learn_from_case,
+    related_saved_papers,
+    review_assessment_and_plan,
+    suggest_new_literature,
+)
 
 # Soft access gate — keeps casual public visitors out of this (pricier, clinical)
 # tool. Not a real credential; it's a shared page password.
@@ -40,6 +45,11 @@ def render() -> None:
     )
 
     if st.button("Review A&P", type="primary", key="ap_go"):
+        # A fresh review invalidates any Learn results from the last note.
+        for k in ("ap_lit_done", "ap_papers", "ap_papers_error", "ap_papers_seconds",
+                  "ap_newlit", "ap_newlit_error", "ap_newlit_seconds",
+                  "ap_learn", "ap_learn_error", "ap_learn_seconds"):
+            st.session_state.pop(k, None)
         if not note.strip():
             st.warning("Paste a note first.")
             st.session_state.pop("ap_review", None)
@@ -50,19 +60,6 @@ def render() -> None:
             except Exception as e:
                 st.session_state.pop("ap_review", None)
                 st.error(f"Review failed: {e}")
-            # The saved-papers match is a separate cheap call so a failure (or
-            # slowness) there can never cost the review itself. Timed, and the
-            # seconds are shown, so it's honest about what it adds.
-            if st.session_state.get("ap_review"):
-                t0 = time.perf_counter()
-                try:
-                    with st.spinner("Checking your saved papers…"):
-                        st.session_state["ap_papers"] = related_saved_papers(note)
-                    st.session_state["ap_papers_error"] = ""
-                except Exception as e:
-                    st.session_state["ap_papers"] = []
-                    st.session_state["ap_papers_error"] = str(e)
-                st.session_state["ap_papers_seconds"] = time.perf_counter() - t0
 
     result = st.session_state.get("ap_review")
     if not result:
@@ -77,12 +74,59 @@ def render() -> None:
     _render_other_problems(result.get("other_problems") or [])
     _render_missed_problems(result.get("missed_problems") or [])
     _render_other_thoughts(result.get("other_thoughts") or [])
-    _render_saved_papers(
-        st.session_state.get("ap_papers") or [],
-        st.session_state.get("ap_papers_seconds"),
-        st.session_state.get("ap_papers_error") or "",
-    )
     _render_hospitalization_reason(result.get("hospitalization_reason") or "")
+
+    # Learn is a second, explicit click — the review lands first, and the
+    # slower literature/teaching calls only run when asked for. Each call is
+    # timed and isolated so a failure there can never cost the review above.
+    if st.button("Learn", key="ap_lit_go"):
+        t0 = time.perf_counter()
+        try:
+            with st.spinner("Checking your saved papers…"):
+                st.session_state["ap_papers"] = related_saved_papers(note)
+            st.session_state["ap_papers_error"] = ""
+        except Exception as e:
+            st.session_state["ap_papers"] = []
+            st.session_state["ap_papers_error"] = str(e)
+        st.session_state["ap_papers_seconds"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        try:
+            with st.spinner("Searching PubMed for new literature…"):
+                st.session_state["ap_newlit"] = suggest_new_literature(note)
+            st.session_state["ap_newlit_error"] = ""
+        except Exception as e:
+            st.session_state["ap_newlit"] = []
+            st.session_state["ap_newlit_error"] = str(e)
+        st.session_state["ap_newlit_seconds"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        try:
+            with st.spinner("Writing the pathophysiology debrief…"):
+                st.session_state["ap_learn"] = learn_from_case(note)
+            st.session_state["ap_learn_error"] = ""
+        except Exception as e:
+            st.session_state["ap_learn"] = {}
+            st.session_state["ap_learn_error"] = str(e)
+        st.session_state["ap_learn_seconds"] = time.perf_counter() - t0
+        st.session_state["ap_lit_done"] = True
+
+    if st.session_state.get("ap_lit_done"):
+        _render_saved_papers(
+            st.session_state.get("ap_papers") or [],
+            st.session_state.get("ap_papers_seconds"),
+            st.session_state.get("ap_papers_error") or "",
+        )
+        _render_new_literature(
+            st.session_state.get("ap_newlit") or [],
+            st.session_state.get("ap_newlit_seconds"),
+            st.session_state.get("ap_newlit_error") or "",
+        )
+        _render_learn(
+            st.session_state.get("ap_learn") or {},
+            st.session_state.get("ap_learn_seconds"),
+            st.session_state.get("ap_learn_error") or "",
+        )
 
 
 def _render_main_problem(main: dict) -> None:
@@ -130,7 +174,7 @@ def _render_other_thoughts(thoughts: list[str]) -> None:
 
 
 def _render_saved_papers(papers: list[dict], seconds, error: str) -> None:
-    st.subheader("5 · Related saved papers")
+    st.subheader("6 · Related saved papers")
     if error:
         st.warning(f"Saved-papers check failed (the review above is unaffected): {error}")
         return
@@ -158,6 +202,44 @@ def _render_hospitalization_reason(reason: str) -> None:
     reason = reason.strip()
     if not reason:
         return
-    st.subheader("6 · Reason care requires hospitalization")
+    st.subheader("5 · Reason care requires hospitalization")
     # Plain text with a copy button — this line gets pasted back into the note.
     st.code(reason, language=None)
+
+
+def _render_new_literature(papers: list[dict], seconds, error: str) -> None:
+    st.subheader("7 · Suggested new literature")
+    if error:
+        st.warning(f"PubMed suggestion failed (everything above is unaffected): {error}")
+        return
+    if papers:
+        for p in papers:
+            meta = ", ".join(x for x in [p.get("journal", ""), p.get("year", "")] if x)
+            line = f"- [{p.get('title', '')}](https://pubmed.ncbi.nlm.nih.gov/{p.get('pmid', '')}/)"
+            if meta:
+                line += f" ({meta})"
+            why = (p.get("why") or "").strip()
+            if why:
+                line += f" — {why}"
+            st.markdown(line)
+        st.caption("RCT or systematic review, not already in your library.")
+    else:
+        st.markdown("No new RCT or systematic review worth suggesting for this admission.")
+    if seconds is not None:
+        st.caption(f"Added {seconds:.1f}s to the analysis.")
+
+
+def _render_learn(learn: dict, seconds, error: str) -> None:
+    st.subheader("8 · Pathophysiology")
+    if error:
+        st.warning(f"Debrief failed (everything above is unaffected): {error}")
+        return
+    pathophys = (learn.get("pathophys") or "").strip()
+    st.markdown(pathophys if pathophys else "Nothing came back.")
+
+    great = (learn.get("great_doctor") or "").strip()
+    if great:
+        st.subheader("9 · What a great doctor might do")
+        st.markdown(great)
+    if seconds is not None:
+        st.caption(f"Added {seconds:.1f}s to the analysis.")
