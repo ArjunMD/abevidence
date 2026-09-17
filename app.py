@@ -70,8 +70,7 @@ _PAGES = {
 # button. Keeping it out of the sidebar avoids a confusing nav entry that does
 # nothing useful when clicked with no study selected.
 _PUBLIC_SIDEBAR_PAGES = {
-    "Browse studies", "Reviews", "Readmissions", "Tools", "RRT meds",
-    "Assessment and Plan", "Inpatient Billing",
+    "Browse studies", "Tools", "RRT meds", "Assessment and Plan",
 }
 
 _IS_PUBLIC = is_public_mode()
@@ -127,6 +126,9 @@ if _open_abs_pmid and not _IS_PUBLIC:
     st.session_state["pmid_input"] = _open_abs_pmid
     # Deep-link from Search → auto-run the fetch on arrival (consumed once).
     st.session_state["auto_fetch_abstract"] = True
+    # Remember the Search origin so Upload Abstract can offer its
+    # "Return to Search PubMed and Don't show again" shortcut for this PMID.
+    st.session_state["abstract_from_search_pmid"] = _open_abs_pmid
     _clear_query_params()
 elif _manage_pmid and not _IS_PUBLIC:
     # Deep-link from Browse → Manage with this abstract pre-filtered/selected.
@@ -167,6 +169,13 @@ elif _open_pmid or _open_gid:
 _default_index = _SIDEBAR_PAGES.index("Browse studies") if _IS_PUBLIC else 0
 
 st.sidebar.title("🩺 Hospital Medicine Shelf")
+
+# Pages can request navigation for the NEXT run by setting nav_page_pending (the
+# nav radio's widget key can't be modified after the radio has rendered, so a
+# button below it must defer the switch to here, before the radio instantiates).
+_nav_pending = st.session_state.pop("nav_page_pending", None)
+if _nav_pending in _SIDEBAR_PAGES:
+    st.session_state["nav_page"] = _nav_pending
 
 nav_page = st.sidebar.radio(
     "Go to",

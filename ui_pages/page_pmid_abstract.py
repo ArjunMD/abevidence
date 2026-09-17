@@ -1,7 +1,7 @@
 import requests
 import streamlit as st
 
-from db import get_all_categories, is_saved, save_record
+from db import get_all_categories, hide_pubmed_pmid, is_saved, save_record
 from extract import (
     _parse_nonneg_int,
     _parse_tag_list,
@@ -290,6 +290,30 @@ def render() -> None:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Failed to save: {e}")
+
+                    # Only when this abstract was opened via Search PubMed's
+                    # "Open abstract": hide the PMID there (same effect as its
+                    # "Don't show again" button) and jump back to Search.
+                    if (st.session_state.get("abstract_from_search_pmid") or "") == last_pmid:
+                        if st.button("Return to Search PubMed and Don't show again", width="stretch"):
+                            hide_pubmed_pmid(
+                                last_pmid,
+                                journal=last_journal,
+                                year=last_year,
+                                pub_month=last_pub_month,
+                            )
+                            # Feed both Search views' Undo chips.
+                            hidden_info = {"pmid": last_pmid, "title": last_title}
+                            st.session_state["search_pubmed_last_hidden"] = hidden_info
+                            st.session_state["search_pubmed_term_last_hidden"] = dict(hidden_info)
+                            st.session_state.pop("abstract_from_search_pmid", None)
+                            for k in [
+                                "last_pmid", "last_abstract", "last_year",
+                                "last_pub_month", "last_journal", "last_title",
+                            ]:
+                                st.session_state.pop(k, None)
+                            st.session_state["nav_page_pending"] = "Search PubMed"
+                            st.rerun()
 
                 _render_plain_text(last_abstract)
                 st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
