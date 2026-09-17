@@ -140,6 +140,17 @@ def _group_categories_by_specialty(
     ]
 
 
+def _heading_with_top_link(text: str, slug: str, level: int) -> str:
+    """A category/specialty heading with its anchor id and a subtle 'back to top'
+    arrow on the same line, returning to the Contents block."""
+    return (
+        f"<h{level} id='{slug}'>{html.escape(text)} "
+        f"<a href='#contents' title='Back to contents' "
+        f"style='text-decoration:none; opacity:0.35; font-size:0.6em; vertical-align:middle;'>↑</a>"
+        f"</h{level}>"
+    )
+
+
 def _category_item_sort_key(item: dict[str, str]) -> tuple:
     """Newest first within a category (year, then pub month), then title."""
     y = (item.get("year") or "").strip()
@@ -424,16 +435,31 @@ def _render_browse_body() -> None:
         spec_slugs = _anchor_slugs([sp for sp, _ in spec_groups], prefix="sp-")
 
         # TOC mirrors the hierarchy: bold specialty, its categories bulleted under
-        # it. Specialty blocks are kept intact and distributed over three columns,
+        # it. 'Parent - Subtopic' categories render as an indented subtopic under a
+        # parent line instead of their full name (the body headings keep the full
+        # name). Alphabetical order keeps a parent and its subtopics contiguous.
+        # Specialty blocks are kept intact and distributed over three columns,
         # balanced by line count so the columns come out roughly even.
-        toc_blocks = [
-            f"**[{sp}](#{spec_slugs[sp]})**\n"
-            + "\n".join(f"- [{c}](#{slugs[c]}) ({len(grouped[c])})" for c in cats)
-            for sp, cats in spec_groups
-        ]
+        toc_blocks = []
+        for sp, cats in spec_groups:
+            lines = [f"**[{sp}](#{spec_slugs[sp]})**"]
+            last_parent = None
+            for c in cats:
+                if " - " in c:
+                    parent, sub = c.split(" - ", 1)
+                    if last_parent != parent.lower():
+                        # Parent has no section of its own — label it, linking to
+                        # its first subtopic so the click still lands usefully.
+                        lines.append(f"- [{parent}](#{slugs[c]})")
+                        last_parent = parent.lower()
+                    lines.append(f"    - [{sub}](#{slugs[c]}) ({len(grouped[c])})")
+                else:
+                    lines.append(f"- [{c}](#{slugs[c]}) ({len(grouped[c])})")
+                    last_parent = c.lower()
+            toc_blocks.append("\n".join(lines))
         total_lines = sum(b.count("\n") + 2 for b in toc_blocks)
         per_col = total_lines / 3
-        st.markdown("#### Contents")
+        st.markdown("<h4 id='contents'>Contents</h4>", unsafe_allow_html=True)
         toc_cols = st.columns(3, gap="large")
         col_idx, col_lines = 0, 0
         col_content: list[list[str]] = [[], [], []]
@@ -450,9 +476,9 @@ def _render_browse_body() -> None:
         st.divider()
 
         for sp, cats in spec_groups:
-            st.header(sp, anchor=spec_slugs[sp])
+            st.markdown(_heading_with_top_link(sp, spec_slugs[sp], 2), unsafe_allow_html=True)
             for c in cats:
-                st.subheader(c, anchor=slugs[c])
+                st.markdown(_heading_with_top_link(c, slugs[c], 3), unsafe_allow_html=True)
                 rows = sorted(grouped[c], key=_category_item_sort_key)
                 for it in rows:
                     _render_browse_item(
