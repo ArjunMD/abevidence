@@ -53,6 +53,8 @@ def _migrate_abstracts_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE abstracts ADD COLUMN outcomes TEXT;")
     if "evidence_base" not in cols:
         conn.execute("ALTER TABLE abstracts ADD COLUMN evidence_base TEXT;")
+    if "category" not in cols:
+        conn.execute("ALTER TABLE abstracts ADD COLUMN category TEXT;")
 
 
 def ensure_schema() -> None:
@@ -130,6 +132,7 @@ def save_record(
     outcomes: str | None,
     evidence_base: str | None,
     specialty: str | None,
+    category: str | None = None,
 ) -> None:
     uploaded_at = _utc_iso_z()
     with _connect_db() as conn:
@@ -138,9 +141,9 @@ def save_record(
             INSERT INTO abstracts (
                 pmid, title, abstract, year, pub_month, journal, patient_n, study_design,
                 patient_details, intervention_comparison, authors_conclusions, outcomes,
-                evidence_base, specialty, uploaded_at
+                evidence_base, specialty, category, uploaded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 pmid,
@@ -157,6 +160,7 @@ def save_record(
                 outcomes,
                 evidence_base,
                 specialty,
+                category,
                 uploaded_at,
             ),
         )
@@ -489,6 +493,7 @@ def search_records(limit: int, q: str) -> list[dict[str, str]]:
         "COALESCE(outcomes,'')",
         "COALESCE(evidence_base,'')",
         "COALESCE(specialty,'')",
+        "COALESCE(category,'')",
         "COALESCE(CAST(patient_n AS TEXT),'')",
     ]
 
@@ -530,7 +535,7 @@ def list_browse_items(limit: int) -> list[dict[str, str]]:
     with _connect_db() as conn:
         rows = conn.execute(
             """
-            SELECT pmid, title, year, pub_month, journal, patient_n, specialty, authors_conclusions, uploaded_at
+            SELECT pmid, title, year, pub_month, journal, patient_n, specialty, category, authors_conclusions, uploaded_at
             FROM abstracts
             ORDER BY
                 specialty COLLATE NOCASE ASC,
@@ -552,6 +557,7 @@ def list_browse_items(limit: int) -> list[dict[str, str]]:
                 "journal": (r["journal"] or "").strip(),
                 "patient_n": str(r["patient_n"] or "").strip(),
                 "specialty": (r["specialty"] or "").strip(),
+                "category": (r["category"] or "").strip(),
                 "authors_conclusions": (r["authors_conclusions"] or "").strip(),
                 "uploaded_at": (r["uploaded_at"] or "").strip(),
             }
@@ -587,7 +593,7 @@ def get_record(pmid: str) -> dict[str, str]:
             """
             SELECT pmid, title, abstract, year, pub_month, journal, patient_n, study_design,
                    patient_details, intervention_comparison, authors_conclusions, outcomes,
-                   evidence_base, specialty
+                   evidence_base, specialty, category
             FROM abstracts
             WHERE pmid=? LIMIT 1;
             """,
@@ -610,6 +616,7 @@ def get_record(pmid: str) -> dict[str, str]:
             "outcomes": (row["outcomes"] or "").strip(),
             "evidence_base": (row["evidence_base"] or "").strip(),
             "specialty": (row["specialty"] or "").strip(),
+            "category": (row["category"] or "").strip(),
         }
 
 
@@ -623,6 +630,7 @@ def update_record(
     outcomes: str | None,
     evidence_base: str | None,
     specialty: str | None,
+    category: str | None = None,
 ) -> None:
     with _connect_db() as conn:
         conn.execute(
@@ -635,7 +643,8 @@ def update_record(
                 authors_conclusions = ?,
                 outcomes = ?,
                 evidence_base = ?,
-                specialty = ?
+                specialty = ?,
+                category = ?
             WHERE pmid = ?;
             """,
             (
@@ -647,6 +656,7 @@ def update_record(
                 outcomes,
                 evidence_base,
                 specialty,
+                category,
                 pmid,
             ),
         )
@@ -710,6 +720,9 @@ def ensure_guidelines_schema() -> None:
             );
             """
         )
+        gcols = {r["name"] for r in conn.execute("PRAGMA table_info(guidelines);").fetchall()}
+        if "category" not in gcols:
+            conn.execute("ALTER TABLE guidelines ADD COLUMN category TEXT;")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_guidelines_sha256_uq ON guidelines(sha256);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_guidelines_uploaded_at ON guidelines(uploaded_at);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_guidelines_pub_year ON guidelines(pub_year);")
@@ -834,7 +847,7 @@ def list_guidelines(limit: int) -> list[dict[str, str]]:
         rows = conn.execute(
             """
             SELECT guideline_id, filename, sha256, bytes, uploaded_at,
-                   guideline_name, pub_year, specialty, society, meta_extracted_at
+                   guideline_name, pub_year, specialty, category, society, meta_extracted_at
             FROM guidelines
             ORDER BY uploaded_at DESC
             LIMIT ?;
@@ -854,6 +867,7 @@ def list_guidelines(limit: int) -> list[dict[str, str]]:
                 "guideline_name": (r["guideline_name"] or "").strip(),
                 "pub_year": (r["pub_year"] or "").strip(),
                 "specialty": (r["specialty"] or "").strip(),
+                "category": (r["category"] or "").strip(),
                 "society": (r["society"] or "").strip(),
                 "meta_extracted_at": (r["meta_extracted_at"] or "").strip(),
             }
@@ -878,7 +892,7 @@ def get_guideline_meta(guideline_id: str) -> dict[str, str]:
         row = conn.execute(
             """
             SELECT guideline_id, filename, sha256, uploaded_at, bytes,
-                   guideline_name, pub_year, specialty, society, meta_extracted_at
+                   guideline_name, pub_year, specialty, category, society, meta_extracted_at
             FROM guidelines
             WHERE guideline_id=? LIMIT 1;
             """,
@@ -895,6 +909,7 @@ def get_guideline_meta(guideline_id: str) -> dict[str, str]:
             "guideline_name": (row["guideline_name"] or "").strip(),
             "pub_year": (row["pub_year"] or "").strip(),
             "specialty": (row["specialty"] or "").strip(),
+            "category": (row["category"] or "").strip(),
             "society": (row["society"] or "").strip(),
             "meta_extracted_at": (row["meta_extracted_at"] or "").strip(),
         }
@@ -1022,6 +1037,7 @@ def update_guideline_metadata(
     pub_year: str | None,
     specialty: str | None,
     society: str | None = None,
+    category: str | None = None,
 ) -> None:
     gid = (guideline_id or "").strip()
     if not gid:
@@ -1032,15 +1048,16 @@ def update_guideline_metadata(
     year = (pub_year or "").strip() or None
     spec = (specialty or "").strip() or None
     soc = (society or "").strip() or None
+    cat = (category or "").strip() or None
 
     with _connect_db() as conn:
         conn.execute(
             """
             UPDATE guidelines
-            SET guideline_name=?, pub_year=?, specialty=?, society=?, meta_extracted_at=?
+            SET guideline_name=?, pub_year=?, specialty=?, society=?, category=?, meta_extracted_at=?
             WHERE guideline_id=?;
             """,
-            (name, year, spec, soc, now, gid),
+            (name, year, spec, soc, cat, now, gid),
         )
 
 
@@ -1055,6 +1072,7 @@ def list_browse_guideline_items(limit: int) -> list[dict[str, str]]:
                 COALESCE(NULLIF(guideline_name,''), filename) AS title,
                 COALESCE(pub_year,'') AS year,
                 COALESCE(specialty,'') AS specialty,
+                COALESCE(category,'') AS category,
                 COALESCE(society,'') AS society,
                 COALESCE(uploaded_at,'') AS uploaded_at
             FROM guidelines
@@ -1076,6 +1094,7 @@ def list_browse_guideline_items(limit: int) -> list[dict[str, str]]:
                 "title": (r["title"] or "").strip(),
                 "year": (r["year"] or "").strip(),
                 "specialty": (r["specialty"] or "").strip(),
+                "category": (r["category"] or "").strip(),
                 "society": (r["society"] or "").strip(),
                 "uploaded_at": (r["uploaded_at"] or "").strip(),
             }
@@ -1096,6 +1115,7 @@ def search_guidelines(limit: int, q: str) -> list[dict[str, str]]:
         "COALESCE(g.filename,'')",
         "COALESCE(g.pub_year,'')",
         "COALESCE(g.specialty,'')",
+        "COALESCE(g.category,'')",
         "COALESCE(g.society,'')",
         "COALESCE(g.recommendations_display_md,'')",
     ]
@@ -1136,6 +1156,28 @@ def search_guidelines(limit: int, q: str) -> list[dict[str, str]]:
             }
         )
     return gout
+
+
+def get_all_categories() -> list[str]:
+    """Every distinct category tag across abstracts and guidelines (comma-separated
+    columns split into individual tags), alphabetized case-insensitively. This is the
+    working vocabulary fed to the category extractor so new papers reuse existing
+    category names instead of coining near-duplicates."""
+    with _connect_db() as conn:
+        rows = conn.execute(
+            "SELECT category FROM abstracts WHERE COALESCE(TRIM(category),'') <> '' "
+            "UNION ALL "
+            "SELECT category FROM guidelines WHERE COALESCE(TRIM(category),'') <> '';"
+        ).fetchall()
+
+    seen: dict[str, str] = {}
+    for r in rows:
+        for tok in (r["category"] or "").split(","):
+            t = tok.strip()
+            if not t:
+                continue
+            seen.setdefault(t.lower(), t)
+    return sorted(seen.values(), key=str.lower)
 
 
 # ---------------- Dashboard queries ----------------
@@ -1476,5 +1518,12 @@ def remove_clipboard(pmid: str) -> None:
 def clear_clipboard() -> None:
     with _connect_db() as conn:
         conn.execute("DELETE FROM clipboard;")
+
+
+def purge_saved_clipboard() -> None:
+    """Drop clipboard entries whose PMID is already saved as an abstract — the
+    clipboard is a to-fetch list, so a saved paper no longer belongs on it."""
+    with _connect_db() as conn:
+        conn.execute("DELETE FROM clipboard WHERE pmid IN (SELECT pmid FROM abstracts);")
 
 

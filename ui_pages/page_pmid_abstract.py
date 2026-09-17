@@ -1,7 +1,7 @@
 import requests
 import streamlit as st
 
-from db import is_saved, save_record
+from db import get_all_categories, is_saved, save_record
 from extract import (
     _parse_nonneg_int,
     _parse_tag_list,
@@ -10,6 +10,7 @@ from extract import (
     get_top_neighbors,
     gpt_classify_study,
     gpt_extract_authors_conclusions,
+    gpt_extract_categories,
     gpt_extract_patient_n,
     gpt_extract_pico,
     gpt_extract_specialty,
@@ -84,6 +85,7 @@ def render() -> None:
         st.session_state["gpt_pico_error"] = ""
         st.session_state["gpt_conclusions_error"] = ""
         st.session_state["gpt_specialty_error"] = ""
+        st.session_state["gpt_category_error"] = ""
 
         if (st.session_state.get("last_abstract") or "").strip():
             try:
@@ -169,6 +171,20 @@ def render() -> None:
                 st.session_state["gpt_specialty_error"] = str(e)
                 st.session_state["gpt_specialty"] = ""
                 st.session_state["specialty_input"] = ""
+
+            try:
+                with st.spinner("Extracting categories…"):
+                    cat = gpt_extract_categories(
+                        st.session_state.get("last_title") or "",
+                        st.session_state.get("last_abstract") or "",
+                        get_all_categories(),
+                    )
+                    st.session_state["gpt_category"] = cat
+                    st.session_state["category_input"] = cat
+            except Exception as e:
+                st.session_state["gpt_category_error"] = str(e)
+                st.session_state["gpt_category"] = ""
+                st.session_state["category_input"] = ""
         else:
             st.session_state["gpt_patient_n"] = 0
             st.session_state["patient_n_input"] = ""
@@ -183,6 +199,8 @@ def render() -> None:
             st.session_state["authors_conclusions_input"] = ""
             st.session_state["gpt_specialty"] = ""
             st.session_state["specialty_input"] = ""
+            st.session_state["gpt_category"] = ""
+            st.session_state["category_input"] = ""
 
     last_pmid = st.session_state.get("last_pmid")
     last_abstract = (st.session_state.get("last_abstract") or "").strip()
@@ -242,6 +260,9 @@ def render() -> None:
                         raw_spec = (st.session_state.get("specialty_input") or "").strip()
                         parsed_spec = _parse_tag_list(raw_spec) or None
 
+                        raw_cat = (st.session_state.get("category_input") or "").strip()
+                        parsed_cat = _parse_tag_list(raw_cat) or None
+
                         if raw_n.strip() and parsed_n is None:
                             st.error("Patient count must be a single integer (or leave blank).")
                         else:
@@ -261,6 +282,7 @@ def render() -> None:
                                     parsed_outcomes,
                                     parsed_evidence,
                                     parsed_spec,
+                                    parsed_cat,
                                 )
                                 st.success("Saved.")
                                 st.rerun()
@@ -333,6 +355,18 @@ def render() -> None:
             if serr:
                 st.error(serr)
             st.text_input("Specialty", key="specialty_input", placeholder="e.g., Infectious Disease, Critical Care")
+
+            st.divider()
+
+            caterr = (st.session_state.get("gpt_category_error") or "").strip()
+            if caterr:
+                st.error(caterr)
+            st.text_input(
+                "Categories",
+                key="category_input",
+                placeholder="e.g., Pulmonary embolism, Point-of-care ultrasound",
+                help="Comma-separated browse categories (diagnoses, modalities, principles).",
+            )
 
             st.divider()
 

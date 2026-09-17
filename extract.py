@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 # ---- imports from db layer (must exist in db.py) ----
 from db import (
+    get_all_categories,
     get_guideline_meta,
     get_record,
     get_saved_pmids,
@@ -2331,6 +2332,98 @@ def gpt_extract_specialty(
     return _parse_tag_list(_extract_output_text(r.json()))
 
 
+def _canonicalize_categories(raw_csv: str, existing: list[str]) -> str:
+    """Match each extracted category case-insensitively against the existing
+    vocabulary and adopt the stored spelling, so 'heart failure' and 'Heart Failure'
+    collapse into one browse section. Unmatched tags keep the model's spelling."""
+    canon = {c.strip().lower(): c.strip() for c in (existing or []) if c.strip()}
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in (raw_csv or "").split(","):
+        t = tok.strip()
+        if not t:
+            continue
+        key = t.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(canon.get(key, t))
+    return ", ".join(out)
+
+
+def gpt_extract_categories(
+    title: str,
+    abstract: str,
+    existing_categories: list[str] | None = None,
+    timeout_s: int = 30,
+    max_attempts: int = 5,
+) -> str:
+    """Assign 1-3 library categories to a paper: mostly diagnoses (e.g. 'Pulmonary
+    embolism'), sometimes a test/imaging modality or a cross-cutting principle. The
+    current category vocabulary is injected so the model files papers under existing
+    names instead of coining near-duplicate variants; the result is canonicalized
+    against that vocabulary again in code."""
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    title = (title or "").strip()
+    abstract = (abstract or "").strip()
+    if not (title or abstract):
+        return ""
+
+    existing = [c.strip() for c in (existing_categories or []) if c.strip()]
+    vocab_block = (
+        "EXISTING CATEGORIES (reuse these names whenever one fits):\n" + "\n".join(existing) + "\n\n"
+        if existing
+        else "EXISTING CATEGORIES: (none yet)\n\n"
+    )
+
+    instructions = (
+        "You file clinical papers into the topic categories of a hospital-medicine library.\n"
+        "Return ONLY a comma-separated list of 1-3 category names on one line (no extra text).\n"
+        "Rules:\n"
+        "- A category is the clinical topic a hospitalist would shelve the paper under, NOT a specialty.\n"
+        "- Prefer a diagnosis/condition (e.g. Pulmonary embolism, Community-acquired pneumonia, "
+        "Atrial fibrillation, Sepsis, Hyponatremia).\n"
+        "- When the paper is fundamentally about a test or imaging modality, use that "
+        "(e.g. Point-of-care ultrasound, Blood cultures, CT imaging).\n"
+        "- When it is about a cross-cutting principle of care, use that "
+        "(e.g. Transfusion strategy, Antibiotic duration, Goals of care, Fluid resuscitation).\n"
+        "- REUSE an existing category whenever the paper belongs in it, even if you would have "
+        "phrased the name differently. Create a NEW category only when nothing existing fits.\n"
+        "- New names: 1-4 words, sentence case (capitalize only the first word and proper "
+        "nouns/acronyms), singular where natural, no abbreviations unless universally standard "
+        "(e.g. COPD, HIV, DKA).\n"
+        "- Most papers get exactly 1 category; use 2-3 only when it genuinely spans topics."
+    )
+
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": (
+            vocab_block
+            + f"TITLE:\n{title}\n\nABSTRACT:\n{abstract}\n\nReturn the category list."
+        ),
+        "reasoning": {"effort": "none"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 64,
+        "store": False,
+    }
+
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=max(5, int(timeout_s)),
+        max_attempts=max(1, int(max_attempts)),
+    )
+    r.raise_for_status()
+
+    raw = _parse_tag_list(_extract_output_text(r.json()))
+    return _canonicalize_categories(raw, existing)
+
+
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def gpt_extract_study_design(title: str, abstract: str) -> str:
     key = _openai_api_key()
@@ -3297,11 +3390,17 @@ def extract_and_store_guideline_metadata_azure(guideline_id: str, pdf_bytes: byt
     except Exception:
         spec = ""
 
+    try:
+        cat = gpt_extract_categories(gname or fn, snippet, get_all_categories(), timeout_s=15, max_attempts=1)
+    except Exception:
+        cat = ""
+
     existing = get_guideline_meta(gid) or {}
     final_name = (gname or "").strip() or (existing.get("guideline_name") or "").strip()
     final_society = (society or "").strip() or (existing.get("society") or "").strip()
     final_year = (year or "").strip() or (existing.get("pub_year") or "").strip()
     final_spec = (spec or "").strip() or (existing.get("specialty") or "").strip()
+    final_cat = (cat or "").strip() or (existing.get("category") or "").strip()
 
     update_guideline_metadata(
         guideline_id=gid,
@@ -3309,9 +3408,16 @@ def extract_and_store_guideline_metadata_azure(guideline_id: str, pdf_bytes: byt
         pub_year=final_year or None,
         specialty=final_spec or None,
         society=final_society or None,
+        category=final_cat or None,
     )
 
-    return {"guideline_name": final_name, "society": final_society, "pub_year": final_year, "specialty": final_spec}
+    return {
+        "guideline_name": final_name,
+        "society": final_society,
+        "pub_year": final_year,
+        "specialty": final_spec,
+        "category": final_cat,
+    }
 
 
 # ---------------- Review article extraction (PDF → verbatim high-yield sentences) ----------------
@@ -3556,6 +3662,15 @@ def review_assessment_and_plan(note: str) -> dict:
         "review THEIR A&P — not to write your own from scratch. The reader is a "
         "physician — clipped clinical shorthand, never explain basic medicine, no "
         "praise, no hedging, no safety boilerplate.\n"
+        "Their diagnoses and reasoning are NOT presumed correct — this physician "
+        "wants to be told when they are wrong. If the note's data doesn't support "
+        "a diagnosis, an attribution ('due to ...'), a problem's priority, or a "
+        "treatment choice, disagree directly: name the disputed call, the datum "
+        "that argues against it, and the better alternative. Put a disagreement "
+        "about the main problem in its 'comments', about a later problem in its "
+        "'suggestions', and about the overall framing of the case in "
+        "'other_thoughts'. Deference is a disservice; only agreement the data "
+        "earns.\n"
         "Return four sections:\n"
         "1. 'main_problem' — the FIRST problem in their A&P is the main problem.\n"
         "   * 'problem': their heading for it, verbatim.\n"

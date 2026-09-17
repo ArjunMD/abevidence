@@ -1,4 +1,5 @@
 import html
+import re
 from datetime import datetime, timedelta
 
 import streamlit as st
@@ -77,6 +78,34 @@ def _month_sort_value(item: dict[str, str]) -> int:
         if 1 <= n <= 12:
             return n
     return 0
+
+
+def _split_categories(raw: str) -> list[str]:
+    """Split a comma-separated category field into tags; items without any
+    category land in an 'Uncategorized' bucket at the end of the list."""
+    return ["Uncategorized" if c == "Unspecified" else c for c in _split_specialties(raw)]
+
+
+def _category_anchor_slugs(cats: list[str]) -> dict[str, str]:
+    """URL-safe, unique anchor ids for the category headers / TOC links."""
+    slugs: dict[str, str] = {}
+    used: set[str] = set()
+    for c in cats:
+        s = re.sub(r"[^a-z0-9]+", "-", c.lower()).strip("-") or "category"
+        base, n = s, 2
+        while s in used:
+            s = f"{base}-{n}"
+            n += 1
+        used.add(s)
+        slugs[c] = s
+    return slugs
+
+
+def _category_item_sort_key(item: dict[str, str]) -> tuple:
+    """Newest first within a category (year, then pub month), then title."""
+    y = (item.get("year") or "").strip()
+    year_num = int(y) if y.isdigit() else -1
+    return (-year_num, -_month_sort_value(item), (item.get("title") or "").lower())
 
 
 def _browse_item_sort_key(item: dict[str, str]) -> tuple:
@@ -206,7 +235,7 @@ def _render_browse_item_body(
 # toggles and search box reset to defaults when the visitor clicks "Back to studies".
 _BROWSE_PERSIST_KEYS = (
     "browse_sort_date_added",
-    "browse_by_specialty",
+    "browse_by_category",
     "browse_guidelines_only",
     "db_browse_any",
 )
@@ -241,9 +270,9 @@ def _render_browse_body() -> None:
             key="browse_sort_date_added",
         )
     with col_spec:
-        by_specialty = st.toggle(
-            "Browse by specialty",
-            key="browse_by_specialty",
+        by_category = st.toggle(
+            "Browse by category",
+            key="browse_by_category",
             disabled=sort_by_date_added,
         )
     with col_guide:
@@ -252,7 +281,7 @@ def _render_browse_body() -> None:
             key="browse_guidelines_only",
         )
     if sort_by_date_added:
-        by_specialty = False
+        by_category = False
     browse_q = st.text_input(
         "Search",
         placeholder="Search by drug, condition, or journal…",
@@ -341,28 +370,38 @@ def _render_browse_body() -> None:
                     )
         return
 
-    if by_specialty:
-        grouped: dict[str, dict[str, list[dict[str, str]]]] = {}
+    if by_category:
+        # One alphabetized section per category; a paper tagged with several
+        # categories appears in each of them. Sections are flat headers (not
+        # expanders) because the table of contents jumps via header anchors.
+        grouped: dict[str, list[dict[str, str]]] = {}
         for it in items:
-            year = (it.get("year") or "").strip() or "Unknown"
-            for spec in _split_specialties(it.get("specialty") or ""):
-                grouped.setdefault(spec, {}).setdefault(year, []).append(it)
+            for cat in _split_categories(it.get("category") or ""):
+                grouped.setdefault(cat, []).append(it)
 
-        specialties = sorted(grouped.keys(), key=lambda s: (s == "Unspecified", s.lower()))
+        cats = sorted(grouped.keys(), key=lambda c: (c == "Uncategorized", c.lower()))
+        slugs = _category_anchor_slugs(cats)
 
-        for spec in specialties:
-            years_map = grouped.get(spec, {})
-            years = sorted(years_map.keys(), key=_year_sort_key)
-            years = list(reversed(years))
+        st.markdown("#### Contents")
+        toc_cols = st.columns(3, gap="large")
+        per_col = -(-len(cats) // 3)  # ceil division
+        for i, col in enumerate(toc_cols):
+            chunk = cats[i * per_col : (i + 1) * per_col]
+            if not chunk:
+                continue
+            with col:
+                st.markdown(
+                    "\n".join(f"- [{c}](#{slugs[c]}) ({len(grouped[c])})" for c in chunk)
+                )
+        st.divider()
 
-            with st.expander(spec, expanded=bool(q)):
-                for y in years:
-                    st.markdown(f"**{y}**")
-                    rows = sorted(years_map.get(y, []), key=_browse_item_sort_key)
-                    for it in rows:
-                        _render_browse_item(it, allow_delete=can_delete, key_ns=f"spec_{spec}_{y}")
-
-                    st.markdown("")
+        for c in cats:
+            st.subheader(c, anchor=slugs[c])
+            rows = sorted(grouped[c], key=_category_item_sort_key)
+            for it in rows:
+                _render_browse_item(
+                    it, show_pub_date=True, allow_delete=can_delete, key_ns=f"cat_{slugs[c]}"
+                )
     else:
         by_year: dict[str, list[dict[str, str]]] = {}
         for it in items:
@@ -399,7 +438,7 @@ def render() -> None:
         "Welcome! Hospital Medicine Shelf is a library of clinical trials, meta-analyses, "
         "systematic reviews, and guidelines relevant to hospital medicine. Articles are listed "
         "most-recent-first by default (guidelines are grouped at the end of each year). You can "
-        "also browse by specialty, sort by date added, or search using the bar below. Click the "
+        "also browse by category, sort by date added, or search using the bar below. Click the "
         "🔎 on any study to open its summary, or see About to learn more. Thank you for visiting!"
     )
     _render_browse_body()

@@ -31,6 +31,7 @@ def _init_edit_fields(rec: dict[str, str], pmid: str) -> None:
     st.session_state[f"manage_outcomes_{pmid}"] = rec.get("outcomes") or ""
     st.session_state[f"manage_evidence_{pmid}"] = rec.get("evidence_base") or ""
     st.session_state[f"manage_specialty_{pmid}"] = rec.get("specialty") or ""
+    st.session_state[f"manage_category_{pmid}"] = rec.get("category") or ""
     st.session_state[marker] = True
 
 
@@ -127,6 +128,13 @@ def render() -> None:
                 )
 
                 st.text_input(
+                    "Categories",
+                    key=f"manage_category_{sel_pmid}",
+                    placeholder="e.g., Pulmonary embolism, Point-of-care ultrasound",
+                    help="Comma-separated browse categories (diagnoses, modalities, principles).",
+                )
+
+                st.text_input(
                     "Total patients",
                     key=f"manage_patient_n_{sel_pmid}",
                     placeholder="e.g., 250",
@@ -175,6 +183,9 @@ def render() -> None:
                     raw_spec = (st.session_state.get(f"manage_specialty_{sel_pmid}") or "").strip()
                     parsed_spec = _parse_tag_list(raw_spec) or None
 
+                    raw_cat = (st.session_state.get(f"manage_category_{sel_pmid}") or "").strip()
+                    parsed_cat = _parse_tag_list(raw_cat) or None
+
                     if raw_n and parsed_n is None:
                         st.error("Patient count must be a single integer (or leave blank).")
                     else:
@@ -189,6 +200,7 @@ def render() -> None:
                                 outcomes=parsed_outcomes,
                                 evidence_base=parsed_evidence,
                                 specialty=parsed_spec,
+                                category=parsed_cat,
                             )
                             # Reset the loaded marker so next rerun picks up fresh DB values
                             st.session_state.pop(f"_manage_edit_loaded_{sel_pmid}", None)
@@ -279,11 +291,12 @@ def render() -> None:
                 st.session_state[f"manage_gsociety_{sel_gid}"] = meta.get("society") or ""
                 st.session_state[f"manage_gyear_{sel_gid}"] = meta.get("pub_year") or ""
                 st.session_state[f"manage_gspec_{sel_gid}"] = meta.get("specialty") or ""
+                st.session_state[f"manage_gcat_{sel_gid}"] = meta.get("category") or ""
                 st.session_state[f"manage_gdisplay_{sel_gid}"] = get_guideline_recommendations_display(sel_gid) or ""
                 st.session_state[_gid_marker] = True
 
             # --- Editable metadata fields ---
-            gm1, gm2, gm3, gm4 = st.columns([2, 1, 1, 1], gap="medium")
+            gm1, gm2, gm3, gm4, gm5 = st.columns([2, 1, 1, 1, 1], gap="medium")
             with gm1:
                 st.text_input("Name", key=f"manage_gname_{sel_gid}", placeholder=meta.get("filename") or "Guideline name")
             with gm2:
@@ -292,6 +305,8 @@ def render() -> None:
                 st.text_input("Published year", key=f"manage_gyear_{sel_gid}", placeholder="e.g., 2023")
             with gm4:
                 st.text_input("Specialty", key=f"manage_gspec_{sel_gid}", placeholder="e.g., Cardiology, Critical Care")
+            with gm5:
+                st.text_input("Categories", key=f"manage_gcat_{sel_gid}", placeholder="e.g., Pulmonary embolism")
 
             # --- Editable recommendations display ---
             st.text_area(
@@ -310,6 +325,7 @@ def render() -> None:
                     society_raw = (st.session_state.get(f"manage_gsociety_{sel_gid}") or "").strip()
                     year_raw = (st.session_state.get(f"manage_gyear_{sel_gid}") or "").strip()
                     spec_raw = (st.session_state.get(f"manage_gspec_{sel_gid}") or "").strip()
+                    gcat_raw = (st.session_state.get(f"manage_gcat_{sel_gid}") or "").strip()
                     disp_raw = (st.session_state.get(f"manage_gdisplay_{sel_gid}") or "").strip()
 
                     year_parsed = _parse_year4(year_raw) if year_raw else ""
@@ -323,6 +339,7 @@ def render() -> None:
                                 pub_year=year_parsed or None,
                                 specialty=_parse_tag_list(spec_raw) or None,
                                 society=society_raw or None,
+                                category=_parse_tag_list(gcat_raw) or None,
                             )
                             update_guideline_recommendations_display(sel_gid, disp_raw)
                             st.session_state.pop(_gid_marker, None)

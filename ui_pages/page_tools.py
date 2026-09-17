@@ -7,36 +7,104 @@ from extract import acid_base_ai_interpretation
 from references_data import EMPIRIC_ABX_MD
 
 
+# Session-state keys for every lab the acid-base walk can ask for. Values
+# survive reruns even while a widget isn't rendered, so labs stay entered as
+# the walk's requests come and go.
+_AB_KEYS = {
+    "na": "tools_ab_na", "k": "tools_ab_k", "cl": "tools_ab_cl",
+    "hco3": "tools_ab_hco3", "glucose": "tools_ab_glu",
+    "pH": "tools_ab_ph", "pco2": "tools_ab_pco2",
+    "albumin": "tools_ab_alb", "lactate": "tools_ab_lac", "bhb": "tools_ab_bhb",
+    "phos": "tools_ab_phos", "ca": "tools_ab_ca", "mg": "tools_ab_mg",
+    "bun": "tools_ab_bun", "osm": "tools_ab_osm",
+}
+
+
+def _ab_kwargs() -> dict:
+    """Current value of every walk lab from session state (None if unset)."""
+    kw = {name: st.session_state.get(key) for name, key in _AB_KEYS.items()}
+    kw["vbg"] = st.session_state.get("tools_ab_gassrc") == "VBG"
+    return kw
+
+
 def _render_acid_base() -> None:
-    st.subheader("Acid-base")
+    st.subheader("Acid-base — traditional & physicochemical")
+    st.caption("Both tracks run on whatever you enter. Albumin and glucose "
+               "are assumed normal if blank.")
 
     def _num(col, label, key, step, fmt=None):
         return col.number_input(label, value=None, step=step, format=fmt,
                                 placeholder=label, label_visibility="collapsed",
                                 key=key)
 
-    c1, c2, c3 = st.columns(3)
-    ph = _num(c1, "pH", "tools_ab_ph", 0.01, "%.2f")
-    pco2 = _num(c2, "pCO₂ (mmHg)", "tools_ab_pco2", 1.0)
-    hco3 = _num(c3, "HCO₃⁻ (mmol/L)", "tools_ab_hco3", 1.0)
+    st.caption("Blood gas — pCO₂ is the respiratory determinant in both approaches")
+    g1, g2, g3, _ = st.columns(4)
+    _num(g1, "pH", "tools_ab_ph", 0.01, "%.2f")
+    _num(g2, "pCO₂ (mmHg)", "tools_ab_pco2", 1.0)
+    g3.selectbox("Gas source", ["ABG", "VBG"],
+                 key="tools_ab_gassrc", label_visibility="collapsed")
 
-    c4, c5, c6 = st.columns(3)
-    na = _num(c4, "Na⁺", "tools_ab_na", 1.0)
-    k = _num(c5, "K⁺", "tools_ab_k", 0.1, "%.1f")
-    cl = _num(c6, "Cl⁻", "tools_ab_cl", 1.0)
+    st.caption("Strong ions (SID)")
+    c1, c2, c3, c4 = st.columns(4)
+    _num(c1, "Na⁺", "tools_ab_na", 1.0)
+    _num(c2, "K⁺", "tools_ab_k", 0.1, "%.1f")
+    _num(c3, "Cl⁻", "tools_ab_cl", 1.0)
+    _num(c4, "Lactate mmol/L", "tools_ab_lac", 0.1, "%.1f")
+    c5, c6, _, _ = st.columns(4)
+    _num(c5, "Ionized Ca²⁺ mmol/L", "tools_ab_ca", 0.01, "%.2f")
+    _num(c6, "Mg²⁺ mg/dL", "tools_ab_mg", 0.1, "%.1f")
 
-    c7, c8, c9 = st.columns(3)
-    alb = _num(c7, "Albumin g/dL", "tools_ab_alb", 0.1, "%.1f")
-    lactate = _num(c8, "Lactate mmol/L", "tools_ab_lac", 0.1, "%.1f")
-    bhb = _num(c9, "β-hydroxybutyrate mmol/L", "tools_ab_bhb", 0.1, "%.1f")
+    st.caption("Bicarbonate & weak acids (Atot)")
+    c7, c8, c9, _ = st.columns(4)
+    _num(c7, "CO₂ (HCO₃⁻)", "tools_ab_hco3", 1.0)
+    _num(c8, "Albumin g/dL", "tools_ab_alb", 0.1, "%.1f")
+    _num(c9, "Phosphate mg/dL", "tools_ab_phos", 0.1, "%.1f")
 
-    c10, c11, c12 = st.columns(3)
-    glucose = _num(c10, "Glucose mg/dL", "tools_ab_glu", 1.0)
-    bun = _num(c11, "BUN mg/dL", "tools_ab_bun", 1.0)
-    creat = _num(c12, "Creatinine mg/dL", "tools_ab_cr", 0.1, "%.1f")
+    st.caption("Accessory — differential tools, not framework variables")
+    c10, c11, c12, c13 = st.columns(4)
+    _num(c10, "Glucose mg/dL", "tools_ab_glu", 1.0)
+    _num(c11, "β-hydroxybutyrate mmol/L", "tools_ab_bhb", 0.1, "%.1f")
+    _num(c12, "BUN mg/dL", "tools_ab_bun", 1.0)
+    _num(c13, "Measured osmolality mOsm/kg", "tools_ab_osm", 1.0)
 
-    c13, _, _ = st.columns(3)
-    osm = _num(c13, "Measured osmolality mOsm/kg", "tools_ab_osm", 1.0)
+    kw = _ab_kwargs()
+    anything = any(v is not None for n, v in kw.items() if n != "vbg")
+
+    # Live interpretation. Each step's arithmetic lives in a hover tooltip on
+    # the "?" badge, not in the visible line.
+    result = None
+    if anything:
+        result = interpret_acid_base(**kw)
+        for w in result["warnings"]:
+            st.warning(w)
+        st.markdown(
+            "<style>.ab-q{display:inline-block;width:1.1em;height:1.1em;"
+            "line-height:1.1em;text-align:center;border-radius:50%;"
+            "background:rgba(128,128,128,.25);font-size:.72em;font-weight:600;"
+            "cursor:help;vertical-align:super;}</style>",
+            unsafe_allow_html=True,
+        )
+        for sec in result["sections"]:
+            if not sec["steps"]:
+                continue
+            if sec["title"]:
+                st.markdown(f"**{sec['title']}**")
+            items = []
+            for s in sec["steps"]:
+                text = s["text"]
+                if s.get("calc"):
+                    calc = s["calc"].replace('"', "'").replace("\n", "&#10;")
+                    text += f' <span class="ab-q" title="{calc}">?</span>'
+                items.append(f"<li>{text}</li>")
+            st.markdown(
+                '<ul style="margin-bottom:0.5rem">' + "".join(items) + "</ul>",
+                unsafe_allow_html=True,
+            )
+        st.markdown(f"**Conclusion:** {result['headline']}")
+        if result.get("next"):
+            st.markdown(f"_{result['next']}_")
+        if result["differential"]:
+            st.markdown("\n".join(f"- {d}" for d in result["differential"]))
 
     context = st.text_input(
         "Clinical context (optional — adds an AI interpretation)",
@@ -45,37 +113,18 @@ def _render_acid_base() -> None:
         label_visibility="collapsed",
     )
 
-    if st.button("Interpret", type="primary", key="tools_ab_go"):
-        anything = any(v is not None for v in (ph, pco2, hco3, na, cl, k, alb,
-                                               lactate, bhb, glucose, bun, creat, osm))
-        if not anything and not context.strip():
-            st.warning("Enter at least a bicarbonate (or a clinical context).")
-            st.session_state.pop("tools_ab_result", None)
+    if st.button("AI interpretation", key="tools_ab_go"):
+        if not context.strip():
+            st.warning("Enter a clinical context for the AI layer.")
             st.session_state.pop("tools_ab_ai", None)
         else:
-            result = interpret_acid_base(ph, pco2, hco3, na, cl, alb,
-                                         lactate, bhb, glucose, bun, creat, osm,
-                                         k=k)
-            st.session_state["tools_ab_result"] = result
-            st.session_state.pop("tools_ab_ai", None)
-            if context.strip():
-                try:
-                    with st.spinner("AI interpreting the clinical context…"):
-                        st.session_state["tools_ab_ai"] = acid_base_ai_interpretation(
-                            context, result["summary"]
-                        )
-                except Exception as e:
-                    st.session_state["tools_ab_ai"] = {"error": str(e)}
-
-    result = st.session_state.get("tools_ab_result")
-    if not result:
-        return
-    for w in result["warnings"]:
-        st.warning(w)
-    st.markdown(f"**{result['headline']}**")
-    st.markdown("\n".join(f"- {s}" for s in result["steps"]))
-    if result["differential"]:
-        st.markdown("\n".join(f"- {d}" for d in result["differential"]))
+            try:
+                with st.spinner("AI interpreting the clinical context…"):
+                    st.session_state["tools_ab_ai"] = acid_base_ai_interpretation(
+                        context, result["summary"] if result else ""
+                    )
+            except Exception as e:
+                st.session_state["tools_ab_ai"] = {"error": str(e)}
 
     ai = st.session_state.get("tools_ab_ai")
     if ai:

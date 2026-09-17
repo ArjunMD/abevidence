@@ -12,6 +12,7 @@ from db import (
     get_hidden_pubmed_pmids,
     get_saved_pmids,
     list_clipboard,
+    purge_saved_clipboard,
     remove_clipboard,
 )
 
@@ -139,6 +140,9 @@ def _clean_pmid(raw: str) -> str:
 
 
 def _get_related_tray() -> list[dict[str, str]]:
+    # Auto-remove papers that have since been saved — the clipboard is a
+    # to-fetch list, so once a PMID is in the database it drops off the tray.
+    purge_saved_clipboard()
     return list_clipboard()
 
 
@@ -188,9 +192,20 @@ def _render_related_tray() -> None:
             if not pmid:
                 continue
             title = (it.get("title") or "").strip() or f"PMID {pmid}"
+            # One-click fetch: the ?open_abs_pmid deep-link (routed by app.py) jumps
+            # to Upload Abstract with this PMID pre-filled and auto-fetches it.
+            fetch_link = (
+                f"<a href='?open_abs_pmid={quote_plus(pmid)}' target='_self' "
+                f"title='Fetch this abstract on Upload Abstract' "
+                f"style='text-decoration:none; margin-left:0.3rem;'>📥</a>"
+            )
             c1, c2 = st.columns([18, 1], gap="small")
             with c1:
-                st.markdown(f"- [{title}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/) — `{pmid}`")
+                st.markdown(
+                    f"- <a href='https://pubmed.ncbi.nlm.nih.gov/{pmid}/' target='_blank'>"
+                    f"{html.escape(title)}</a> — <code>{pmid}</code>{fetch_link}",
+                    unsafe_allow_html=True,
+                )
             with c2:
                 if st.button("✕", key=f"related_rm_{pmid}", help="Remove from clipboard", type="tertiary"):
                     remove_clipboard(pmid)

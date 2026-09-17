@@ -120,6 +120,7 @@ def render() -> None:
         st.session_state["guideline_meta_society"] = (chosen.get("society") or "").strip()
         st.session_state["guideline_meta_year"] = (chosen.get("pub_year") or "").strip()
         st.session_state["guideline_meta_spec"] = (chosen.get("specialty") or "").strip()
+        st.session_state["guideline_meta_cat"] = (chosen.get("category") or "").strip()
 
     pending = st.session_state.pop("guideline_meta_pending", None)
     if isinstance(pending, dict) and (pending.get("gid") or "") == gid:
@@ -131,7 +132,7 @@ def render() -> None:
     st.divider()
     st.subheader("Guideline metadata")
 
-    m1, m2, m3, m4, m5 = st.columns([2, 1, 1, 1, 1], gap="large")
+    m1, m2, m3, m4, m5, m6 = st.columns([2, 1, 1, 1, 1, 1], gap="large")
 
     with m1:
         st.text_input("Name", key="guideline_meta_name", placeholder=chosen.get("filename") or "Guideline name")
@@ -141,13 +142,16 @@ def render() -> None:
         st.text_input("Published year", key="guideline_meta_year", placeholder="e.g., 2023")
     with m4:
         st.text_input("Specialty", key="guideline_meta_spec", placeholder="e.g., Cardiology, Critical Care")
-
     with m5:
+        st.text_input("Categories", key="guideline_meta_cat", placeholder="e.g., Pulmonary embolism")
+
+    with m6:
         if st.button("Save metadata (if changed)", type="primary", width="stretch", key="guideline_meta_save"):
             name_raw = (st.session_state.get("guideline_meta_name") or "").strip()
             society_raw = (st.session_state.get("guideline_meta_society") or "").strip()
             year_raw = (st.session_state.get("guideline_meta_year") or "").strip()
             spec_raw = (st.session_state.get("guideline_meta_spec") or "").strip()
+            cat_raw = (st.session_state.get("guideline_meta_cat") or "").strip()
 
             year_parsed = _parse_year4(year_raw) if year_raw else ""
             if year_raw and not year_parsed:
@@ -160,6 +164,7 @@ def render() -> None:
                         pub_year=year_parsed or None,
                         specialty=_parse_tag_list(spec_raw) or None,
                         society=society_raw or None,
+                        category=_parse_tag_list(cat_raw) or None,
                     )
                     st.success("Metadata saved.")
                     st.rerun()
