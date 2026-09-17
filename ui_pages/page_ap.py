@@ -3,6 +3,7 @@ import time
 import streamlit as st
 
 from extract import (
+    AP_EXAM_SYSTEMS,
     learn_from_case,
     related_saved_papers,
     review_assessment_and_plan,
@@ -74,6 +75,9 @@ def render() -> None:
     _render_other_problems(result.get("other_problems") or [])
     _render_missed_problems(result.get("missed_problems") or [])
     _render_other_thoughts(result.get("other_thoughts") or [])
+    pn = result.get("pertinent_negatives") or {}
+    _render_pertinent_ros(pn.get("ros") or [])
+    _render_pertinent_exam(pn.get("exam") or [])
     _render_hospitalization_reason(result.get("hospitalization_reason") or "")
 
     # Learn is a second, explicit click — the review lands first, and the
@@ -173,8 +177,61 @@ def _render_other_thoughts(thoughts: list[str]) -> None:
     st.markdown("\n".join(f"- {t}" for t in thoughts))
 
 
+def _group_negatives_by_diagnosis(items: list[dict], text_key: str) -> list[tuple[str, list[str]]]:
+    """Project the tagged negatives into (diagnosis, [items]) pairs, both in
+    first-seen order. An item tagged with several diagnoses appears under each."""
+    order: list[str] = []
+    groups: dict[str, list[str]] = {}
+    for it in items:
+        text = (it.get(text_key) or "").strip()
+        if not text:
+            continue
+        for dx in (it.get("diagnoses") or ["Other"]):
+            dx = (dx or "").strip() or "Other"
+            if dx not in groups:
+                groups[dx] = []
+                order.append(dx)
+            groups[dx].append(text)
+    return [(dx, groups[dx]) for dx in order]
+
+
+def _render_pertinent_ros(items: list[dict]) -> None:
+    st.subheader("5 · Pertinent negative review of systems")
+    if not items:
+        st.markdown("None suggested.")
+        return
+    for dx, symptoms in _group_negatives_by_diagnosis(items, "symptom"):
+        st.markdown(f"- **{dx}:** {', '.join(symptoms)}")
+    # The paste-into-note line: every symptom once, no diagnosis references.
+    sentence = "Review of systems is negative for " + ", ".join(
+        (it.get("symptom") or "").strip() for it in items if (it.get("symptom") or "").strip()
+    ) + "."
+    st.code(sentence, language=None)
+
+
+def _render_pertinent_exam(items: list[dict]) -> None:
+    st.subheader("6 · Pertinent negative physical exam")
+    if not items:
+        st.markdown("None suggested.")
+        return
+    for dx, findings in _group_negatives_by_diagnosis(items, "finding"):
+        st.markdown(f"- **{dx}:** {', '.join(findings)}")
+    # The paste-into-note block: one line per system, charting order.
+    lines = []
+    for system in AP_EXAM_SYSTEMS:
+        findings = [
+            (it.get("finding") or "").strip()
+            for it in items
+            if it.get("system") == system and (it.get("finding") or "").strip()
+        ]
+        if findings:
+            lines.append(f"{system}: {', '.join(findings)}")
+    if lines:
+        st.code("\n".join(lines), language=None)
+
+
 def _render_saved_papers(papers: list[dict], seconds, error: str) -> None:
-    st.subheader("6 · Related saved papers")
+    st.subheader("8 · Related saved papers")
     if error:
         st.warning(f"Saved-papers check failed (the review above is unaffected): {error}")
         return
@@ -202,13 +259,13 @@ def _render_hospitalization_reason(reason: str) -> None:
     reason = reason.strip()
     if not reason:
         return
-    st.subheader("5 · Reason care requires hospitalization")
+    st.subheader("7 · Reason care requires hospitalization")
     # Plain text with a copy button — this line gets pasted back into the note.
     st.code(reason, language=None)
 
 
 def _render_new_literature(papers: list[dict], seconds, error: str) -> None:
-    st.subheader("7 · Suggested new literature")
+    st.subheader("9 · Suggested new literature")
     if error:
         st.warning(f"PubMed suggestion failed (everything above is unaffected): {error}")
         return
@@ -230,7 +287,7 @@ def _render_new_literature(papers: list[dict], seconds, error: str) -> None:
 
 
 def _render_learn(learn: dict, seconds, error: str) -> None:
-    st.subheader("8 · Pathophysiology")
+    st.subheader("10 · Pathophysiology")
     if error:
         st.warning(f"Debrief failed (everything above is unaffected): {error}")
         return
@@ -239,7 +296,7 @@ def _render_learn(learn: dict, seconds, error: str) -> None:
 
     great = (learn.get("great_doctor") or "").strip()
     if great:
-        st.subheader("9 · What a great doctor might do")
+        st.subheader("11 · What a great doctor might do")
         st.markdown(great)
     if seconds is not None:
         st.caption(f"Added {seconds:.1f}s to the analysis.")

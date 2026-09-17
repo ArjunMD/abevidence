@@ -3779,7 +3779,7 @@ def review_assessment_and_plan(note: str) -> dict:
         "'suggestions', and about the overall framing of the case in "
         "'other_thoughts'. Deference is a disservice; only agreement the data "
         "earns.\n"
-        "Return four sections:\n"
+        "Return these sections:\n"
         "1. 'main_problem' — the FIRST problem in their A&P is the main problem.\n"
         "   * 'problem': their heading for it, verbatim.\n"
         "   * 'comments': what they may have missed on this problem, particularly "
@@ -3814,6 +3814,27 @@ def review_assessment_and_plan(note: str) -> dict:
         "diuretics', 'IV antibiotics, supplemental O2', 'telemetry monitoring for "
         "arrhythmia'). Multiple reasons are fine. No diagnoses, no restating the "
         "assessment, no full sentence — services only.\n"
+        "6. 'pertinent_negatives' — first build a focused differential for this "
+        "presentation: the leading diagnoses still in play plus every can't-miss "
+        "diagnosis for this complaint (even ones the A&P already dismissed). Then "
+        "list the pertinent NEGATIVES worth documenting to address that "
+        "differential:\n"
+        "   * 'ros': symptoms whose absence argues against a differential "
+        "diagnosis. Each item: 'symptom' — the bare symptom name in lowercase "
+        "(e.g. 'hemoptysis', 'orthopnea'; no leading 'no') — and 'diagnoses': the "
+        "differential diagnoses that symptom's absence speaks to (short names).\n"
+        "   * 'exam': exam findings whose absence does the same. Each item: "
+        "'finding' phrased exactly as it would be charted as a negative (e.g. 'no "
+        "JVD', 'nontender abdomen', 'no focal deficits'), 'system' — exactly one "
+        "of General, Neuro, ENT, Eyes, CV, Pulm, Abd, Ext, Other — and "
+        "'diagnoses' as above.\n"
+        "   * Be selective: these get charted, so list what a careful attending "
+        "would actually document — roughly 8-12 ros symptoms and 8-12 exam "
+        "findings TOTAL, each earning its place against a named diagnosis. Not an "
+        "exhaustive template review. Every can't-miss diagnosis must be "
+        "represented by at least one item. NEVER list as a negative anything the "
+        "note documents as present or abnormal, and skip negatives that only "
+        "restate a workup the note already resolved definitively.\n"
         "Rules:\n"
         "- Reason only from the note; if a pivotal datum is missing, say so rather "
         "than inventing it.\n"
@@ -3825,7 +3846,9 @@ def review_assessment_and_plan(note: str) -> dict:
         '["...", ...]}, "other_problems": [{"problem": "...", '
         '"suggestions": ["...", ...]}], "missed_problems": [{"problem": "...", '
         '"why": "..."}], "other_thoughts": ["...", ...], '
-        '"hospitalization_reason": "..."}'
+        '"hospitalization_reason": "...", "pertinent_negatives": {"ros": '
+        '[{"symptom": "...", "diagnoses": ["...", ...]}, ...], "exam": '
+        '[{"finding": "...", "system": "...", "diagnoses": ["...", ...]}, ...]}}'
     )
     # The one call in the app that gets the strongest model at its top reasoning
     # effort — clinical reasoning is what this tool sells, and it runs once per
@@ -3885,6 +3908,55 @@ def review_assessment_and_plan(note: str) -> dict:
         "other_thoughts": _str_list(data.get("other_thoughts")),
         # Comes back as a line, but the model sometimes lists the reasons.
         "hospitalization_reason": ", ".join(_str_list(data.get("hospitalization_reason"))),
+        "pertinent_negatives": _parse_pertinent_negatives(data.get("pertinent_negatives")),
+    }
+
+
+# Fixed charting order for the exam-by-system view; anything the model labels
+# outside this vocabulary is folded into Other.
+AP_EXAM_SYSTEMS = ("General", "Neuro", "ENT", "Eyes", "CV", "Pulm", "Abd", "Ext", "Other")
+
+
+def _parse_pertinent_negatives(raw) -> dict:
+    """Normalize the pertinent-negatives block of the A&P review. Each ROS/exam
+    item carries the differential diagnoses it addresses (and, for exam, a
+    system), so the page can project both requested views — grouped by diagnosis
+    and the merged line / by-system lines — from one deduplicated item list.
+    Duplicate symptoms/findings are merged, pooling their diagnoses."""
+    if not isinstance(raw, dict):
+        return {"ros": [], "exam": []}
+
+    system_canon = {s.lower(): s for s in AP_EXAM_SYSTEMS}
+
+    def _merge(items, text_key: str, keep_system: bool) -> list[dict]:
+        out: list[dict] = []
+        by_key: dict[str, dict] = {}
+        for it in items or []:
+            if not isinstance(it, dict):
+                continue
+            text = str(it.get(text_key) or "").strip()
+            if not text:
+                continue
+            key = text.lower()
+            entry = by_key.get(key)
+            if entry is None:
+                entry = {text_key: text, "diagnoses": []}
+                if keep_system:
+                    entry["system"] = system_canon.get(
+                        str(it.get("system") or "").strip().lower(), "Other"
+                    )
+                by_key[key] = entry
+                out.append(entry)
+            seen_dx = {d.lower() for d in entry["diagnoses"]}
+            for d in _str_list(it.get("diagnoses")):
+                if d.lower() not in seen_dx:
+                    seen_dx.add(d.lower())
+                    entry["diagnoses"].append(d)
+        return out
+
+    return {
+        "ros": _merge(raw.get("ros"), "symptom", keep_system=False),
+        "exam": _merge(raw.get("exam"), "finding", keep_system=True),
     }
 
 
