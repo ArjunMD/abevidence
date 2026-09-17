@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 # ---- imports from db layer (must exist in db.py) ----
 from db import (
     get_all_categories,
+    get_category_specialties,
+    set_category_specialty,
     get_guideline_meta,
     get_record,
     get_saved_pmids,
@@ -2424,6 +2426,111 @@ def gpt_extract_categories(
     return _canonicalize_categories(raw, existing)
 
 
+# The fixed specialty vocabulary the browse hierarchy files categories under.
+# 'General' is reserved for systems-of-care topics (healthcare delivery, costs,
+# the practice of hospital medicine itself) — NOT a fallback for hard calls.
+CATEGORY_SPECIALTIES = (
+    "Cardiology", "Endocrinology", "Gastroenterology", "Hematology",
+    "Infectious Disease", "Nephrology", "Neurology", "Oncology", "Pulmonology",
+    "Rheumatology", "Critical Care", "Emergency Medicine", "Surgery",
+    "Obstetrics and Gynecology", "Psychiatry", "Dermatology", "Ophthalmology",
+    "Otolaryngology", "Urology", "Orthopedics", "General",
+)
+
+
+def gpt_classify_category_specialty(
+    categories: list[str],
+    timeout_s: int = 45,
+    max_attempts: int = 3,
+) -> dict[str, str]:
+    """Classify category NAMES (not papers) into the single specialty whose
+    clinicians own the topic. Returns {category: specialty}, only for categories
+    that came back with a valid specialty. Batched — one call classifies many."""
+    key = _openai_api_key()
+    if not key:
+        raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
+
+    cats = [c.strip() for c in (categories or []) if c.strip()]
+    if not cats:
+        return {}
+
+    allowed = ", ".join(CATEGORY_SPECIALTIES)
+    instructions = (
+        "You assign each clinical library category to exactly ONE specialty.\n"
+        f"Allowed specialties (use these exact spellings): {allowed}.\n"
+        "Rules:\n"
+        "- Pick the specialty whose clinicians most own the topic (the diagnosis, test, "
+        "or therapy). Examples: Pruritus -> Dermatology; Blood cultures -> Infectious "
+        "Disease; Mechanical ventilation -> Critical Care; Syncope -> Cardiology.\n"
+        "- 'General' is ONLY for systems-of-care and practice-of-medicine topics: "
+        "healthcare delivery/operations, costs, health literacy, medical education, "
+        "hospitalist workflow, prognostication/goals-of-care processes. Never use "
+        "'General' just because a clinical topic spans specialties — pick the best fit.\n"
+        "- Output ONLY a JSON object mapping every input category to its specialty."
+    )
+
+    payload = {
+        "model": _openai_model(),
+        "instructions": instructions,
+        "input": "CATEGORIES:\n" + "\n".join(cats) + "\n\nReturn the JSON object.",
+        "reasoning": {"effort": "none"},
+        "text": {"verbosity": "low"},
+        "max_output_tokens": 2400,
+        "store": False,
+    }
+
+    r = _post_with_retries(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=max(5, int(timeout_s)),
+        max_attempts=max(1, int(max_attempts)),
+    )
+    r.raise_for_status()
+
+    raw = (_extract_output_text(r.json()) or "").strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw[:4].lower() == "json":
+            raw = raw[4:]
+        raw = raw.strip()
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    valid = {s.lower(): s for s in CATEGORY_SPECIALTIES}
+    wanted = {c.lower(): c for c in cats}
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        cat = wanted.get(str(k).strip().lower())
+        spec = valid.get(str(v).strip().lower())
+        if cat and spec:
+            out[cat] = spec
+    return out
+
+
+def ensure_category_specialties(tags_csv: str) -> None:
+    """Classify (and store) the specialty for any category in `tags_csv` that the
+    category_specialty table doesn't know yet. Called after a paper or guideline is
+    saved with categories, so the browse hierarchy stays complete as new categories
+    are coined. Failures are swallowed — the browse view has a vote-based fallback."""
+    tags = [t.strip() for t in (tags_csv or "").split(",") if t.strip()]
+    if not tags:
+        return
+    try:
+        known = get_category_specialties()
+        missing = [t for t in tags if t.lower() not in known]
+        if not missing:
+            return
+        for cat, spec in gpt_classify_category_specialty(missing).items():
+            set_category_specialty(cat, spec)
+    except Exception:
+        pass
+
+
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def gpt_extract_study_design(title: str, abstract: str) -> str:
     key = _openai_api_key()
@@ -3410,6 +3517,7 @@ def extract_and_store_guideline_metadata_azure(guideline_id: str, pdf_bytes: byt
         society=final_society or None,
         category=final_cat or None,
     )
+    ensure_category_specialties(final_cat)
 
     return {
         "guideline_name": final_name,

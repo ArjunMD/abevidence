@@ -15,7 +15,7 @@ from db import (
     update_guideline_recommendations_display,
     update_record,
 )
-from extract import _parse_nonneg_int, _parse_tag_list, _parse_year4
+from extract import _parse_nonneg_int, _parse_tag_list, _parse_year4, ensure_category_specialties
 
 
 def _init_edit_fields(rec: dict[str, str], pmid: str) -> None:
@@ -202,6 +202,7 @@ def render() -> None:
                                 specialty=parsed_spec,
                                 category=parsed_cat,
                             )
+                            ensure_category_specialties(parsed_cat or "")
                             # Reset the loaded marker so next rerun picks up fresh DB values
                             st.session_state.pop(f"_manage_edit_loaded_{sel_pmid}", None)
                             st.session_state["manage_paper_flash"] = f"Saved changes to PMID {sel_pmid}."
@@ -341,6 +342,7 @@ def render() -> None:
                                 society=society_raw or None,
                                 category=_parse_tag_list(gcat_raw) or None,
                             )
+                            ensure_category_specialties(_parse_tag_list(gcat_raw))
                             update_guideline_recommendations_display(sel_gid, disp_raw)
                             st.session_state.pop(_gid_marker, None)
                             st.session_state["manage_paper_flash"] = "Saved guideline changes."

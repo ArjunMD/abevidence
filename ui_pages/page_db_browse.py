@@ -1,5 +1,6 @@
 import html
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 
 import streamlit as st
@@ -7,6 +8,7 @@ import streamlit as st
 from db import (
     delete_guideline,
     delete_record,
+    get_category_specialties,
     list_browse_guideline_items,
     list_browse_items,
     search_guidelines,
@@ -86,12 +88,13 @@ def _split_categories(raw: str) -> list[str]:
     return ["Uncategorized" if c == "Unspecified" else c for c in _split_specialties(raw)]
 
 
-def _category_anchor_slugs(cats: list[str]) -> dict[str, str]:
-    """URL-safe, unique anchor ids for the category headers / TOC links."""
+def _anchor_slugs(names: list[str], prefix: str = "") -> dict[str, str]:
+    """URL-safe, unique anchor ids for headers / TOC links. A prefix keeps the
+    specialty and category anchor namespaces from colliding."""
     slugs: dict[str, str] = {}
     used: set[str] = set()
-    for c in cats:
-        s = re.sub(r"[^a-z0-9]+", "-", c.lower()).strip("-") or "category"
+    for c in names:
+        s = prefix + (re.sub(r"[^a-z0-9]+", "-", c.lower()).strip("-") or "section")
         base, n = s, 2
         while s in used:
             s = f"{base}-{n}"
@@ -99,6 +102,42 @@ def _category_anchor_slugs(cats: list[str]) -> dict[str, str]:
         used.add(s)
         slugs[c] = s
     return slugs
+
+
+def _group_categories_by_specialty(
+    grouped: dict[str, list[dict[str, str]]]
+) -> list[tuple[str, list[str]]]:
+    """Assign each category to ONE specialty. Primary source is the stored
+    category_specialty table (each category NAME is GPT-classified once, with
+    'General' reserved for systems-of-care topics). A category not classified yet
+    falls back to a majority vote over its items' specialty tags — winner needs
+    at least half the items, else 'General'. Returns [(specialty, [categories])]
+    with specialties alphabetized ('General' last) and categories alphabetized
+    within each specialty ('Uncategorized' last)."""
+    stored = get_category_specialties()
+    cat_spec: dict[str, str] = {}
+    for cat, its in grouped.items():
+        winner = stored.get(cat.lower(), "")
+        if not winner:
+            votes: Counter = Counter()
+            for it in its:
+                for sp in _split_specialties(it.get("specialty") or ""):
+                    if sp != "Unspecified":
+                        votes[sp] += 1
+            if votes:
+                top, top_votes = sorted(votes.items(), key=lambda kv: (-kv[1], kv[0].lower()))[0]
+                if top_votes / max(1, len(its)) >= 0.5:
+                    winner = top
+        cat_spec[cat] = winner or "General"
+
+    groups: dict[str, list[str]] = {}
+    for cat, sp in cat_spec.items():
+        groups.setdefault(sp, []).append(cat)
+
+    return [
+        (sp, sorted(groups[sp], key=lambda c: (c == "Uncategorized", c.lower())))
+        for sp in sorted(groups, key=lambda s: (s == "General", s.lower()))
+    ]
 
 
 def _category_item_sort_key(item: dict[str, str]) -> tuple:
@@ -371,37 +410,54 @@ def _render_browse_body() -> None:
         return
 
     if by_category:
-        # One alphabetized section per category; a paper tagged with several
-        # categories appears in each of them. Sections are flat headers (not
-        # expanders) because the table of contents jumps via header anchors.
+        # Categories grouped under specialty headings: each specialty is a top-level
+        # header, each category under it a subheader, papers listed beneath. A paper
+        # tagged with several categories appears in each of them. Sections are flat
+        # headers (not expanders) because the table of contents jumps via anchors.
         grouped: dict[str, list[dict[str, str]]] = {}
         for it in items:
             for cat in _split_categories(it.get("category") or ""):
                 grouped.setdefault(cat, []).append(it)
 
-        cats = sorted(grouped.keys(), key=lambda c: (c == "Uncategorized", c.lower()))
-        slugs = _category_anchor_slugs(cats)
+        spec_groups = _group_categories_by_specialty(grouped)
+        slugs = _anchor_slugs(list(grouped.keys()))
+        spec_slugs = _anchor_slugs([sp for sp, _ in spec_groups], prefix="sp-")
 
+        # TOC mirrors the hierarchy: bold specialty, its categories bulleted under
+        # it. Specialty blocks are kept intact and distributed over three columns,
+        # balanced by line count so the columns come out roughly even.
+        toc_blocks = [
+            f"**[{sp}](#{spec_slugs[sp]})**\n"
+            + "\n".join(f"- [{c}](#{slugs[c]}) ({len(grouped[c])})" for c in cats)
+            for sp, cats in spec_groups
+        ]
+        total_lines = sum(b.count("\n") + 2 for b in toc_blocks)
+        per_col = total_lines / 3
         st.markdown("#### Contents")
         toc_cols = st.columns(3, gap="large")
-        per_col = -(-len(cats) // 3)  # ceil division
+        col_idx, col_lines = 0, 0
+        col_content: list[list[str]] = [[], [], []]
+        for b in toc_blocks:
+            col_content[col_idx].append(b)
+            col_lines += b.count("\n") + 2
+            if col_lines >= per_col and col_idx < 2:
+                col_idx += 1
+                col_lines = 0
         for i, col in enumerate(toc_cols):
-            chunk = cats[i * per_col : (i + 1) * per_col]
-            if not chunk:
-                continue
-            with col:
-                st.markdown(
-                    "\n".join(f"- [{c}](#{slugs[c]}) ({len(grouped[c])})" for c in chunk)
-                )
+            if col_content[i]:
+                with col:
+                    st.markdown("\n\n".join(col_content[i]))
         st.divider()
 
-        for c in cats:
-            st.subheader(c, anchor=slugs[c])
-            rows = sorted(grouped[c], key=_category_item_sort_key)
-            for it in rows:
-                _render_browse_item(
-                    it, show_pub_date=True, allow_delete=can_delete, key_ns=f"cat_{slugs[c]}"
-                )
+        for sp, cats in spec_groups:
+            st.header(sp, anchor=spec_slugs[sp])
+            for c in cats:
+                st.subheader(c, anchor=slugs[c])
+                rows = sorted(grouped[c], key=_category_item_sort_key)
+                for it in rows:
+                    _render_browse_item(
+                        it, show_pub_date=True, allow_delete=can_delete, key_ns=f"cat_{slugs[c]}"
+                    )
     else:
         by_year: dict[str, list[dict[str, str]]] = {}
         for it in items:

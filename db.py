@@ -115,6 +115,18 @@ def ensure_schema() -> None:
             ON search_pubmed_ledger(last_checked_at DESC);
             """
         )
+        # Which specialty each browse category files under (GPT-classified once per
+        # category name; 'General' is reserved for systems-of-care topics). Keyed by
+        # the lowercased category so lookups are case-insensitive.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS category_specialty (
+                category_lc TEXT PRIMARY KEY,
+                specialty TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
 
 
 def save_record(
@@ -1178,6 +1190,35 @@ def get_all_categories() -> list[str]:
                 continue
             seen.setdefault(t.lower(), t)
     return sorted(seen.values(), key=str.lower)
+
+
+def get_category_specialties() -> dict[str, str]:
+    """{lowercased category: specialty} for every classified browse category."""
+    with _connect_db() as conn:
+        rows = conn.execute("SELECT category_lc, specialty FROM category_specialty;").fetchall()
+    return {
+        (r["category_lc"] or "").strip(): (r["specialty"] or "").strip()
+        for r in rows
+        if (r["category_lc"] or "").strip() and (r["specialty"] or "").strip()
+    }
+
+
+def set_category_specialty(category: str, specialty: str) -> None:
+    cat = (category or "").strip().lower()
+    spec = (specialty or "").strip()
+    if not cat or not spec:
+        return
+    with _connect_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO category_specialty (category_lc, specialty, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(category_lc) DO UPDATE SET
+                specialty=excluded.specialty,
+                updated_at=excluded.updated_at;
+            """,
+            (cat, spec, _utc_iso_z()),
+        )
 
 
 # ---------------- Dashboard queries ----------------

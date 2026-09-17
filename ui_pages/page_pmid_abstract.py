@@ -9,6 +9,7 @@ from extract import (
     get_s2_similar_papers,
     get_top_neighbors,
     gpt_classify_study,
+    ensure_category_specialties,
     gpt_extract_authors_conclusions,
     gpt_extract_categories,
     gpt_extract_patient_n,
@@ -284,6 +285,7 @@ def render() -> None:
                                     parsed_spec,
                                     parsed_cat,
                                 )
+                                ensure_category_specialties(parsed_cat or "")
                                 st.success("Saved.")
                                 st.rerun()
                             except Exception as e:
