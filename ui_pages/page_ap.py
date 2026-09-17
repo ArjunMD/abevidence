@@ -177,57 +177,34 @@ def _render_other_thoughts(thoughts: list[str]) -> None:
     st.markdown("\n".join(f"- {t}" for t in thoughts))
 
 
-def _group_negatives_by_diagnosis(items: list[dict], text_key: str) -> list[tuple[str, list[str]]]:
-    """Project the tagged negatives into (diagnosis, [items]) pairs, both in
-    first-seen order. An item tagged with several diagnoses appears under each."""
-    order: list[str] = []
-    groups: dict[str, list[str]] = {}
-    for it in items:
-        text = (it.get(text_key) or "").strip()
-        if not text:
-            continue
-        for dx in (it.get("diagnoses") or ["Other"]):
-            dx = (dx or "").strip() or "Other"
-            if dx not in groups:
-                groups[dx] = []
-                order.append(dx)
-            groups[dx].append(text)
-    return [(dx, groups[dx]) for dx in order]
-
-
 def _render_pertinent_ros(items: list[dict]) -> None:
+    """One deduplicated comma-separated line — a scan-and-select list, not a
+    paste artifact (the diagnosis tags stay backend-only)."""
     st.subheader("5 · Pertinent negative review of systems")
-    if not items:
+    symptoms = [(it.get("symptom") or "").strip() for it in items if (it.get("symptom") or "").strip()]
+    if not symptoms:
         st.markdown("None suggested.")
         return
-    for dx, symptoms in _group_negatives_by_diagnosis(items, "symptom"):
-        st.markdown(f"- **{dx}:** {', '.join(symptoms)}")
-    # The paste-into-note line: every symptom once, no diagnosis references.
-    sentence = "Review of systems is negative for " + ", ".join(
-        (it.get("symptom") or "").strip() for it in items if (it.get("symptom") or "").strip()
-    ) + "."
-    st.code(sentence, language=None)
+    st.markdown("Review of systems is negative for " + ", ".join(symptoms) + ".")
 
 
 def _render_pertinent_exam(items: list[dict]) -> None:
+    """One comma-separated line, findings kept in charting order by system."""
     st.subheader("6 · Pertinent negative physical exam")
-    if not items:
-        st.markdown("None suggested.")
-        return
-    for dx, findings in _group_negatives_by_diagnosis(items, "finding"):
-        st.markdown(f"- **{dx}:** {', '.join(findings)}")
-    # The paste-into-note block: one line per system, charting order.
-    lines = []
+    findings = []
     for system in AP_EXAM_SYSTEMS:
-        findings = [
+        findings.extend(
             (it.get("finding") or "").strip()
             for it in items
             if it.get("system") == system and (it.get("finding") or "").strip()
-        ]
-        if findings:
-            lines.append(f"{system}: {', '.join(findings)}")
-    if lines:
-        st.code("\n".join(lines), language=None)
+        )
+    if not findings:
+        st.markdown("None suggested.")
+        return
+    line = ", ".join(findings) + "."
+    # Capitalize only the first character — .capitalize() would mangle acronyms
+    # ("no JVD" -> "no jvd").
+    st.markdown(line[0].upper() + line[1:])
 
 
 def _render_saved_papers(papers: list[dict], seconds, error: str) -> None:
