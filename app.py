@@ -71,6 +71,7 @@ _PAGES = {
 # nothing useful when clicked with no study selected.
 _PUBLIC_SIDEBAR_PAGES = {
     "Browse studies", "Tools", "RRT meds", "Assessment and Plan",
+    "Readmissions",  # password-gated inside the page
 }
 
 _IS_PUBLIC = is_public_mode()

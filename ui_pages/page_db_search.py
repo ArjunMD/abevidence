@@ -13,7 +13,6 @@ from db import (
     update_guideline_recommendations_display,
 )
 from extract import get_s2_similar_papers, get_top_neighbors
-from ui_pages.page_value_based_care import render_metrics_tagger
 from pages_shared import (
     BROWSE_MAX_ROWS,
     _delete_recs_from_guideline_md,
@@ -50,7 +49,7 @@ def render() -> None:
         forced_selected = {"type": "guideline", "guideline_id": open_gid}
 
     # All saved studies (papers + guidelines), most-recently-added first, in one
-    # searchable dropdown — like the Readmissions picker. Typing filters by title/meta.
+    # searchable dropdown. Typing filters by title/meta.
     items = list_browse_items(BROWSE_MAX_ROWS) + list_browse_guideline_items(BROWSE_MAX_ROWS)
     items.sort(key=lambda it: (it.get("uploaded_at") or ""), reverse=True)
 
@@ -171,10 +170,6 @@ def render() -> None:
         if abstract:
             with st.expander("Original abstract"):
                 _render_plain_text(abstract)
-
-        # Owner-only: tag this study for the Readmissions page without leaving this view.
-        if not is_public_mode():
-            render_metrics_tagger(selected_pmid, key_prefix=f"sstag_{selected_pmid}")
 
         # The related-paper clipboard is an owner curation aid (collect PMIDs to add
         # via Upload Abstract), so the 📋 buttons and tray are hidden in public mode.
