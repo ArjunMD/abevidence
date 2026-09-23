@@ -16,7 +16,8 @@ _AB_KEYS = {
     "pH": "tools_ab_ph", "pco2": "tools_ab_pco2",
     "albumin": "tools_ab_alb", "lactate": "tools_ab_lac", "bhb": "tools_ab_bhb",
     "phos": "tools_ab_phos", "ca": "tools_ab_ca", "mg": "tools_ab_mg",
-    "bun": "tools_ab_bun", "osm": "tools_ab_osm",
+    "bun": "tools_ab_bun", "osm": "tools_ab_osm", "be": "tools_ab_be",
+    "urine_cl": "tools_ab_ucl",
 }
 
 
@@ -28,23 +29,25 @@ def _ab_kwargs() -> dict:
 
 
 def _render_acid_base() -> None:
-    st.subheader("Acid-base — traditional & physicochemical")
-    st.caption("Both tracks run on whatever you enter. Albumin and glucose "
-               "are assumed normal if blank.")
+    st.subheader("Acid-base — Boston, Copenhagen & Stewart")
+    st.caption("Boston, Copenhagen and Stewart all run on whatever you "
+               "enter. Albumin and glucose are assumed normal if blank.")
 
     def _num(col, label, key, step, fmt=None):
         return col.number_input(label, value=None, step=step, format=fmt,
                                 placeholder=label, label_visibility="collapsed",
                                 key=key)
 
-    st.caption("Blood gas — pCO₂ is the respiratory determinant in both approaches")
-    g1, g2, g3, _ = st.columns(4)
+    st.caption("Blood gas — pCO₂ is the respiratory determinant in every approach")
+    g1, g2, g3, g4 = st.columns(4)
     _num(g1, "pH", "tools_ab_ph", 0.01, "%.2f")
     _num(g2, "pCO₂ (mmHg)", "tools_ab_pco2", 1.0)
-    g3.selectbox("Gas source", ["ABG", "VBG"],
+    _num(g3, "Base excess (analyzer)", "tools_ab_be", 0.1, "%.1f")
+    g4.selectbox("Gas source", ["ABG", "VBG"],
                  key="tools_ab_gassrc", label_visibility="collapsed")
 
-    st.caption("Strong ions (SID)")
+    st.caption("Strong ions (SID) — Na⁺, K⁺, Cl⁻ mEq/L · lactate mmol/L · "
+               "ionized Ca²⁺ mmol/L · Mg²⁺ mg/dL")
     c1, c2, c3, c4 = st.columns(4)
     _num(c1, "Na⁺", "tools_ab_na", 1.0)
     _num(c2, "K⁺", "tools_ab_k", 0.1, "%.1f")
@@ -54,24 +57,31 @@ def _render_acid_base() -> None:
     _num(c5, "Ionized Ca²⁺ mmol/L", "tools_ab_ca", 0.01, "%.2f")
     _num(c6, "Mg²⁺ mg/dL", "tools_ab_mg", 0.1, "%.1f")
 
-    st.caption("Bicarbonate & weak acids (Atot)")
+    st.caption("Bicarbonate & weak acids (Atot) — CO₂ mEq/L · albumin g/dL · "
+               "phosphate mg/dL. If your lab reports in mmol/L: Mg × 2.43, "
+               "phosphate × 3.1 → mg/dL.")
     c7, c8, c9, _ = st.columns(4)
     _num(c7, "CO₂ (HCO₃⁻)", "tools_ab_hco3", 1.0)
     _num(c8, "Albumin g/dL", "tools_ab_alb", 0.1, "%.1f")
     _num(c9, "Phosphate mg/dL", "tools_ab_phos", 0.1, "%.1f")
 
-    st.caption("Accessory — differential tools, not framework variables")
+    st.caption("Accessory — differential tools, not framework variables: "
+               "glucose mg/dL · β-hydroxybutyrate mmol/L · BUN mg/dL · "
+               "osmolality mOsm/kg · urine Cl⁻ mEq/L")
     c10, c11, c12, c13 = st.columns(4)
     _num(c10, "Glucose mg/dL", "tools_ab_glu", 1.0)
     _num(c11, "β-hydroxybutyrate mmol/L", "tools_ab_bhb", 0.1, "%.1f")
     _num(c12, "BUN mg/dL", "tools_ab_bun", 1.0)
     _num(c13, "Measured osmolality mOsm/kg", "tools_ab_osm", 1.0)
+    c14, _, _, _ = st.columns(4)
+    _num(c14, "Urine Cl⁻ mEq/L", "tools_ab_ucl", 1.0)
 
     kw = _ab_kwargs()
     anything = any(v is not None for n, v in kw.items() if n != "vbg")
 
-    # Live interpretation. Each step's arithmetic lives in a hover tooltip on
-    # the "?" badge, not in the visible line.
+    # Live interpretation. Each first-order value is a bullet with its
+    # plugged-in formula beneath it; corrections nest under it. Mechanism
+    # notes sit in a hover tooltip on the "?" badge.
     result = None
     if anything:
         result = interpret_acid_base(**kw)
@@ -81,23 +91,48 @@ def _render_acid_base() -> None:
             "<style>.ab-q{display:inline-block;width:1.1em;height:1.1em;"
             "line-height:1.1em;text-align:center;border-radius:50%;"
             "background:rgba(128,128,128,.25);font-size:.72em;font-weight:600;"
-            "cursor:help;vertical-align:super;}</style>",
+            "cursor:help;vertical-align:super;}"
+            ".ab-calc{display:block;opacity:.65;font-size:.85em;"
+            "font-family:ui-monospace,Menlo,monospace;}"
+            ".ab ul{margin:0 0 .25rem 0;}</style>",
             unsafe_allow_html=True,
         )
+
+        def _item(s: dict) -> str:
+            text = s["text"]
+            if s.get("note"):
+                note = s["note"].replace('"', "'")
+                text += f' <span class="ab-q" title="{note}">?</span>'
+            if s.get("calc"):
+                calc = s["calc"].replace("\n", "<br>")
+                text += f'<span class="ab-calc">{calc}</span>'
+            return text
+
         for sec in result["sections"]:
             if not sec["steps"]:
                 continue
             if sec["title"]:
                 st.markdown(f"**{sec['title']}**")
-            items = []
+            html, open_sub = [], False
             for s in sec["steps"]:
-                text = s["text"]
-                if s.get("calc"):
-                    calc = s["calc"].replace('"', "'").replace("\n", "&#10;")
-                    text += f' <span class="ab-q" title="{calc}">?</span>'
-                items.append(f"<li>{text}</li>")
+                if s.get("level", 0) == 0:
+                    if open_sub:
+                        html.append("</ul></li>")
+                        open_sub = False
+                    elif html:
+                        html.append("</li>")
+                    html.append(f"<li>{_item(s)}")
+                else:
+                    if not html:        # a correction with no parent line
+                        html.append("<li>")
+                    if not open_sub:
+                        html.append("<ul>")
+                        open_sub = True
+                    html.append(f"<li>{_item(s)}</li>")
+            html.append("</ul></li>" if open_sub else "</li>")
             st.markdown(
-                '<ul style="margin-bottom:0.5rem">' + "".join(items) + "</ul>",
+                '<div class="ab"><ol style="margin-bottom:0.5rem">'
+                + "".join(html) + "</ol></div>",
                 unsafe_allow_html=True,
             )
         st.markdown(f"**Conclusion:** {result['headline']}")

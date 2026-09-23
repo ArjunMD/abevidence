@@ -1,59 +1,66 @@
-"""Dual-track acid-base interpretation for the Tools page.
+"""Acid-base interpretation for the Tools page — three approaches, step by step.
 
-Pure arithmetic — no AI, no network. Two parallel tracks run on whatever
-values are entered (Seifter's merged view: they should tell the same story,
-and divergence is itself informative):
+Pure arithmetic — no AI, no network. Runs on whatever values are entered.
 
-  TRADITIONAL APPROACH (bicarbonate-centric / "Boston")
-      pH, pCO₂, bicarbonate, anion gap → primary disorder
-      (Henderson–Hasselbalch), compensation rules (Winter's etc.), delta
-      ratio, then the classical gap workup (ketones, glucose, osmolar gap).
-      Ends with its own synthesis.
+  BOSTON (physiological, bicarbonate-centred)
+      pH → culprit by Henderson–Hasselbalch → compensation (Winter's etc.).
+      Anion gap → albumin correction → delta ratio → ketones / osmolar gap.
 
-  PHYSICOCHEMICAL APPROACH (Stewart)
-      Base excess (or the bicarbonate deviation standing in without a gas),
-      then the metabolic independent variables — SIDa, Atot — with the
-      dependent SIDe ("should match SIDa") and the strong ion gap; then the
-      decomposition: water / chloride / K / lactate effects, albumin /
-      phosphate effects, and the residual ("does it add up?") with ketone
-      itemisation. Ends with its own synthesis. (pCO₂, the third independent
-      variable, is interpreted in the traditional track.)
+  COPENHAGEN (base excess)
+      Standard base excess (measured, or computed from the gas) → "40 + BE"
+      compensation rules.
 
-  SYNTHESIS — whether the two tracks agree, and fluid choice by SID.
+  STEWART (physicochemical) — pH is set by three independent variables: pCO₂,
+  the strong ion difference (SID) and the weak acids (Atot). HCO₃⁻ and H⁺ are
+  dependent. Done two ways, which describe the same buffer base from two
+  reference points:
+    Simplified — Fencl–Story partitioning, in BE units. Split the base excess
+      into free-water, chloride, albumin and lactate effects; the remainder is
+      unmeasured anions (Stewart's anion gap). Already a deviation from normal,
+      so one value on one night reads directly.
+    Full — SIDa, SIDe, SIG, in absolute units. There is no universal normal
+      SIG; it is read against a healthy baseline run through these same
+      equations (≈7 here), and carries ±2–3 of measurement noise.
 
-Inputs mirror the frameworks: gas (pH, pCO₂), strong ions (Na, K, Cl,
-lactate, ± ionized Ca²⁺, Mg²⁺), bicarbonate + weak acids (CO₂, albumin,
-phosphate). Glucose, β-hydroxybutyrate, BUN and osmolality are accessory —
-differential tools, not framework variables. Albumin, glucose, phosphate,
-iCa²⁺ and Mg²⁺ are assumed normal when blank (stated wherever it matters);
-everything else is optional and the read uses what it has.
+  PUTTING IT TOGETHER — the story the partitioning tells, and whether the
+  unmeasured-anion measures agree. Naming the clinical picture is left to the
+  optional AI layer.
 
-Each step is {"text", "calc"}: text carries the finding and its value, calc
-the formula plus a one-line mechanism, for the UI to show on hover.
+Albumin, phosphate, iCa²⁺, Mg²⁺ and K⁺ are assumed normal when blank (stated
+wherever it matters); everything else is optional.
 
-Reference values: pH 7.40, pCO₂ 40 mmHg, HCO₃⁻ 24 mmol/L, Na 140, Cl 102
-(at Na 140), albumin 4.2 g/dL, phosphate 3.7 mg/dL, anion gap 12, lactate
-≈1 (upper 2), β-hydroxybutyrate <0.6 mmol/L, SIDa ≈ 42–46, SIDe ≈ 36–40,
-Atot charge ≈ 12–16 (all with the stated assumptions).
+Each step is {"text", "calc", "note", "level"}: text carries the finding and
+its meaning, calc the formula with the values plugged in (shown; one formula
+per line), note an optional mechanism/caveat (shown on hover), level 0 for a
+step and 1 for a correction beneath it.
 """
 
+NORMAL_PH = 7.40
 NORMAL_NA = 140.0
 NORMAL_CL = 102.0      # at a sodium of 140
 NORMAL_ALB = 4.2       # g/dL
 NORMAL_PHOS = 3.7      # mg/dL
 NORMAL_K = 4.0
+NORMAL_ICA = 1.2       # mmol/L
+NORMAL_MG = 2.0        # mg/dL
 NORMAL_HCO3 = 24.0
 NORMAL_AG = 12.0
 LACTATE_BASE = 1.0     # typical baseline lactate (mmol/L)
 LACTATE_UPPER = 2.0    # upper normal lactate (mmol/L)
 BHB_UPPER = 0.6        # upper normal β-hydroxybutyrate (mmol/L)
-PHOS_CHARGE_74 = 0.586  # mEq/L of charge per mg/dL of phosphate at pH 7.4
 
-# An individual effect below this magnitude (mEq/L) is noise; above MARKED it
-# is a major driver worth leading with.
+MG_TO_MEQ = 0.823      # Mg mg/dL → mEq/L
+PHOS_EFFECT = 0.586    # mEq/L of acid per mg/dL of phosphate above normal (pH 7.4)
+UREMIC_BUN = 60.0      # BUN (mg/dL) from which uremic anions are a named suspect
+PHOS_TO_MMOL = 0.323   # phosphate mg/dL → mmol/L
+
+# An individual effect below this magnitude (mEq/L) is minor; above MARKED it
+# is a major driver worth leading with. MODEST is the floor for naming a
+# contributor in the story line.
 SIG = 3.0
+BORDER = 4.0           # effects between SIG and this are called borderline
 MARKED = 6.0
-K_GROSS = 1.5          # |K−4| beyond which potassium gets its own line
+MODEST = 1.0
 
 # One-line differentials keyed by process. Kept short on purpose.
 _DIFFERENTIALS = {
@@ -65,29 +72,37 @@ _DIFFERENTIALS = {
     "nagma": "Hyperchloremic (low-SID) acidosis: saline/chloride-rich fluids, "
              "diarrhea, renal tubular acidosis, TPN, acetazolamide, ureteral "
              "diversion.",
-    "met_alk": "Chloride-depletion (high-SID) alkalosis: vomiting/NG suction, "
-               "loop and thiazide diuretics, hypokalemia, hyperaldosteronism, "
-               "milk-alkali.",
+    "alk_cl_resp": "High-SID alkalosis, chloride-responsive (urine Cl⁻ <20): "
+                   "vomiting/NG suction, prior diuretic use, post-hypercapnia.",
+    "alk_cl_resist": "High-SID alkalosis, chloride-resistant (urine Cl⁻ >20): "
+                     "mineralocorticoid excess (hyperaldosteronism, Cushing's), "
+                     "ongoing diuretics, severe hypokalemia, Bartter/Gitelman.",
+    "alk_load": "Alkali load: milk-alkali, bicarbonate, citrate (transfusion, "
+                "CRRT), acetate — especially with reduced GFR.",
     "hagma": "Unmeasured anions (GOLDMARK): glycols, oxoproline, L-/D-lactate, "
              "methanol, aspirin, renal failure, ketoacidosis.",
     "lactic": "Lactic acidosis: type A (sepsis, hypoperfusion, ischemia) or "
-              "type B (metformin, liver failure, malignancy, thiamine deficiency).",
+              "type B (metformin, ethanol metabolism, liver failure, malignancy, "
+              "thiamine deficiency).",
     "keto": "Ketoacidosis: diabetic, alcoholic, or starvation.",
     "unexplained": "Unexplained anions: toxic alcohols (methanol/ethylene "
                    "glycol — check osmolar gap), salicylates, uremia, "
                    "5-oxoproline.",
-    "osm": "Elevated osmolar gap: methanol, ethylene glycol, isopropanol "
-           "(also ethanol, mannitol, propylene glycol).",
+    "osm": "Elevated osmolar gap: ethanol; ketoacidosis or lactic acidosis "
+           "themselves (often 10–20); methanol, ethylene glycol, isopropanol, "
+           "mannitol, propylene glycol.",
     "resp_ac": "Respiratory acidosis: sedation/opioids, COPD/asthma, "
                "neuromuscular weakness, chest-wall/obesity hypoventilation.",
     "resp_alk": "Respiratory alkalosis: anxiety/pain, hypoxia, PE, sepsis, "
-                "salicylates, pregnancy, hepatic failure.",
+                "salicylates, alcohol withdrawal, pregnancy, hepatic failure.",
 }
 
 
 def _fmt(x: float) -> str:
-    """Whole numbers without a trailing '.0', one decimal otherwise."""
-    return f"{x:.0f}" if abs(x - round(x)) < 0.05 else f"{x:.1f}"
+    """Whole numbers without a trailing '.0', one decimal otherwise; a true
+    minus sign for negatives."""
+    s = f"{x:.0f}" if abs(x - round(x)) < 0.05 else f"{x:.1f}"
+    return "0" if s in ("-0", "-0.0") else s.replace("-", "−")
 
 
 def _sfmt(x: float) -> str:
@@ -97,23 +112,81 @@ def _sfmt(x: float) -> str:
     return ("+" if x > 0 else "−") + _fmt(abs(x))
 
 
+def _ph(x: float) -> str:
+    """pH always to two decimals."""
+    return f"{x:.2f}"
+
+
+def _paren_neg(x: float) -> str:
+    """A number safe to drop after a '+' in a formula: negatives bracketed."""
+    return f"({_fmt(x)})" if x < -0.05 else _fmt(x)
+
+
+def _sum_terms(vals: list[float]) -> str:
+    """'−0.6 − 13.7 + 5.5' — a running sum written out."""
+    out = ""
+    for i, v in enumerate(vals):
+        if i == 0:
+            out = _fmt(v)
+        else:
+            out += (" − " if v < 0 else " + ") + _fmt(abs(v))
+    return out
+
+
+def _direction(eff: float, acid: str, alk: str) -> str:
+    """Label an effect by the same ±SIG cut everywhere."""
+    def grade(x):
+        return (", major" if abs(x) >= MARKED else
+                " (borderline)" if abs(x) < BORDER else "")
+    if eff <= -SIG:
+        return f"acidifying — {acid}" + grade(eff)
+    if eff >= SIG:
+        return f"alkalinizing — {alk}" + grade(eff)
+    return "minor"
+
+
 def _standard_base_excess(pH: float, hco3: float) -> float:
-    """Standard base excess (mEq/L), Siggaard-Andersen / Van Slyke approximation.
-    Negative values are a base deficit. Estimated from a full gas — the analyzer
-    computes the same quantity from pH and HCO₃⁻."""
+    """Standard base excess (mEq/L), Van Slyke approximation — what the
+    analyzer computes from pH and HCO₃⁻. Negative is a base deficit."""
     return 0.9287 * (hco3 - 24.4 + 14.83 * (pH - 7.4))
+
+
+def _alb_charge(alb_gdl: float, pH: float) -> float:
+    """Albumin anionic charge (mEq/L), Figge–Fencl: albumin in g/L."""
+    return 10.0 * alb_gdl * (0.123 * pH - 0.631)
+
+
+def _phos_charge(phos_mgdl: float, pH: float) -> float:
+    """Phosphate anionic charge (mEq/L), Figge–Fencl: phosphate in mmol/L."""
+    return PHOS_TO_MMOL * phos_mgdl * (0.309 * pH - 0.469)
+
+
+def _sida(na, k, ica, mg, cl, lactate) -> float:
+    return na + k + 2.0 * ica + MG_TO_MEQ * mg - cl - lactate
+
+
+# A healthy person run through the same full-Stewart equations. There is no
+# universal normal SIG — this is the reference point this tool reads against.
+BASE_SIDA = _sida(NORMAL_NA, NORMAL_K, NORMAL_ICA, NORMAL_MG, NORMAL_CL, LACTATE_BASE)
+BASE_SIDE = (NORMAL_HCO3 + _alb_charge(NORMAL_ALB, NORMAL_PH)
+             + _phos_charge(NORMAL_PHOS, NORMAL_PH))
+BASE_SIG = BASE_SIDA - BASE_SIDE
+BASE_SID = NORMAL_NA + NORMAL_K - NORMAL_CL   # Na + K − Cl, first-order
 
 
 def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
               lactate=None, bhb=None, glucose=None, bun=None,
-              osm=None, k=None, vbg=False, ca=None, mg=None, phos=None) -> dict:
-    """Run both tracks on whatever values are supplied (all optional).
+              osm=None, k=None, vbg=False, ca=None, mg=None, phos=None,
+              be=None, urine_cl=None) -> dict:
+    """Run every approach on whatever values are supplied (all optional).
     vbg=True converts gas values to arterial estimates (pH +0.03, pCO₂ −5).
+    be is the analyzer's base excess; computed from the gas when absent.
+    urine_cl separates chloride-responsive from chloride-resistant alkalosis.
     Returns {headline, sections, differential, warnings, summary, next,
     needs}: sections is a list of {"title": str-or-None, "steps": [...]},
-    each step {"text", "calc"}; summary primes the optional AI layer; next
-    says what would sharpen the read; needs = {"gas": reason-or-None,
-    "split": [lab, ...]}."""
+    each step {"text", "calc", "note", "level"}; summary primes the optional
+    AI layer; next says what would sharpen the read; needs = {"gas":
+    reason-or-None, "split": [lab, ...]}."""
     warnings: list[str] = []
     resp_extras: list[str] = []   # superimposed disorders found on the gas
     processes: list[str] = []     # named metabolic components (Stewart side)
@@ -121,12 +194,15 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
 
     # section step lists, assembled into display order at the end
     s_pre: list[dict] = []      # untitled preamble (VBG note, derived HCO₃⁻)
-    s_trad: list[dict] = []     # traditional (bicarbonate-centric) track
-    s_phys: list[dict] = []     # physicochemical (Stewart) track
-    s_syn: list[dict] = []      # cross-track synthesis
+    s_bos: list[dict] = []      # Boston
+    s_cop: list[dict] = []      # Copenhagen
+    s_fs: list[dict] = []       # Stewart, simplified (Fencl–Story)
+    s_full: list[dict] = []     # Stewart, full (SIDa/SIDe/SIG)
+    s_syn: list[dict] = []      # putting it together
 
-    def add(sec: list, text: str, calc: str = None) -> None:
-        sec.append({"text": text, "calc": calc})
+    def add(sec: list, text: str, calc: str = None, note: str = None,
+            level: int = 0) -> None:
+        sec.append({"text": text, "calc": calc, "note": note, "level": level})
 
     # =====================================================================
     # Compute everything first; assemble the display afterwards.
@@ -159,32 +235,18 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
         warnings.append("Na⁺ outside 100–185 — recheck the value.")
     if cl is not None and (cl < 60 or cl > 140):
         warnings.append("Cl⁻ outside 60–140 — recheck the value.")
+    if be is not None and abs(be) > 30:
+        warnings.append("Base excess beyond ±30 — recheck the value.")
 
     # --- assumed-normal stand-ins (stated wherever they matter) ----------
     albumin_assumed = albumin is None
     alb_used = NORMAL_ALB if albumin_assumed else albumin
-    phos_assumed = phos is None
-    phos_used = NORMAL_PHOS if phos_assumed else phos
-    ph_used = pH if pH is not None else 7.4
-
-    # --- charges, SIDa / SIDe / Atot -------------------------------------
-    alb_charge = 10.0 * alb_used * (0.123 * ph_used - 0.631)
-    phos_charge = (phos_used / 3.1) * (0.309 * ph_used - 0.469)
-    atot_charge = alb_charge + phos_charge
-
-    sida = None
-    ion_assumed = []
-    if na is not None and k is not None and cl is not None:
-        ca_meq = 2.0 * (ca if ca is not None else 1.2)     # ionized, mmol/L → mEq/L
-        if ca is None:
-            ion_assumed.append("iCa²⁺ 1.2 mmol/L")
-        mg_meq = 0.823 * (mg if mg is not None else 2.0)   # total, mg/dL → mEq/L
-        if mg is None:
-            ion_assumed.append("Mg²⁺ 2.0 mg/dL")
-        sida = na + k + ca_meq + mg_meq - cl - (lactate if lactate is not None else 0.0)
-
-    side = hco3 + atot_charge if hco3 is not None else None
-    sig = sida - side if (sida is not None and side is not None) else None
+    phos_used = NORMAL_PHOS if phos is None else phos
+    ph_used = pH if pH is not None else NORMAL_PH
+    k_used = NORMAL_K if k is None else k
+    ca_used = NORMAL_ICA if ca is None else ca
+    mg_used = NORMAL_MG if mg is None else mg
+    lac_used = 0.0 if lactate is None else lactate
 
     # --- classical gap ----------------------------------------------------
     ag = None
@@ -195,116 +257,116 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
         corrected = ag + 2.5 * (NORMAL_ALB - alb_used)
         ag_elevated = corrected > NORMAL_AG
 
-    # --- metabolic base excess / bicarbonate deviation -------------------
+    # --- base excess (Copenhagen; the number Fencl–Story partitions) -----
+    be_source = None   # "measured" | "gas" | "hco3"
     sbe = None
-    if has_gas:
-        sbe = _standard_base_excess(pH, hco3)
+    if be is not None:
+        sbe, be_source = be, "measured"
+    elif has_gas:
+        sbe, be_source = _standard_base_excess(pH, hco3), "gas"
     elif hco3 is not None:
-        sbe = hco3 - NORMAL_HCO3
+        sbe, be_source = hco3 - NORMAL_HCO3, "hco3"
     dev = hco3 - NORMAL_HCO3 if hco3 is not None else None
+    be_name = "HCO₃⁻ deviation" if be_source == "hco3" else "BE"
 
-    # --- Stewart effect lines --------------------------------------------
-    water_eff = None
-    chloride_eff = None
-    k_eff = None
-    lactate_eff = None
-    alb_eff = None
-    phos_eff = None
-    residual = None
-    lac_elevated = lactate is not None and lactate > LACTATE_UPPER
-    keto_elevated = bhb is not None and bhb >= BHB_UPPER
-
+    # --- Fencl–Story effects ---------------------------------------------
+    water_eff = chloride_eff = alb_eff = lactate_eff = None
+    cl_corr = None
     if na is not None and na > 0:
         water_eff = 0.3 * (na - NORMAL_NA)
         if cl is not None:
-            chloride_eff = NORMAL_CL - cl * NORMAL_NA / na
-    if k is not None and abs(k - NORMAL_K) >= K_GROSS:
-        k_eff = k - NORMAL_K
-    if lactate is not None:
-        lactate_eff = -(lactate - LACTATE_BASE) if lactate > LACTATE_BASE else 0.0
-    if water_eff is not None or chloride_eff is not None:
+            cl_corr = cl * NORMAL_NA / na
+            chloride_eff = NORMAL_CL - cl_corr
         alb_eff = 2.5 * (NORMAL_ALB - alb_used)
-        if phos is not None:
-            phos_eff = PHOS_CHARGE_74 * (NORMAL_PHOS - phos)
-    if sbe is not None and water_eff is not None and chloride_eff is not None:
-        residual = (sbe - water_eff - chloride_eff
-                    - (alb_eff if alb_eff is not None else 0.0)
-                    - (phos_eff if phos_eff is not None else 0.0)
-                    - (k_eff if k_eff is not None else 0.0)
-                    - (lactate_eff if lactate_eff is not None else 0.0))
+    if lactate is not None:
+        lactate_eff = LACTATE_BASE - lactate
 
+    effects = [e for e in (water_eff, chloride_eff,
+                           None if albumin_assumed else alb_eff, lactate_eff)
+               if e is not None]
+    effects_sum = sum(effects) if effects else None
+    residual = None
+    if sbe is not None and water_eff is not None and chloride_eff is not None:
+        residual = sbe - effects_sum
+
+    if urine_cl is None:
+        alk_keys = ["alk_cl_resp", "alk_cl_resist"]
+    elif urine_cl < 20:
+        alk_keys = ["alk_cl_resp"]
+    else:
+        alk_keys = ["alk_cl_resist"]
+
+    lac_elevated = lactate is not None and lactate > LACTATE_UPPER
+    keto_elevated = bhb is not None and bhb >= BHB_UPPER
     unmeasured_present = residual is not None and residual <= -SIG
     borderline = None   # sub-threshold residual, named when it offsets a force
 
-    keto_explained = None
+    keto_explained = None     # β-hydroxybutyrate share alone
+    keto_total = None         # + acetoacetate, which BHB assays don't measure
     keto_unexplained = None
     if unmeasured_present and bhb is not None:
         keto_explained = max(0.0, bhb - BHB_UPPER)
-        keto_unexplained = -residual - keto_explained
+        keto_total = keto_explained * 4.0 / 3.0   # BHB:acetoacetate ≈ 3:1 (DKA)
+        keto_total_aka = keto_explained * 8.0 / 7.0   # ≈ 7:1 in alcoholic ketoacidosis
+
+    # Phosphate sits outside the four-term partition, so retained phosphate
+    # lands in the remainder; itemise it the way ketones are.
+    phos_share = PHOS_EFFECT * (phos - NORMAL_PHOS) if phos is not None and phos > NORMAL_PHOS else 0.0
+    if phos_share < 1:
+        phos_share = 0.0   # below display precision — don't subtract what isn't shown
+    uremic = bun is not None and bun >= UREMIC_BUN
+    if unmeasured_present and (bhb is not None or phos_share >= 1):
+        keto_unexplained = -residual - (keto_total or 0.0) - phos_share
+
+    # --- full Stewart ------------------------------------------------------
+    sid = sida = side = sig = sig_excess = None
+    alb_ch = _alb_charge(alb_used, ph_used)
+    phos_ch = _phos_charge(phos_used, ph_used)
+    if na is not None and cl is not None:
+        sid = na + k_used - cl
+        sida = _sida(na, k_used, ca_used, mg_used, cl, lac_used)
+    if hco3 is not None:
+        side = hco3 + alb_ch + phos_ch
+    if sida is not None and side is not None:
+        sig = sida - side
+        sig_excess = sig - BASE_SIG
 
     og = None
     if osm is not None and na is not None and glucose is not None and bun is not None:
         og = osm - (2 * na + glucose / 18.0 + bun / 2.8)
 
     # =====================================================================
-    # Preamble — gas conversions, shared by both tracks
+    # Preamble — gas conversions, shared by every approach
     # =====================================================================
     if vbg_applied:
         shown = []
         if pH is not None:
-            shown.append(f"pH → {_fmt(pH)}")
+            shown.append(f"pH → {_ph(pH)}")
         if pco2 is not None:
             shown.append(f"pCO₂ → {_fmt(pco2)}")
         add(s_pre,
             "VBG converted to arterial estimates: " + ", ".join(shown) + ".",
-            "pH + 0.03; pCO₂ − 5\nApproximate — agreement degrades in shock "
-            "and low-flow states.")
+            "pH + 0.03; pCO₂ − 5",
+            "Approximate — agreement degrades in shock and low-flow states.")
     if hco3_derived:
         add(s_pre,
             f"HCO₃⁻ derived from the gas = {_fmt(hco3)} mmol/L.",
-            "0.03×pCO₂×10^(pH−6.1)\nHenderson–Hasselbalch — the same "
-            "derivation the analyzer uses.")
+            f"0.03 × pCO₂ × 10^(pH − 6.1) = 0.03 × {_fmt(pco2)} × "
+            f"10^({_ph(pH)} − 6.1) = {_fmt(hco3)}",
+            "Henderson–Hasselbalch — the same derivation the analyzer uses.")
 
     # =====================================================================
-    # TRADITIONAL APPROACH (bicarbonate-centric)
+    # BOSTON — bicarbonate-centred
     # =====================================================================
+
+    # --- step: pH → culprit → compensation --------------------------------
+    primary = None
+    comp_note = None
     if pH is not None:
         status = ("acidemia" if pH < 7.35 else
                   "alkalemia" if pH > 7.45 else "normal")
-        add(s_trad, f"pH {_fmt(pH)} ({status}).",
-            "The dependent outcome both tracks explain.")
-    if pco2 is not None:
-        add(s_trad, f"pCO₂ {_fmt(pco2)}.",
-            "The respiratory determinant in both tracks\nCO₂ dissolves to "
-            "carbonic acid; ventilation sets it.")
-    if pH is None and pco2 is None:
-        add(s_trad, "pH / pCO₂ not entered — respiratory side unassessed.")
+        add(s_bos, f"pH {_ph(pH)} → {status} (normal 7.35–7.45).")
 
-    if hco3 is not None:
-        add(s_trad, f"Bicarbonate {_fmt(hco3)}.",
-            "The dependent metabolic readout. A normal value can still hide "
-            "offsetting forces — the Stewart residual shows them.")
-
-    if ag is not None:
-        text = f"Anion gap {_fmt(ag)}"
-        if not albumin_assumed and abs(corrected - ag) >= 0.05:
-            text += f", albumin-corrected {_fmt(corrected)}"
-        if corrected > 20:
-            text += " (there are unmeasured anions)."
-        elif ag_elevated:
-            text += " (suggests unmeasured anions)."
-        else:
-            text += " (normal)."
-        add(s_trad, text,
-            "Na − Cl − HCO₃⁻; corrected gap = AG + 2.5×(4.2 − albumin)\n"
-            "Classical unmeasured-anion estimate"
-            + (" — albumin assumed 4.2." if albumin_assumed else ".")
-            + "\nMild elevations (≈12–20) can be baseline/analyzer variation, "
-            "combined measurement error of three analytes, alkalemia, "
-            "hyperphosphatemia, or low K/Ca/Mg — a corrected gap >20 cannot.")
-
-    primary = None
-    comp_note = None
     if has_gas:
         hco3_low, hco3_high = hco3 < 22, hco3 > 26
         pco2_low, pco2_high = pco2 < 35, pco2 > 45
@@ -333,55 +395,146 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             else:
                 primary = "mixed disorder (normal pH with abnormal pCO₂/HCO₃⁻)"
 
-        add(s_trad, f"Primary disorder: {primary}.",
-            "pH = 6.1 + log(HCO₃⁻ / (0.03×pCO₂))\nHenderson–Hasselbalch — the "
-            "pH names the side, pCO₂ vs HCO₃⁻ names the culprit.")
+        def _band(x, lo, hi):
+            return "low" if x < lo else "high" if x > hi else "normal"
 
-        if primary in ("metabolic acidosis", "metabolic alkalosis"):
-            if primary == "metabolic acidosis":
+        add(s_bos,
+            f"pCO₂ {_fmt(pco2)} ({_band(pco2, 35, 45)}), HCO₃⁻ {_fmt(hco3)} "
+            f"({_band(hco3, 22, 26)}) → primary disorder: {primary}.",
+            None,
+            "pH = 6.1 + log(HCO₃⁻ / (0.03×pCO₂)). The pH names the side; "
+            "whichever of pCO₂ / HCO₃⁻ moved in that direction is the culprit.",
+            level=1)
+
+        met_acid_part = (primary in ("metabolic acidosis",
+                                     "combined metabolic and respiratory acidosis")
+                         or primary.startswith("mixed: metabolic acidosis"))
+        met_alk_part = (primary == "metabolic alkalosis"
+                        or primary.startswith("mixed: metabolic alkalosis"))
+        pure_met = primary in ("metabolic acidosis", "metabolic alkalosis")
+        if met_acid_part or met_alk_part:
+            if met_acid_part:
                 expected = 1.5 * hco3 + 8  # Winter's formula
-                calc = ("Expected pCO₂ = 1.5×HCO₃⁻ + 8 (±2)\nWinter's formula — "
-                        "the pCO₂ appropriate compensation should reach.\n"
-                        "Bedside shortcuts: pCO₂ ≈ last two digits of the pH; "
-                        "pCO₂ ≈ HCO₃⁻ + 15.")
+                calc = (f"1.5 × HCO₃⁻ + 8 = 1.5 × {_fmt(hco3)} + 8 = "
+                        f"{_fmt(expected)} (±2)")
+                note = ("Winter's formula. Bedside shortcuts: pCO₂ ≈ last two "
+                        "digits of the pH; pCO₂ ≈ HCO₃⁻ + 15.")
                 name = "Winter's"
             else:
                 expected = 0.7 * hco3 + 21  # expected pCO2 for metabolic alkalosis
-                calc = ("Expected pCO₂ = 0.7×HCO₃⁻ + 21 (±2)\nThe pCO₂ "
-                        "appropriate compensation should reach.")
-                name = "expected-pCO₂ rule"
-            text = (f"Compensation ({name}): expected pCO₂ {_fmt(expected)} ±2, "
+                calc = (f"0.7 × HCO₃⁻ + 21 = 0.7 × {_fmt(hco3)} + 21 = "
+                        f"{_fmt(expected)} (±2)")
+                note = "The pCO₂ appropriate respiratory compensation should reach."
+                name = "expected pCO₂"
+            text = (f"Compensation ({name}): expected pCO₂ {_fmt(expected)}, "
                     f"actual {_fmt(pco2)}")
-            if pco2 > expected + 2:
-                text += " → pCO₂ higher than expected: superimposed respiratory acidosis."
-                resp_extras.append("superimposed respiratory acidosis")
+            # beyond ±2 is outside the range; beyond ±4 is clearly outside
+            over = pco2 - round(expected, 1)
+            if over > 4:
+                ac = ("respiratory acidosis" if pco2 > 45 else
+                      "relative respiratory acidosis (compensation falling short)")
+                if pure_met:
+                    text += f" → pCO₂ too high: superimposed {ac}."
+                    resp_extras.append(f"superimposed {ac}")
+                else:
+                    text += " → pCO₂ above expected: a respiratory acidosis is present."
                 diff_keys.append("resp_ac")
-            elif pco2 < expected - 2:
-                text += " → pCO₂ lower than expected: superimposed respiratory alkalosis."
-                resp_extras.append("superimposed respiratory alkalosis")
+            elif over > 2:
+                text += (f" → {_fmt(over - 2)} above the range: borderline — "
+                         "respiratory compensation may be falling short.")
+                if pure_met:
+                    comp_note = "borderline — respiratory compensation may be falling short"
+            elif over < -4:
+                alk_r = ("respiratory alkalosis" if pco2 < 35 else
+                         "relative respiratory alkalosis")
+                if pure_met:
+                    text += f" → pCO₂ too low: superimposed {alk_r}."
+                    resp_extras.append(f"superimposed {alk_r}")
+                else:
+                    text += " → pCO₂ below expected: a respiratory alkalosis is present."
                 diff_keys.append("resp_alk")
+            elif over < -2:
+                text += (f" → {_fmt(-over - 2)} below the range: borderline — "
+                         "possibly a mild respiratory alkalosis.")
+                if pure_met:
+                    comp_note = "borderline — possibly a mild superimposed respiratory alkalosis"
             else:
                 text += " → appropriate respiratory compensation."
                 comp_note = "appropriate respiratory compensation"
-            add(s_trad, text, calc)
+            add(s_bos, text, calc, note, level=1)
+
+            # A normal-pH mixed picture can also be one compensated respiratory
+            # disorder; say what separates the two readings.
+            if primary.startswith("mixed: metabolic acidosis with respiratory alkalosis"):
+                chronic = NORMAL_HCO3 - 0.4 * (40 - pco2)
+                if hco3 < chronic - 2:
+                    t = (f"HCO₃⁻ {_fmt(hco3)} is below what a chronic respiratory "
+                         f"alkalosis alone would give (expected {_fmt(chronic)}) — "
+                         "a true metabolic acidosis on top.")
+                    add(s_bos, t,
+                        f"24 − 0.4 × (40 − pCO₂) = 24 − 0.4 × (40 − {_fmt(pco2)}) = "
+                        f"{_fmt(chronic)}", level=1)
+                    t = None
+                else:
+                    t = (f"HCO₃⁻ {_fmt(hco3)} alone also fits a chronic respiratory "
+                         f"alkalosis (expected {_fmt(chronic)}) — that's why the pH is "
+                         "normal")
+                if t is None:
+                    pass
+                elif corrected is not None and corrected > 20:
+                    t += ("; the " + ("anion gap" if albumin_assumed
+                                      else "corrected anion gap")
+                          + f" of {_fmt(corrected)} (step 2) is what proves a "
+                          "primary metabolic acidosis.")
+                else:
+                    t += ("; without a clearly elevated anion gap this may be a "
+                          "compensated chronic respiratory alkalosis, not two disorders.")
+                if t is not None:
+                    add(s_bos, t,
+                        f"24 − 0.4 × (40 − pCO₂) = 24 − 0.4 × (40 − {_fmt(pco2)}) = "
+                        f"{_fmt(chronic)}", level=1)
+            elif primary.startswith("mixed: metabolic alkalosis with respiratory acidosis"):
+                chronic = NORMAL_HCO3 + 0.35 * (pco2 - 40)
+                add(s_bos,
+                    (f"HCO₃⁻ {_fmt(hco3)} is above what a chronic respiratory "
+                     f"acidosis alone would give (expected {_fmt(chronic)}) — a "
+                     "true metabolic alkalosis on top."
+                     if hco3 > chronic + 2 else
+                     f"HCO₃⁻ {_fmt(hco3)} alone also fits a chronic respiratory "
+                     f"acidosis (expected {_fmt(chronic)}); the chloride effect "
+                     "below and the history separate a true metabolic alkalosis "
+                     "from compensation."),
+                    f"24 + 0.35 × (pCO₂ − 40) = 24 + 0.35 × ({_fmt(pco2)} − 40) = "
+                    f"{_fmt(chronic)}", level=1)
 
         elif primary in ("respiratory acidosis", "respiratory alkalosis"):
+            d = pco2 - 40
             if primary == "respiratory acidosis":
-                acute = NORMAL_HCO3 + 0.1 * (pco2 - 40)     # HCO3 rises 1 per 10 mmHg
-                chronic = NORMAL_HCO3 + 0.35 * (pco2 - 40)  # rises 3.5 per 10 mmHg
-                calc = ("Acute: 24 + 0.1×(pCO₂ − 40); chronic: 24 + "
-                        "0.35×(pCO₂ − 40)\nWhere the HCO₃⁻ should sit for the "
-                        "duration of the hypercapnia.\nΔpH shortcut: pH falls "
-                        "≈0.08 per 10 mmHg pCO₂ acutely, ≈0.03 chronically.")
+                acute = NORMAL_HCO3 + 0.1 * d     # HCO3 rises 1 per 10 mmHg
+                chronic = NORMAL_HCO3 + 0.35 * d  # rises 3.5 per 10 mmHg
+                calc = (f"acute: 24 + 0.1 × (pCO₂ − 40) = {_fmt(acute)}\n"
+                        f"chronic: 24 + 0.35 × (pCO₂ − 40) = {_fmt(chronic)}")
+                note = ("ΔpH shortcut: pH falls ≈0.08 per 10 mmHg pCO₂ acutely, "
+                        "≈0.03 chronically.")
             else:
-                acute = NORMAL_HCO3 - 0.2 * (40 - pco2)     # HCO3 falls 2 per 10 mmHg
-                chronic = NORMAL_HCO3 - 0.4 * (40 - pco2)   # falls 4 per 10 mmHg
-                calc = ("Acute: 24 − 0.2×(40 − pCO₂); chronic: 24 − "
-                        "0.4×(40 − pCO₂)\nWhere the HCO₃⁻ should sit for the "
-                        "duration of the hypocapnia.\nΔpH shortcut: pH rises "
-                        "≈0.08 per 10 mmHg pCO₂ drop acutely, ≈0.03 chronically.")
-            text = (f"Compensation: expected HCO₃⁻ acute ≈ {_fmt(acute)}, "
-                    f"chronic ≈ {_fmt(chronic)}, actual {_fmt(hco3)}")
+                acute = NORMAL_HCO3 + 0.2 * d     # HCO3 falls 2 per 10 mmHg
+                chronic = NORMAL_HCO3 + 0.4 * d   # falls 4 per 10 mmHg
+                calc = (f"acute: 24 − 0.2 × (40 − pCO₂) = {_fmt(acute)}\n"
+                        f"chronic: 24 − 0.4 × (40 − pCO₂) = {_fmt(chronic)}")
+                note = ("ΔpH shortcut: pH rises ≈0.08 per 10 mmHg pCO₂ drop "
+                        "acutely, ≈0.03 chronically.")
+            text = (f"Compensation: expected HCO₃⁻ acute {_fmt(acute)}, "
+                    f"chronic {_fmt(chronic)}, actual {_fmt(hco3)}")
+            straddle = abs(hco3 - acute) <= 2 and abs(hco3 - chronic) <= 2
+            straddle_text = (" → between the acute and chronic predictions: acute "
+                             "vs chronic hard to separate here")
+            # a metabolic force pushing HCO₃⁻ up blurs the call further
+            if straddle and alb_eff is not None and not albumin_assumed and alb_eff >= SIG:
+                straddle_text += (f"; the hypoalbuminemic alkalosis ({_sfmt(alb_eff)}) "
+                                  "also nudges HCO₃⁻ up, which can make "
+                                  + ("a chronic disorder look acute"
+                                     if primary == "respiratory alkalosis"
+                                     else "an acute disorder look chronic"))
             if primary == "respiratory acidosis":
                 if hco3 < acute - 2:
                     text += " → below acute expected: superimposed metabolic acidosis."
@@ -389,7 +542,10 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                 elif hco3 > chronic + 2:
                     text += " → above chronic expected: superimposed metabolic alkalosis."
                     resp_extras.append("superimposed metabolic alkalosis")
-                    diff_keys.append("met_alk")
+                    diff_keys.extend(alk_keys)
+                elif straddle:
+                    text += straddle_text + "."
+                    comp_note = "acute vs chronic hard to separate here"
                 elif hco3 <= acute + 2:
                     text += " → consistent with acute respiratory acidosis."
                     comp_note = "consistent with acute"
@@ -401,10 +557,13 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                 if hco3 > acute + 2:
                     text += " → above acute expected: superimposed metabolic alkalosis."
                     resp_extras.append("superimposed metabolic alkalosis")
-                    diff_keys.append("met_alk")
+                    diff_keys.extend(alk_keys)
                 elif hco3 < chronic - 2:
                     text += " → below chronic expected: superimposed metabolic acidosis."
                     resp_extras.append("superimposed metabolic acidosis")
+                elif straddle:
+                    text += straddle_text + "."
+                    comp_note = "acute vs chronic hard to separate here"
                 elif hco3 >= acute - 2:
                     text += " → consistent with acute respiratory alkalosis."
                     comp_note = "consistent with acute"
@@ -412,191 +571,247 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                     text += " → consistent with chronic (or partly compensated) respiratory alkalosis."
                     comp_note = "consistent with chronic (or partly compensated)"
                 diff_keys.append("resp_alk")
-            add(s_trad, text, calc)
-    elif pH is not None or pco2 is not None or hco3 is not None:
-        add(s_trad, "pH and pCO₂ needed for the primary-disorder and "
-                    "compensation analysis.")
+            add(s_bos, text, calc, note, level=1)
+    elif pH is not None:
+        add(s_bos, "pCO₂ needed to name the primary disorder and check "
+                   "compensation.", level=1)
+    elif hco3 is not None:
+        tag = ("low" if dev < -2 else "high" if dev > 2 else "normal")
+        add(s_bos, f"HCO₃⁻ {_fmt(hco3)} → {tag} (normal 22–26) — a gas is "
+                   "needed to separate a primary disorder from compensation.")
+    elif pco2 is not None:
+        add(s_bos, f"pCO₂ {_fmt(pco2)} — pH needed to interpret it.")
 
-    if corrected is not None and ag_elevated:
-        denom = NORMAL_HCO3 - hco3
-        if denom > 0.5:
-            dr = (corrected - NORMAL_AG) / denom
-            read = ("a concurrent non-gap component (chloride or dilutional)"
-                    if dr < 1 else
-                    "a pure high-gap acidosis" if dr <= 2 else
-                    "a concurrent alkalinizing process holding the HCO₃⁻ up")
-            add(s_trad,
-                f"Delta ratio {dr:.1f} → {read}.",
-                "(gap − 12)/(24 − HCO₃⁻)\nHow much the gap rose versus how far "
-                "the HCO₃⁻ fell.\nEquivalent form — corrected bicarbonate = "
-                "HCO₃⁻ + (gap − 12): >26 hidden metabolic alkalosis, "
-                "<22 concurrent non-gap acidosis.")
+    # In appropriately compensated respiratory disorders the kidney moves
+    # chloride (Stewart's compensation lever); that chloride shift is not a
+    # separate metabolic disorder.
+    chloride_is_comp = (
+        chloride_eff is not None and comp_note is not None and not resp_extras
+        and ((primary == "respiratory acidosis" and chloride_eff >= SIG)
+             or (primary == "respiratory alkalosis" and chloride_eff <= -SIG)))
 
-    # classical gap workup: ketones, glucose, osmolar gap
+    # --- step: anion gap → albumin → delta ratio → workup ----------------
+    if ag is not None:
+        tag = ("elevated: unmeasured anions" if ag > 20 else
+               "mildly elevated: possible unmeasured anions" if ag > NORMAL_AG else
+               "normal")
+        add(s_bos, f"Anion gap {_fmt(ag)} → {tag} (normal ≈ 12).",
+            f"Na − Cl − HCO₃⁻ = {_fmt(na)} − {_fmt(cl)} − {_fmt(hco3)} = {_fmt(ag)}",
+            "Mild elevations (≈12–20) can be baseline/analyzer variation, "
+            "combined measurement error of three analytes, alkalemia, "
+            "hyperphosphatemia, or low K/Ca/Mg — a gap >20 cannot.")
+        if albumin_assumed:
+            add(s_bos, "Albumin not entered — if it is low, the true gap is "
+                "higher than this.", level=1)
+        else:
+            if corrected > 20:
+                ctag = "unmeasured anions"
+            elif ag_elevated:
+                ctag = "mildly elevated"
+            else:
+                ctag = "normal"
+            unmask = (" — low albumin was hiding part of the gap"
+                      if corrected - ag >= 2 and corrected > NORMAL_AG else "")
+            add(s_bos, f"Albumin-corrected gap {_fmt(corrected)} → {ctag}{unmask}.",
+                f"AG + 2.5 × (4.2 − albumin) = {_fmt(ag)} + 2.5 × (4.2 − "
+                f"{_fmt(alb_used)}) = {_fmt(corrected)}",
+                "Albumin is the main unmeasured anion in the normal gap; each "
+                "1 g/dL drop lowers the gap by ≈2.5. Reference albumin here is "
+                "4.2 g/dL, the same as the Stewart albumin effect; many "
+                "references use 4.0 or 4.4 (4.0 would give "
+                f"{_fmt(ag + 2.5 * (4.0 - alb_used))}).", level=1)
+
+        if ag_elevated:
+            denom = NORMAL_HCO3 - hco3
+            if denom > 0.5:
+                dr = (corrected - NORMAL_AG) / denom
+                read = ("mostly a non-gap acidosis" if dr < 0.4 else
+                        "a gap acidosis plus a non-gap component (chloride or "
+                        "dilutional)" if dr < 0.8 else
+                        "consistent with a gap acidosis — at most a small non-gap "
+                        "component" if dr < 1 else
+                        "a pure high-gap acidosis" if dr <= 2 else
+                        "a concurrent metabolic alkalosis holding the HCO₃⁻ up")
+                why = []
+                if denom < 4:
+                    why.append(f"HCO₃⁻ fell only {_fmt(denom)}, so small changes "
+                               "swing the ratio")
+                if primary == "respiratory alkalosis":
+                    why.append("part of the HCO₃⁻ fall is compensation for the "
+                               "respiratory alkalosis")
+                elif primary == "respiratory acidosis":
+                    why.append("the HCO₃⁻ is shifted by compensation for the "
+                               "respiratory acidosis")
+                dtext = (f"Delta ratio {dr:.1f} — unreliable here ("
+                         + "; ".join(why) + "); the Stewart lines below explain "
+                         "the HCO₃⁻ better."
+                         if why else f"Delta ratio {dr:.1f} → {read}.")
+                add(s_bos, dtext,
+                    f"(gap − 12) / (24 − HCO₃⁻) = ({_fmt(corrected)} − 12) / "
+                    f"(24 − {_fmt(hco3)}) = {dr:.1f}",
+                    "How much the gap rose versus how far the HCO₃⁻ fell. <0.4: "
+                    "mostly non-gap; 0.4–0.8: gap plus non-gap; 0.8–2: gap acid "
+                    "alone; >2: something is holding the HCO₃⁻ up. Assumes a normal gap of 12; many "
+                    "modern analyzers run 8–10 (with 10 this would be "
+                    f"{(corrected - 10) / denom:.1f}).", level=1)
+
+    wk = 1 if ag is not None else 0   # workup nests under the gap when it exists
     if bhb is not None:
         if bhb >= 3:
-            kmsg = f"β-hydroxybutyrate {_fmt(bhb)} — ketoacidosis range (≥3)."
+            kmsg = f"β-hydroxybutyrate {_fmt(bhb)} → ketoacidosis range (≥3)"
         elif bhb >= BHB_UPPER:
-            kmsg = f"β-hydroxybutyrate {_fmt(bhb)} — ketosis (mildly elevated)."
+            kmsg = f"β-hydroxybutyrate {_fmt(bhb)} → ketosis (mildly elevated)"
         else:
-            kmsg = f"β-hydroxybutyrate {_fmt(bhb)} — within normal range."
+            kmsg = f"β-hydroxybutyrate {_fmt(bhb)} → normal (<0.6)"
         if keto_elevated and glucose is not None:
             if glucose > 250:
-                kmsg += f" With glucose {_fmt(glucose)} → consistent with DKA."
+                kmsg += f"; with glucose {_fmt(glucose)} → consistent with DKA"
             elif glucose < 200:
-                kmsg += (f" With glucose {_fmt(glucose)} → euglycemic ketoacidosis "
-                         "(SGLT2 inhibitor, starvation, alcohol, pregnancy).")
-        add(s_trad, kmsg)
+                kmsg += (f"; with glucose {_fmt(glucose)} → euglycemic ketoacidosis "
+                         "(SGLT2 inhibitor, starvation, alcohol, pregnancy)")
+        add(s_bos, kmsg + ".", level=wk)
         if keto_elevated:
             diff_keys.append("keto")
 
     if bhb is None and glucose is not None and glucose > 250:
-        add(s_trad, f"Glucose {_fmt(glucose)} elevated — check β-hydroxybutyrate "
-            "to assess for DKA.")
+        add(s_bos, f"Glucose {_fmt(glucose)} elevated — check β-hydroxybutyrate "
+            "to assess for DKA.", level=wk)
 
     if osm is not None:
         if og is not None:
-            calc = ("Measured − (2×Na + glucose/18 + BUN/2.8)\nUnaccounted "
-                    "osmoles suggest a toxic alcohol.")
+            calc = (f"measured − (2×Na + glucose/18 + BUN/2.8) = {_fmt(osm)} − "
+                    f"(2×{_fmt(na)} + {_fmt(glucose)}/18 + {_fmt(bun)}/2.8) = {_fmt(og)}")
             if og > 10:
-                add(s_trad,
-                    f"Osmolar gap {_fmt(og)} → elevated (>10): unmeasured osmoles — "
-                    "toxic alcohols (methanol, ethylene glycol, isopropanol); also "
-                    "ethanol, mannitol.", calc)
+                t = f"Osmolar gap {_fmt(og)} → elevated (>10)"
+                if (keto_elevated or lac_elevated) and og < 25:
+                    t += ("; ketoacidosis and lactic acidosis raise it on their "
+                          "own (often 10–20)")
+                elif og >= 25:
+                    t += "; too large for ketoacidosis or lactate alone"
+                t += (f"; an ethanol level of ≈{og * 3.7:.0f} mg/dL would explain "
+                      "it — check ethanol"
+                      + (" (though ethanol can't explain an anion gap)"
+                         if ag_elevated or unmeasured_present else ""))
+                t += ("; ≥20, toxic alcohols (methanol, ethylene glycol) are a real "
+                      "concern — send levels." if og >= 20 else
+                      "; toxic alcohols possible but not established.")
+                add(s_bos, t, calc + f"\nethanol equivalent = gap × 3.7 = "
+                    f"{og * 3.7:.0f} mg/dL",
+                    "Osmolar and anion gaps move in opposite directions over a "
+                    "toxic-alcohol course: early, the parent alcohol gives a high "
+                    "osmolar gap and little anion gap; late, the acid metabolites "
+                    "give a high anion gap as the osmolar gap falls. A normal "
+                    "osmolar gap later does not exclude poisoning.", level=wk)
                 diff_keys.append("osm")
             else:
-                add(s_trad, f"Osmolar gap {_fmt(og)} — not elevated (<10): toxic "
-                    "alcohols less likely.", calc)
+                add(s_bos, f"Osmolar gap {_fmt(og)} → not elevated (≤10): toxic "
+                    "alcohols less likely.", calc, level=wk)
         else:
-            add(s_trad, "Enter Na⁺, glucose, and BUN to compute the osmolar gap.")
-
-    # traditional synthesis
-    if has_gas and primary is not None:
-        prim_disp = primary
-        if ag_elevated and "metabolic acidosis" in primary:
-            prim_disp = primary.replace("metabolic acidosis",
-                                        "high-gap metabolic acidosis", 1)
-        syn = " + ".join([prim_disp] + resp_extras)
-        if comp_note:
-            syn += f" — {comp_note}"
-        add(s_trad, f"Synthesis: {syn}.")
-    elif hco3 is not None:
-        if dev < -2:
-            base = "metabolic acidosis"
-        elif dev > 2:
-            base = "metabolic alkalosis"
-        else:
-            base = "no bicarbonate shift"
-        if ag_elevated:
-            base += " with a high anion gap"
-        add(s_trad, f"Synthesis: {base} — gas needed to separate primary "
-            "from compensation.")
+            add(s_bos, "Enter Na⁺, glucose, and BUN to compute the osmolar gap.",
+                level=wk)
 
     # =====================================================================
-    # PHYSICOCHEMICAL APPROACH (Stewart)
+    # COPENHAGEN — base excess
     # =====================================================================
-    if has_gas:
-        add(s_phys,
-            f"Base excess ≈ {_sfmt(sbe)} mEq/L (net metabolic burden).",
-            "0.9287×(HCO₃⁻ − 24.4 + 14.83×(pH − 7.4))\nVan Slyke standard "
-            "base excess — the sum the effect lines below must explain. "
-            "pCO₂, the respiratory independent variable, is interpreted in "
-            "the traditional track.")
-    elif hco3 is not None:
-        add(s_phys,
-            f"Bicarbonate deviation {_sfmt(dev)} mEq/L (stand-in for base "
-            "excess; pCO₂ assumed ≈ 40).",
-            "HCO₃⁻ − 24\nWithout a gas the true base excess is not "
-            "computable; the effect lines below must explain this stand-in.")
-
-    if sida is not None:
-        low_causes = ("free-water excess, chloride excess"
-                      + (", or lactate" if lactate is not None else ""))
-        tag = ("high → chloride-depletion alkalosis, or unmeasured anions"
-               if sida > 46 else
-               f"low → strong-ion acidosis due to {low_causes}"
-               if sida < 42 else
-               "normal")
-        calc = ("Na + K + Ca + Mg − Cl" +
-                (" − lactate" if lactate is not None else "") +
-                " (mEq/L; normal ≈ 42–46)")
-        if ion_assumed:
-            calc += "\nAssumed: " + ", ".join(ion_assumed) + "."
-        calc += ("\nA low value is reliably acidifying; a high value can be "
-                 "alkalosis OR a large anion gap; a normal value can still "
-                 "hide offsetting effects — the decomposition below shows them.")
-        add(s_phys, f"SIDa {_fmt(sida)} ({tag}).", calc)
-
-    # Atot — the other metabolic independent variable. Interpretation rule:
-    # more weak acid = more acid; less = alkalosis. Its members move for
-    # non-acid-base reasons (albumin with illness, phosphate with renal
-    # failure), so a deranged Atot is an incidental force, never compensation.
-    if (not albumin_assumed) or (not phos_assumed) or side is not None:
-        if albumin_assumed and phos_assumed:
-            tag = "assumed normal — albumin/phosphate not entered"
-        elif atot_charge < 12:
-            tag = "low → hypoalbuminemic alkalosis; also masks the anion gap"
-        elif atot_charge > 16:
-            tag = "high → weak-acid acidosis (usually phosphate retention)"
+    if sbe is not None:
+        mtag = ("metabolic acidosis" if sbe < -2 else
+                "metabolic alkalosis" if sbe > 2 else
+                "no net metabolic change")
+        if primary in ("respiratory acidosis", "respiratory alkalosis") and abs(sbe) > 2:
+            mtag = ("raised" if sbe > 0 else "lowered") + " — see whether it is compensation"
+        if be_source == "measured":
+            add(s_cop, f"Base excess {_sfmt(sbe)} (analyzer) → {mtag} (normal ±2).",
+                None,
+                "Standard base excess — the metabolic component with the "
+                "respiratory part stripped out. One number for the whole "
+                "metabolic side.")
+        elif be_source == "gas":
+            add(s_cop, f"Base excess {_sfmt(sbe)} → {mtag} (normal ±2).",
+                f"0.9287 × (HCO₃⁻ − 24.4 + 14.83 × (pH − 7.4)) = 0.9287 × "
+                f"({_fmt(hco3)} − 24.4 + 14.83 × ({_ph(pH)} − 7.4)) = {_fmt(sbe)}",
+                "Van Slyke standard base excess, as the analyzer computes it. "
+                "Enter the analyzer's value to use it directly.")
         else:
-            tag = "normal"
-        add(s_phys, f"Atot charge {_fmt(atot_charge)} ({tag}).",
-            "Albumin charge 10×albumin×(0.123×pH − 0.631) + phosphate charge "
-            "(phosphate/3.1)×(0.309×pH − 0.469) (normal ≈ 12–16)\n"
-            "The weak-acid independent variable: more weak acid = more acid, "
-            "less = alkalosis. Low albumin is a true alkalinizing force (and "
-            "hides anions on an uncorrected gap); high phosphate (renal "
-            "failure) is a true acidosis. Decomposed below.")
+            add(s_cop, f"No gas — HCO₃⁻ deviation {_sfmt(sbe)} stands in for "
+                f"base excess → {mtag}.",
+                f"HCO₃⁻ − 24 = {_fmt(hco3)} − 24 = {_fmt(sbe)}",
+                "True base excess needs pH and pCO₂; this assumes pCO₂ ≈ 40.")
 
-    if side is not None:
-        if sida is not None:
-            tag = "should match SIDa"
-        else:
-            tag = ("buffer consumed — acid is present" if side < 36 else
-                   "alkalosis" if side > 40 else "normal")
-        add(s_phys, f"SIDe {_fmt(side)} ({tag}).",
-            "HCO₃⁻ + albumin charge + phosphate charge (normal ≈ 36–40)\n"
-            "The effective SID — the charge the dependent side actually "
-            "provides. In fully measured plasma SIDe = SIDa; unmeasured "
-            "anions open the gap."
-            + ("\nAlbumin assumed 4.2." if albumin_assumed else ""))
-
-    if sig is not None:
-        text = f"Strong ion gap = SIDa − SIDe = {_fmt(sig)}"
-        if albumin_assumed:
-            text += (" (albumin assumed — mirrors the anion gap; measure "
-                     "albumin to make it independent).")
-        else:
-            if sig >= 8:
-                text += " (elevated — unmeasured anions)."
-            elif sig <= 2:
-                text += " (no unmeasured-anion signal)."
+        # "40 + BE" compensation rules (display only — Boston classifies).
+        # Mixed and combined disorders take the rule for whichever way the BE
+        # points, which is how a hidden respiratory component shows itself.
+        met_rule = None
+        if has_gas and primary not in ("respiratory acidosis", "respiratory alkalosis",
+                                       "normal acid-base status"):
+            if primary == "metabolic acidosis" or (primary != "metabolic alkalosis"
+                                                   and sbe < -2):
+                met_rule = "acid"
+            elif primary == "metabolic alkalosis" or sbe > 2:
+                met_rule = "alk"
+        if met_rule:
+            mixed = primary not in ("metabolic acidosis", "metabolic alkalosis")
+            if met_rule == "acid":
+                exp = 40 + sbe
+                calc = f"40 + BE = 40 + {_paren_neg(sbe)} = {_fmt(exp)} (±2)"
             else:
-                text += " (within the healthy band, ≈ 4–6 with these approximations)."
-        add(s_phys, text,
-            "SIDa − SIDe\nThe unmeasured-anion concentration itself, obtained "
-            "by subtracting two charge sums — not inferred as a leftover from "
-            "the base excess (that's the residual) and not read against a "
-            "population normal (that's the anion gap). Healthy baseline "
-            "≈ 4–6 with these approximations.")
+                exp = 40 + 0.6 * sbe
+                calc = f"40 + 0.6 × BE = 40 + 0.6 × {_fmt(sbe)} = {_fmt(exp)} (±2)"
+            d = pco2 - round(exp, 1)
+            if abs(d) <= 2:
+                verdict = ("appropriate — no separate respiratory disorder" if mixed
+                           else "appropriate" + (" (at the edge of the range)"
+                                                 if abs(d) > 1.5 else ""))
+            elif d > 4:
+                verdict = ("pCO₂ above expected — a respiratory acidosis is present"
+                           if mixed else "pCO₂ too high — respiratory acidosis too")
+            elif d > 2:
+                verdict = "borderline — compensation may be falling short"
+            elif d < -4:
+                verdict = ("pCO₂ below expected — a respiratory alkalosis is present"
+                           if mixed else "pCO₂ too low — respiratory alkalosis too")
+            else:
+                verdict = "borderline — possibly a mild respiratory alkalosis"
+            add(s_cop, f"Compensation: expected pCO₂ {_fmt(exp)}, actual "
+                f"{_fmt(pco2)} → {verdict}.", calc, level=1)
+        elif has_gas and primary in ("respiratory acidosis", "respiratory alkalosis"):
+            chronic_be = 0.4 * (pco2 - 40)
+            lo, hi = sorted((0.0, chronic_be))
+            if abs(sbe) <= 2:
+                verdict = "acute (no renal compensation yet)"
+            elif abs(sbe - chronic_be) <= 2:
+                verdict = "chronic (renal compensation complete)"
+            elif lo < sbe < hi:
+                verdict = "partly compensated"
+            elif (sbe > hi) == (chronic_be > 0):
+                verdict = ("beyond chronic compensation — superimposed "
+                           + ("metabolic alkalosis" if chronic_be > 0
+                              else "metabolic acidosis"))
+            else:
+                verdict = ("wrong direction — superimposed "
+                           + ("metabolic acidosis" if chronic_be > 0
+                              else "metabolic alkalosis"))
+            add(s_cop, f"Compensation: expected BE acute 0, chronic "
+                f"{_sfmt(chronic_be)}, actual {_sfmt(sbe)} → {verdict}.",
+                f"chronic: 0.4 × (pCO₂ − 40) = 0.4 × ({_fmt(pco2)} − 40) = "
+                f"{_fmt(chronic_be)}", level=1)
 
-    # decomposing the SID
+    # =====================================================================
+    # STEWART, SIMPLIFIED — Fencl–Story base-excess partitioning
+    # =====================================================================
     if water_eff is not None:
+        add(s_fs,
+            f"Sodium / free-water effect {_sfmt(water_eff)} → "
+            + _direction(water_eff, "dilution (free-water excess)",
+                         "concentration (free-water deficit)") + ".",
+            f"0.3 × (Na − 140) = 0.3 × ({_fmt(na)} − 140) = {_fmt(water_eff)}",
+            "Free water dilutes the SID (acidifying); a water deficit "
+            "concentrates it (alkalinizing).")
         if water_eff <= -SIG:
-            add(s_phys, f"Free-water effect {_sfmt(water_eff)} (acidifying).",
-                "0.3×(Na − 140)\nFree water shrinks the SID by dilution — acidifying.")
             processes.append("dilutional (free-water) component")
             diff_keys.append("water_ac")
         elif water_eff >= SIG:
-            add(s_phys, f"Free-water effect {_sfmt(water_eff)} (alkalinizing).",
-                "0.3×(Na − 140)\nA free-water deficit concentrates the strong "
-                "ions and widens the SID — alkalinizing.")
             processes.append("contraction (free-water deficit) alkalosis")
             diff_keys.append("water_alk")
-        else:
-            add(s_phys, f"Free-water effect {_sfmt(water_eff)} (negligible).",
-                "0.3×(Na − 140)\nFree water shifts the SID by dilution or "
-                "concentration.")
 
         # Hyperglycemia dilutes the sodium by osmotic water shift; above a
         # material correction (~2 mEq/L) the measured Na misstates the true
@@ -604,254 +819,399 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
         if glucose is not None:
             na_shift = 1.6 * (glucose - 100.0) / 100.0
             if na_shift >= 2:
-                calc = ("Na + 1.6×(glucose − 100)/100\nHyperglycemia pulls "
-                        "water into plasma, diluting the measured Na "
-                        "(translocational).")
+                calc = (f"Na + 1.6 × (glucose − 100)/100 = {_fmt(na)} + 1.6 × "
+                        f"({_fmt(glucose)} − 100)/100 = {_fmt(na + na_shift)}")
                 if water_eff <= -2:
-                    add(s_phys,
-                        f"Glucose-corrected Na = {_fmt(na + na_shift)} → part of "
-                        "the low Na is osmotic water shift from hyperglycemia "
-                        "(translocational) — that share of the dilutional force "
-                        "should resolve as glucose falls.", calc)
+                    add(s_fs,
+                        f"Glucose-corrected Na {_fmt(na + na_shift)} → part of the "
+                        "low Na is water pulled in by hyperglycemia; that share of "
+                        "the dilution resolves as glucose falls.", calc, level=1)
                 else:
-                    add(s_phys,
-                        f"Glucose-corrected Na = {_fmt(na + na_shift)} → measured "
-                        "Na understates tonicity — hyperglycemia may be masking "
-                        "a free-water deficit.", calc)
+                    add(s_fs,
+                        f"Glucose-corrected Na {_fmt(na + na_shift)} → measured Na "
+                        "understates tonicity; hyperglycemia may be masking a "
+                        "free-water deficit.", calc, level=1)
 
-    if chloride_eff is not None:
-        calc = ("102 − (Cl⁻×140/Na)\nChloride relative to sodium (the "
-                "correction removes the water component): chloride excess "
-                "narrows the SID — acidifying; chloride deficit widens it — "
-                "alkalinizing.")
-        if chloride_eff <= -SIG:
-            sev = ", major" if chloride_eff <= -MARKED else ""
-            add(s_phys, f"Chloride effect {_sfmt(chloride_eff)} (acidifying — "
-                f"hyperchloremic{sev}).", calc)
-            processes.append("hyperchloremic component")
-            diff_keys.append("nagma")
-        elif chloride_eff >= SIG:
-            sev = ", major" if chloride_eff >= MARKED else ""
-            add(s_phys, f"Chloride effect {_sfmt(chloride_eff)} (alkalinizing — "
-                f"chloride depletion{sev}).", calc)
-            processes.append("chloride-depletion alkalosis")
-            diff_keys.append("met_alk")
+        if chloride_eff is not None:
+            ctext = (f"Chloride effect {_sfmt(chloride_eff)} → "
+                     + _direction(chloride_eff, "hyperchloremic", "chloride depletion"))
+            if chloride_is_comp:
+                ctext += (" — the expected renal compensation for the "
+                          + ("hypercapnia" if primary == "respiratory acidosis"
+                             else "hypocapnia") + ", not a separate disorder")
+            add(s_fs, ctext + ".",
+                f"Cl corrected = Cl × 140/Na = {_fmt(cl)} × 140/{_fmt(na)} = "
+                f"{_fmt(cl_corr)}\n"
+                f"102 − Cl corrected = 102 − {_fmt(cl_corr)} = {_fmt(chloride_eff)}",
+                "Correcting for Na separates a true chloride problem from a "
+                "water problem. This is the term where normal saline shows up.")
+            if not chloride_is_comp:
+                if chloride_eff <= -SIG:
+                    processes.append("hyperchloremic component")
+                    diff_keys.append("nagma")
+                elif chloride_eff >= SIG:
+                    processes.append("chloride-depletion alkalosis")
+                    diff_keys.extend(alk_keys)
+                    if urine_cl is not None:
+                        add(s_fs,
+                            f"Urine Cl⁻ {_fmt(urine_cl)} → "
+                            + ("<20: chloride-responsive (vomiting/NG, prior "
+                               "diuretics)."
+                               if urine_cl < 20 else
+                               "≥20: chloride-resistant — mineralocorticoid "
+                               "excess, ongoing diuretics, or severe hypokalemia. "
+                               "Recent diuretics also raise urine Cl⁻, so a high "
+                               "value is less conclusive than a low one."),
+                            level=1)
         else:
-            add(s_phys, f"Chloride effect {_sfmt(chloride_eff)} (negligible).", calc)
-    elif water_eff is not None:
-        add(s_phys, "Chloride effect: needs Cl⁻ — not assessed.")
-    elif hco3 is not None:
-        add(s_phys, "Na⁺ and Cl⁻ needed to decompose the SID.")
+            add(s_fs, "Chloride effect: needs Cl⁻.")
 
-    if k_eff is not None:
-        add(s_phys,
-            f"K⁺ effect {_sfmt(k_eff)} "
-            f"({'alkalinizing' if k_eff > 0 else 'acidifying'}).",
-            "K − 4\nA strong cation — shown only when grossly abnormal.")
-
-    if lactate is not None:
-        calc = ("−(lactate − 1)\nA measured strong anion — each mmol/L narrows "
-                "the SID by ≈1: acidifying.")
-        if lactate > 4:
-            add(s_phys, f"Lactate effect {_sfmt(lactate_eff)} (acidifying — lactate "
-                f"{_fmt(lactate)}, ≥4: sepsis/shock range).", calc)
-        elif lactate > LACTATE_UPPER:
-            add(s_phys, f"Lactate effect {_sfmt(lactate_eff)} (acidifying).", calc)
-        else:
-            add(s_phys, f"Lactate effect {_sfmt(lactate_eff)} (negligible — "
-                f"lactate {_fmt(lactate)}).", calc)
-        if lactate_eff is not None and lactate_eff <= -SIG:
-            processes.append("lactic acidosis")
-        if lac_elevated:
-            diff_keys.append("lactic")
-
-    sid_terms = [("free water", water_eff), ("chloride", chloride_eff),
-                 ("K⁺", k_eff), ("lactate", lactate_eff)]
-    sid_present = [(n, v) for n, v in sid_terms if v is not None]
-    sid_net = sum(v for _, v in sid_present) if sid_present else None
-    if sid_present:
-        drivers = [(n, v) for n, v in sid_present if abs(v) >= 2]
-        if drivers:
-            dtxt = ", ".join(f"{n} {_sfmt(v)}" for n, v in drivers)
-            add(s_phys, f"→ Net strong-ion force {_sfmt(sid_net)} — driven by {dtxt}.")
-        else:
-            add(s_phys, f"→ No meaningful strong-ion force (net {_sfmt(sid_net)}).")
-
-    # decomposing the Atot
-    atot_net = None
-    if alb_eff is not None:
-        calc = ("2.5×(4.2 − albumin)\nAlbumin is the main weak acid (Atot): "
-                "low albumin removes anionic charge — alkalinizing (and masks "
-                "unmeasured anions on an uncorrected gap); high albumin — "
-                "acidifying.")
         if albumin_assumed:
-            add(s_phys, "Albumin effect 0 (assumed albumin 4.2 — enter to "
-                "confirm).", calc)
-        elif alb_eff >= SIG:
-            add(s_phys, f"Albumin effect {_sfmt(alb_eff)} (alkalinizing — "
-                "hypoalbuminemia).", calc)
-            processes.append("hypoalbuminemic alkalinizing effect")
-        elif alb_eff <= -SIG:
-            add(s_phys, f"Albumin effect {_sfmt(alb_eff)} (acidifying — "
-                "hyperalbuminemia/hemoconcentration).", calc)
+            add(s_fs, "Albumin effect 0 — albumin not entered (assumed 4.2). "
+                "Usually alkalinizing in sick inpatients and the term most "
+                "often missed — enter it.")
         else:
-            add(s_phys, f"Albumin effect {_sfmt(alb_eff)} (negligible).", calc)
+            add(s_fs,
+                f"Albumin effect {_sfmt(alb_eff)} → "
+                + _direction(alb_eff, "hyperalbuminemia / hemoconcentration",
+                             "hypoalbuminemia") + ".",
+                f"2.5 × (4.2 − albumin) = 2.5 × (4.2 − {_fmt(albumin)}) = "
+                f"{_fmt(alb_eff)}",
+                "Albumin is the main weak acid (Atot). Low albumin is "
+                "alkalinizing — a 'normal' pH or BE can hide a real acidosis. "
+                "Reference albumin 4.2 g/dL, the same as the anion-gap "
+                "correction.")
+            if alb_eff >= SIG:
+                processes.append("hypoalbuminemic alkalosis")
 
-        if phos_eff is not None:
-            calc = ("0.586×(3.7 − phosphate)\nPhosphate is the minor weak acid "
-                    "(Atot): retained phosphate adds anionic charge — "
-                    "acidifying (renal failure); low phosphate — mildly "
-                    "alkalinizing.")
-            if phos_eff <= -SIG:
-                add(s_phys, f"Phosphate effect {_sfmt(phos_eff)} (acidifying — "
-                    "hyperphosphatemia).", calc)
-                processes.append("hyperphosphatemic acidifying effect")
-            elif phos_eff >= SIG:
-                add(s_phys, f"Phosphate effect {_sfmt(phos_eff)} (alkalinizing — "
-                    "hypophosphatemia).", calc)
-            else:
-                add(s_phys, f"Phosphate effect {_sfmt(phos_eff)} (negligible).", calc)
-
-        atot_net = alb_eff + (phos_eff if phos_eff is not None else 0.0)
-        if not (albumin_assumed and phos_eff is None):
-            if atot_net >= 2:
-                dir_tag = " — alkalinizing"
-            elif atot_net <= -2:
-                dir_tag = " — acidifying"
-            else:
-                dir_tag = " (negligible)"
-            add(s_phys, f"→ Net Atot (weak-acid) force {_sfmt(atot_net)}{dir_tag}.")
-
-    # does it add up? — the residual
-    if residual is not None:
-        bundle = []
-        if albumin_assumed:
-            bundle.append("albumin")
-        if lactate is None:
-            bundle.append("lactate")
-        bundle.append("unmeasured anions")
-        label = " + ".join(bundle)
-        be_term = "base excess" if has_gas else "HCO₃⁻ deviation"
-        calc = (f"{be_term[0].upper()}{be_term[1:]} − (sum of the effect lines)\n"
-                "The acid or base the measured lines cannot explain.")
-        text = f"Does it add up? Residual {_sfmt(residual)} ({label})"
-        if residual <= -SIG:
-            sev = "major " if residual <= -MARKED else ""
-            text += f" → {sev}unexplained acid load."
-            if albumin_assumed:
-                text += (" (If albumin is low, the true load is larger "
-                         "than this number.)")
-            processes.append("unmeasured-anion component")
-        elif residual >= SIG:
-            if albumin_assumed:
-                text += (" → an alkalinizing residual — most often hypoalbuminemia; "
-                         "add albumin to confirm.")
-            else:
-                text += (" → alkalinizing residual despite the albumin line: "
-                         "unmeasured cations, halide interference, or a lab error.")
-        elif residual <= -2:
-            text += " — a mild unexplained load (below the ±3 significance cut)."
-            borderline = ("a mild unmeasured-anion load" if not albumin_assumed
-                          else "a mild unmeasured-anion/albumin load")
-        elif residual >= 2:
-            text += " — a mild alkalinizing residual (below the ±3 significance cut)."
-            borderline = "a mild alkalinizing residual"
+        if lactate is not None:
+            ltag = _direction(lactate_eff, "lactic acidosis", "")
+            if lactate_eff > -SIG:
+                ltag = "minor"
+            if lactate > 4:
+                ltag += " (≥4: sepsis/shock range)"
+            add(s_fs, f"Lactate effect {_sfmt(lactate_eff)} → {ltag}.",
+                f"1 − lactate = 1 − {_fmt(lactate)} = {_fmt(lactate_eff)}",
+                "A measured strong anion — each mmol/L narrows the SID by ≈1.")
+            if lactate_eff <= -SIG:
+                processes.append("lactic acidosis")
+            elif lac_elevated:
+                processes.append("mild lactic acidosis")
+            if lac_elevated:
+                diff_keys.append("lactic")
         else:
-            text += " — the effect lines account for the base excess."
-        add(s_phys, text, calc)
+            add(s_fs, "Lactate not entered — it stays bundled in the "
+                "unmeasured-anion remainder.")
 
-    if unmeasured_present:
-        load = -residual
-        if lactate is None and bhb is None:
-            diff_keys.append("hagma")
-            add(s_phys,
-                f"Enter lactate and β-hydroxybutyrate to itemise the "
-                f"≈{_fmt(load)} mEq/L bundled in the residual.")
-        elif bhb is None:
-            diff_keys.append("hagma")
-            add(s_phys,
-                f"Enter β-hydroxybutyrate to itemise the ≈{_fmt(load)} mEq/L "
-                "residual (lactate is already split out above).")
-        else:
-            calc = ("Ketone share = BHB − 0.6; unexplained = residual − ketone "
-                    "share\nEach mmol/L of anion ≈ 1 mEq/L of acid load.")
-            if keto_unexplained > 5:
-                text = (
-                    f"Ketones explain ≈{_fmt(keto_explained)} of the ≈{_fmt(load)} "
-                    f"residual; ≈{_fmt(keto_unexplained)} unexplained → consider "
-                    "toxic alcohols (osmolar gap), salicylates, uremia"
-                )
-                if lactate is None:
-                    text += " — and check a lactate"
+        if residual is not None:
+            text = (f"Unexplained remainder {_sfmt(residual)} (negative = "
+                    "unmeasured anions)")
+            if residual <= -SIG:
+                sev = "major " if residual <= -MARKED else ""
+                text += f" → {sev}unmeasured anions present"
+                bundle = [n for n, miss in (("albumin", albumin_assumed),
+                                            ("lactate", lactate is None)) if miss]
+                if bundle:
+                    text += " (also carries " + " and ".join(bundle) + ", not entered)"
                 text += "."
-                if keto_elevated:
-                    text += (" (β-hydroxybutyrate doesn't count acetoacetate, "
-                             "so ketoacids likely explain part of this.)")
-                add(s_phys, text, calc)
-                diff_keys.append("unexplained")
-            elif keto_elevated:
-                add(s_phys,
-                    f"Ketones (≈{_fmt(keto_explained)}) account for most of the "
-                    f"≈{_fmt(load)} residual.", calc)
-
-    # Stewart synthesis
-    if residual is not None:
-        forces = []
-        if sid_net is not None:
-            forces.append(f"strong ions {_sfmt(sid_net)}")
-        if atot_net is not None:
-            forces.append(f"Atot {_sfmt(atot_net)}")
-        lead = " and ".join(forces) if forces else "the measured forces"
-        if unmeasured_present:
-            syn = (f"Synthesis: {lead} leave a residual {_sfmt(residual)} → "
-                   "a real unmeasured-anion load")
-            if keto_explained is not None:
-                syn += f" — ketones cover ≈{_fmt(keto_explained)}"
-                if keto_unexplained is not None and keto_unexplained > 5:
-                    syn += f", ≈{_fmt(keto_unexplained)} still unaccounted"
+                processes.append("unmeasured-anion component")
+            elif residual <= -2:
+                text += " → borderline (the cut is about −2 to −3)."
+                borderline = "a mild unmeasured-anion load"
+            elif residual >= SIG:
+                if not albumin_assumed and sbe > 2:
+                    diff_keys.append("alk_load")
+                text += (" → an alkalinizing remainder — "
+                         + ("most often an unentered low albumin." if albumin_assumed
+                            else ("an alkali load (bicarbonate, citrate, "
+                                  "milk-alkali), " if sbe > 2 else "")
+                                 + "unmeasured cations, a lab whose normal anion "
+                                 "gap runs low (8–10), or a lab error."))
             else:
-                syn += " — not yet itemised"
-            if og is not None and og > 10:
-                syn += "; the elevated osmolar gap keeps toxic alcohols in play"
-            add(s_phys, syn + ".")
-        elif residual >= SIG:
-            add(s_phys, f"Synthesis: {lead} overshoot the metabolic state — an "
-                "alkalinizing residual; verify the albumin, then consider "
-                "unmeasured cations or lab error.")
-        else:
-            add(s_phys, f"Synthesis: {lead} account for the metabolic state — "
-                "no hidden anion load.")
+                text += " → essentially none."
+            add(s_fs, text,
+                f"sum of effects = {_sum_terms(effects)} = {_fmt(effects_sum)}\n"
+                f"{be_name} − sum = {_fmt(sbe)} − ({_fmt(effects_sum)}) = "
+                f"{_fmt(residual)}",
+                "Stewart's equivalent of the anion gap: the part of the base "
+                "excess the measured effects don't explain.")
+
+            if unmeasured_present:
+                load = -residual
+                if lactate is None and bhb is None:
+                    diff_keys.append("hagma")
+                    add(s_fs, f"Enter lactate and β-hydroxybutyrate to itemise "
+                        f"the ≈{_fmt(load)}.", level=1)
+                elif bhb is None:
+                    diff_keys.append("hagma")
+                    add(s_fs, f"Enter β-hydroxybutyrate to itemise the "
+                        f"≈{_fmt(load)}.", level=1)
+                dka = glucose is not None and glucose >= 250
+                if bhb is not None and not keto_elevated:
+                    add(s_fs, f"β-hydroxybutyrate {_fmt(bhb)} is normal — ketones "
+                        "don't account for it.", level=1)
+                elif keto_elevated:
+                    amount = (f"≈{_fmt(keto_total)}" if dka else
+                              f"≈{_fmt(keto_total_aka)}–{_fmt(keto_total)}")
+                    add(s_fs,
+                        f"Ketones account for {amount} (β-hydroxybutyrate "
+                        f"{_fmt(keto_explained)} + estimated acetoacetate"
+                        + ("" if dka else " — less in alcoholic ketoacidosis, "
+                           "where the ratio is higher") + ").",
+                        f"BHB − 0.6 = {_fmt(bhb)} − 0.6 = {_fmt(keto_explained)}\n"
+                        + ("" if dka else
+                           f"× 8/7 for acetoacetate (AKA, ≈7:1) = {_fmt(keto_total_aka)}\n")
+                        + f"× 4/3 for acetoacetate (DKA, ≈3:1) = {_fmt(keto_total)}",
+                        "Standard assays measure β-hydroxybutyrate only. "
+                        "Acetoacetate runs about a third as high in DKA; in "
+                        "alcoholic ketoacidosis the high-NADH state pushes the "
+                        "ratio to 7:1 or more, so acetoacetate adds less. An "
+                        "estimate either way. Each mmol/L of anion ≈ 1 mEq/L of "
+                        "acid load.", level=1)
+                if phos_share >= 1:
+                    add(s_fs,
+                        f"Phosphate {_fmt(phos)} accounts for ≈{_fmt(phos_share)} "
+                        "(hyperphosphatemia — a weak-acid effect outside the "
+                        "four-term partition).",
+                        f"0.586 × (phosphate − 3.7) = 0.586 × ({_fmt(phos)} − 3.7) = "
+                        f"{_fmt(phos_share)}",
+                        "Retained phosphate adds anionic charge — the acid of renal "
+                        "failure, tumor lysis and rhabdomyolysis.", level=1)
+                if keto_unexplained is not None:
+                    rem_lo = max(0.0, keto_unexplained)
+                    rem_hi = (max(0.0, load - keto_total_aka - phos_share)
+                              if keto_elevated and not dka else rem_lo)
+                    rem = (f"≈{_fmt(rem_lo)}" if abs(rem_hi - rem_lo) < 0.1
+                           else f"≈{_fmt(rem_lo)}–{_fmt(rem_hi)}")
+                    if rem_hi < SIG:
+                        text = f"{rem} remains — within noise"
+                        if uremic:
+                            text += f", and uremic anions at a BUN of {_fmt(bun)} fit it"
+                    else:
+                        sug = []
+                        if uremic:
+                            sug.append("uremic anions (sulfate, urate, hippurate) — "
+                                       f"fits the BUN of {_fmt(bun)}")
+                        if og is None:
+                            sug.append("toxic alcohols (check an osmolar gap)")
+                        elif og > 10:
+                            sug.append(f"toxic alcohols (osmolar gap {_fmt(og)})")
+                        sug.append("salicylates")
+                        if not uremic:
+                            sug.append("uremia")
+                        if lactate is None:
+                            sug.append("an unmeasured lactate")
+                        text = f"{rem} remains → consider " + ", ".join(sug)
+                        if og is not None and og <= 10:
+                            text += (f" (osmolar gap {_fmt(og)} is normal — toxic "
+                                     "alcohols less likely)")
+                    if keto_unexplained > 5:
+                        diff_keys.append("unexplained")
+                    add(s_fs, text + ".", level=1)
+        elif sbe is None:
+            add(s_fs, "A gas or CO₂ (HCO₃⁻) is needed for the unmeasured-anion "
+                "remainder.")
+    elif na is not None or cl is not None or hco3 is not None:
+        add(s_fs, "Na⁺ and Cl⁻ needed for the partitioning.")
 
     # =====================================================================
-    # SYNTHESIS — cross-track
+    # STEWART, FULL — SIDa / SIDe / SIG
     # =====================================================================
-    if residual is not None and corrected is not None:
-        # residual ≤ −2 counts as (at least borderline) agreement with an
-        # elevated gap, so a rounding-edge case doesn't read as divergence
-        stewart_anion = (residual <= -2) or (sig is not None and not albumin_assumed and sig >= 8)
-        if stewart_anion and ag_elevated:
-            add(s_syn, "Both tracks find unmeasured anions — the residual and "
-                "the anion gap agree.")
-        elif not stewart_anion and not ag_elevated:
-            add(s_syn, "Both tracks agree: no significant unmeasured-anion load.")
-        elif ag_elevated and not stewart_anion:
-            add(s_syn, "Divergence: the anion gap is elevated but the Stewart "
-                "residual is not — usually a water/chloride or albumin effect "
-                "the plain gap misreads; trust the decomposition.")
+    if sid is not None:
+        if sid < BASE_SID - 2:
+            tag = ("low → acidifying: too much Cl⁻ relative to Na⁺, or "
+                   "dilution by free water")
+        elif sid > BASE_SID + 2:
+            tag = ("high → alkalinizing: Cl⁻ lost relative to Na⁺, or "
+                   "concentration by water loss")
         else:
-            add(s_syn, "Divergence: the Stewart residual finds an anion load "
-                "the plain gap misses — usually hypoalbuminemia masking the gap.")
+            tag = "normal"
+        add(s_full, f"Shortcut SID (Na + K − Cl) {_fmt(sid)} ({tag}; healthy ≈ "
+            f"{_fmt(BASE_SID)}).",
+            f"Na + K − Cl = {_fmt(na)} + {_fmt(k_used)} − {_fmt(cl)} = {_fmt(sid)}"
+            + (" (K assumed 4)" if k is None else ""),
+            "Strong cations minus strong anions. A smaller SID lets more water "
+            "dissociate into H⁺ (acid); a larger one pushes toward alkalosis. "
+            "Not the Na − Cl shortcut, whose normal is ≈ 36–38 (here "
+            f"{_fmt(na - cl)}).")
+        assumed = [n for n, v in (("iCa²⁺ 1.2", ca), ("Mg²⁺ 2.0", mg)) if v is None]
+        atag = ("low" if sida < BASE_SIDA - 2 else
+                "high" if sida > BASE_SIDA + 2 else "normal")
+        add(s_full,
+            f"Apparent SID (SIDa) {_fmt(sida)} ({atag}; healthy ≈ "
+            f"{_fmt(BASE_SIDA)}) — adds the minor cations"
+            + (" and lactate" if lactate is not None else "") + ".",
+            f"SID + 2×iCa + 0.823×Mg − lactate = {_fmt(sid)} + 2×{ca_used:.2f} + "
+            f"0.823×{_fmt(mg_used)} − {_fmt(lac_used)} = {_fmt(sida)}"
+            + (" (assumed " + ", ".join(assumed) + ")" if assumed else ""),
+            "iCa (mmol/L) × 2 and Mg (mg/dL) × 0.823 convert to mEq/L. Use "
+            "ionized, not total, calcium.", level=1)
 
-    if chloride_eff is not None:
-        if chloride_eff <= -SIG:
-            add(s_syn,
-                "Fluids: normal saline (SID 0) deepens a hyperchloremic "
-                "acidosis — prefer a balanced fluid (LR/Plasma-Lyte, SID ≈ 28) "
-                "if volume is needed.")
-        elif chloride_eff >= SIG:
-            add(s_syn,
-                "Fluids: chloride-depletion alkalosis is chloride-responsive — "
-                "normal saline ± KCl repletes it.")
+    if side is not None:
+        etag = ("low" if side < BASE_SIDE - 2 else
+                "high" if side > BASE_SIDE + 2 else "normal")
+        side_assumed = [n for n, miss in (("albumin 4.2 g/dL", albumin_assumed),
+                                          ("phosphate 3.7 mg/dL", phos is None)) if miss]
+        add(s_full, f"Effective SID (SIDe) {_fmt(side)} ({etag}; healthy ≈ "
+            f"{_fmt(BASE_SIDE)}"
+            + ("; assumed " + ", ".join(side_assumed) if side_assumed else "")
+            + ").",
+            f"HCO₃⁻ + albumin charge + phosphate charge = {_fmt(hco3)} + "
+            f"{_fmt(alb_ch)} + {_fmt(phos_ch)} = {_fmt(side)}",
+            "The buffer base as an absolute amount. Base excess is the same "
+            "buffer reported as a deviation from normal — which is why the "
+            "partitioning above and the SIG below reach the same conclusions.")
+        add(s_full,
+            f"Albumin charge {_fmt(alb_ch)}"
+            + (" (albumin assumed 4.2)" if albumin_assumed else "") + ".",
+            f"albumin (g/L) × (0.123 × pH − 0.631) = {_fmt(10 * alb_used)} × "
+            f"(0.123 × {_ph(ph_used)} − 0.631) = {_fmt(alb_ch)}", level=1)
+        add(s_full,
+            f"Phosphate charge {_fmt(phos_ch)}"
+            + (" (phosphate assumed 3.7)" if phos is None else "") + ".",
+            f"phosphate (mmol/L) = {_fmt(phos_used)} mg/dL × 0.323 = "
+            f"{PHOS_TO_MMOL * phos_used:.2f}\n"
+            f"{PHOS_TO_MMOL * phos_used:.2f} × (0.309 × {_ph(ph_used)} − 0.469) = "
+            f"{_fmt(phos_ch)}", level=1)
+
+    if sig is not None:
+        add(s_full, f"Strong ion gap (SIG) {_fmt(sig)}.",
+            f"SIDa − SIDe = {_fmt(sida)} − {_fmt(side)} = {_fmt(sig)}",
+            "The unmeasured-anion concentration from two charge sums. There is "
+            "no universal normal — it depends on the equations and analyzer.")
+        if sig_excess >= SIG:
+            stag = "unmeasured anions"
+        elif sig_excess <= -SIG:
+            ion_assumed = [n for n, v in (("iCa", ca), ("Mg", mg), ("phosphate", phos))
+                           if v is None]
+            stag = ("negative — most often an unentered low albumin; otherwise "
+                    "unmeasured cations or lab error" if albumin_assumed else
+                    "unmeasured cations (lithium, paraprotein), a lab whose "
+                    "normal anion gap runs low, or lab error"
+                    + (f"; {'/'.join(ion_assumed)} were assumed" if ion_assumed else ""))
+        else:
+            stag = "within noise (±2–3) — no unmeasured anions"
+        add(s_full,
+            f"Against a healthy baseline of {_fmt(BASE_SIG)} → excess "
+            f"{_sfmt(sig_excess)} → {stag}.",
+            f"SIG − baseline = {_fmt(sig)} − {_fmt(BASE_SIG)} = {_fmt(sig_excess)}",
+            "Baseline = normal values (Na 140, K 4, iCa 1.2, Mg 2, Cl 102, "
+            "lactate 1, HCO₃⁻ 24, albumin 4.2, phosphate 3.7, pH 7.40) run "
+            "through these same equations. SIG is a difference of ~8 measured "
+            "values, some from the gas and some from the lab — best trended "
+            "within one patient.", level=1)
+        if albumin_assumed:
+            add(s_full, "Albumin assumed — the SIG here mirrors the anion gap; "
+                "enter albumin for an independent read.", level=1)
+    elif sid is not None:
+        add(s_full, "CO₂ (HCO₃⁻) or a gas needed for SIDe and the strong ion gap.")
+
+    # =====================================================================
+    # PUTTING IT TOGETHER
+    # =====================================================================
+
+    # --- the story the partitioning tells --------------------------------
+    if residual is not None:
+        forces = []   # (value, acid name, alkali name, short name)
+        forces.append((water_eff, "dilutional acidosis", "contraction alkalosis",
+                       "free-water"))
+        if not chloride_is_comp:
+            forces.append((chloride_eff, "hyperchloremic acidosis",
+                           "chloride-depletion alkalosis", "chloride"))
+        if not albumin_assumed:
+            forces.append((alb_eff, "hyperalbuminemic acidosis",
+                           "hypoalbuminemic alkalosis", "albumin"))
+        if lactate_eff is not None:
+            forces.append((lactate_eff, "lactic acidosis", "", "lactate"))
+        if residual <= -2 or residual >= SIG:
+            forces.append((residual,
+                           "uremic-anion acidosis"
+                           if residual < 0 and not keto_elevated and (uremic or phos_share >= 2)
+                           else "unmeasured-anion acidosis",
+                           "an alkalinizing remainder"
+                           + (" (likely an unentered low albumin)" if albumin_assumed else ""),
+                           "unmeasured-anion"))
+
+        def _name(f):
+            n = f[1] if f[0] < 0 else f[2]
+            return f"borderline {n}" if abs(f[0]) < BORDER else n
+
+        major = sorted([f for f in forces if abs(f[0]) >= SIG],
+                       key=lambda f: -abs(f[0]))
+        modest = [f for f in forces if MODEST <= abs(f[0]) < SIG]
+        acids = [f for f in major if f[0] < 0]
+        alks = [f for f in major if f[0] > 0]
+        lead, against = (acids, alks) if sbe <= 0 else (alks, acids)
+
+        parts = []
+        if acids and alks and abs(sbe) < SIG:
+            both = sorted(acids + alks, key=lambda f: -abs(f[0]))
+            parts.append("Offsetting forces — " + " against ".join(
+                " and ".join(f"{_name(f)} ({_sfmt(f[0])})"
+                             for f in both if (f[0] > 0) == side)
+                for side in (both[0][0] > 0, not both[0][0] > 0))
+                + f", netting a base excess of {_sfmt(sbe)}")
+        elif lead:
+            first = f"Dominant {_name(lead[0])} ({_sfmt(lead[0][0])})"
+            first += "".join(f", plus {_name(f)} ({_sfmt(f[0])})" for f in lead[1:])
+            if against:
+                verb = "partly masked by" if sbe <= 0 else "partly offset by"
+                first += f", {verb} " + " and ".join(
+                    f"{_name(f)} ({_sfmt(f[0])})" for f in against)
+            parts.append(first)
+        elif against:
+            parts.append("Offsetting " + " and ".join(
+                f"{_name(f)} ({_sfmt(f[0])})" for f in against))
+        if len(modest) == 1:
+            parts.append(f"modest {modest[0][3]} contribution ({_sfmt(modest[0][0])})")
+        elif modest:
+            names = [f"{f[3]} ({_sfmt(f[0])})" for f in modest]
+            parts.append("modest " + (" and ".join(names) if len(names) == 2 else
+                                      ", ".join(names[:-1]) + " and " + names[-1])
+                         + " contributions")
+        if chloride_is_comp:
+            parts.append(f"chloride shift ({_sfmt(chloride_eff)}) is the "
+                         "expected renal compensation")
+        if -2 < residual < SIG:
+            parts.append(f"no hidden anions ({_sfmt(residual)})")
+        story = "; ".join(parts)
+        add(s_syn, story[0].upper() + story[1:] + ".")
+
+    # --- do the unmeasured-anion measures agree? --------------------------
+    # All three restated as unmeasured-anion excess (positive = more anions),
+    # so the partitioning remainder flips sign.
+    verdicts = []   # (label, excess, True/False/None)
+    if residual is not None:
+        verdicts.append(("partitioning", -residual,
+                         True if -residual >= SIG else False if -residual < 2 else None))
+    if sig_excess is not None and not albumin_assumed:
+        verdicts.append(("SIG", sig_excess,
+                         True if sig_excess >= SIG else False if sig_excess < 2 else None))
+    if corrected is not None:
+        # lactate is measured in the other two, so take it out of the gap too
+        lac_share = max(0.0, lactate - LACTATE_BASE) if lactate is not None else 0.0
+        ag_excess = corrected - NORMAL_AG - lac_share
+        label = "corrected AG" + (" beyond lactate" if lactate is not None else "")
+        verdicts.append((label, ag_excess,
+                         True if ag_excess >= 4 else False if ag_excess < 2 else None))
+    if len(verdicts) >= 2:
+        detail = ", ".join(f"{lab} {_sfmt(val)}" for lab, val, _ in verdicts)
+        detail = f"Unmeasured-anion excess (positive = more anions) — {detail}"
+        calls = {v for _, _, v in verdicts}
+        noise = (" — all within noise (±2–3), whatever the sign"
+                 if all(abs(val) < SIG for _, val, _ in verdicts) else "")
+        if calls == {True}:
+            add(s_syn, f"{detail} → all agree: present.")
+        elif calls == {False} or noise:
+            add(s_syn, f"{detail} → all agree: none{noise}.")
+        else:
+            add(s_syn, f"{detail} → the measures don't "
+                "fully agree. They use different reference points and the SIG "
+                "carries ±2–3 of noise"
+                + ("; albumin is assumed — enter it" if albumin_assumed else "")
+                + ("; alkalemia raises the anion gap a little (more albumin charge)"
+                   if pH is not None and pH > 7.45 else "")
+                + ". Trust the one with the most measured inputs and trend it.")
 
     # --- what to order next, and why -------------------------------------
     needs = {"gas": None, "split": []}
@@ -891,7 +1251,7 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
 
     anything = any(v is not None for v in (pH, pco2, hco3, na, cl, k, albumin,
                                            lactate, bhb, glucose, bun,
-                                           osm, ca, mg, phos))
+                                           osm, ca, mg, phos, be, urine_cl))
     wants = []
     if needs["gas"]:
         if pH is not None and pco2 is None:
@@ -902,21 +1262,36 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             wants.append("a gas (pH + pCO₂)")
     if anything and (na is None or cl is None):
         missing_lytes = [n for n, v in (("Na⁺", na), ("Cl⁻", cl)) if v is None]
-        wants.append(" and ".join(missing_lytes) + " to decompose the metabolic side")
+        wants.append(" and ".join(missing_lytes) + " for the Stewart analysis")
     elif anything and hco3 is None and not has_gas:
         wants.append("the CO₂ (HCO₃⁻) to quantify the forces")
     if needs["split"]:
-        wants.append(", ".join(needs["split"]) + " to split the residual")
+        wants.append(", ".join(needs["split"]) + " to itemise the unmeasured anions")
+    if urine_cl is None and chloride_eff is not None and chloride_eff >= SIG \
+            and not chloride_is_comp:
+        wants.append("urine Cl⁻ to separate chloride-responsive from -resistant alkalosis")
     if sig is not None and not albumin_assumed:
-        missing_ions = [n for n, v in (("ionized Ca²⁺", ca), ("Mg²⁺", mg),
+        missing_ions = [n for n, v in (("K⁺", k), ("ionized Ca²⁺", ca), ("Mg²⁺", mg),
                                        ("phosphate", phos)) if v is None]
         if missing_ions:
             wants.append(" / ".join(missing_ions) + " to firm up the strong ion gap")
     next_info = ("Would sharpen the read: " + "; ".join(wants) + ".") if wants else None
 
     # --- assemble the conclusion -----------------------------------------
+    # Name the anion when it's identified, rather than "unmeasured anions".
+    if "unmeasured-anion component" in processes and keto_explained is not None \
+            and keto_elevated:
+        i = processes.index("unmeasured-anion component")
+        processes[i] = "ketoacidosis"
+        if keto_unexplained > 5:
+            processes.insert(i + 1, "further unexplained anions")
+
     if has_gas:
         core = primary
+        if ag_elevated and "metabolic acidosis" in primary:
+            core = primary.replace("metabolic acidosis", "high-gap metabolic acidosis", 1)
+            if "unmeasured-anion component" in processes:
+                processes.remove("unmeasured-anion component")
         if primary == "normal acid-base status" and processes:
             core = "normal pH with offsetting metabolic forces"
             if borderline:
@@ -940,11 +1315,123 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
     else:
         core = None
 
+    # A metabolic acidosis with the partitioning in hand is named by its
+    # components — gap vs non-gap, which predominates, what masks it — rather
+    # than by the anion gap alone (a modest lactate can lift a corrected gap
+    # while chloride drives the acidosis).
+    acid_headline = None
+    acid_primary = ((primary in ("metabolic acidosis",
+                                 "combined metabolic and respiratory acidosis")
+                     or primary.startswith("mixed: metabolic acidosis"))
+                    if has_gas else (sbe is not None and sbe < -2))
+    if acid_primary and water_eff is not None and chloride_eff is not None:
+        gap = []      # (magnitude, adjective, noun)
+        if lac_elevated and lactate_eff is not None:
+            mag = -lactate_eff
+            gap.append((mag, "lactic" if mag >= SIG else "mild lactic",
+                        "lactic acidosis" if mag >= SIG else "mild lactic acidosis"))
+        if residual is not None and residual <= -SIG:
+            if keto_explained is not None and keto_elevated:
+                if keto_unexplained > 5:
+                    gap.append((-residual, "ketoacid and other unmeasured-anion",
+                                "ketoacidosis with other unmeasured anions"))
+                else:
+                    gap.append((-residual, "ketoacid", "ketoacidosis"))
+            elif uremic or phos_share >= 2:
+                gap.append((-residual, "uremic", "uremic anions (phosphate, sulfate)"))
+            else:
+                gap.append((-residual, "unmeasured-anion", "unmeasured anions"))
+        elif residual is None and ag_elevated:
+            gap.append((corrected - NORMAL_AG, "high-gap", "unmeasured anions"))
+        nongap = []
+        if chloride_eff <= -SIG and not chloride_is_comp:
+            nongap.append((-chloride_eff, "hyperchloremic", "hyperchloremic"))
+        if water_eff <= -SIG:
+            nongap.append((-water_eff, "dilutional", "dilutional"))
+        # Hypoalbuminemia masks; a chloride-depletion or contraction
+        # alkalosis is a disorder of its own.
+        masks = []
+        if not albumin_assumed and alb_eff >= SIG:
+            masks.append("hypoalbuminemic alkalosis")
+        alk = []
+        if chloride_eff >= SIG and not chloride_is_comp:
+            alk.append("chloride depletion")
+        if water_eff >= SIG:
+            alk.append("contraction")
+        resp = None
+        if primary == "combined metabolic and respiratory acidosis":
+            resp = "respiratory acidosis"
+        elif (primary or "").startswith("mixed: metabolic acidosis with respiratory alkalosis"):
+            resp = "respiratory alkalosis"
+        elif resp_extras:
+            resp = resp_extras[0].replace("superimposed ", "")
+
+        gap.sort(key=lambda g: -g[0])
+        nongap.sort(key=lambda g: -g[0])
+
+        def _adj(group, kind):
+            return " and ".join(g[1] for g in group) + f" ({kind})"
+
+        # the acidosis, as a stand-alone headline and as a phrase to embed
+        gm, nm = sum(g[0] for g in gap), sum(g[0] for g in nongap)
+        if gap and nongap:
+            big, small = ((_adj(nongap, "non-gap"), _adj(gap, "gap")) if nm >= gm
+                          else (_adj(gap, "gap"), _adj(nongap, "non-gap")))
+            if max(gm, nm) < 1.25 * min(gm, nm):
+                inner = f"{big} and {small} in similar measure"
+                desc = f"a metabolic acidosis with {big} and {small} parts in similar measure"
+            else:
+                # a small chloride-based part is within estimate noise; a
+                # measured lactate is not
+                soft = nm < gm and nm < BORDER
+                art = "an" if small[0] in "aeio" or small.startswith("unmeasured") else "a"
+                inner = (f"predominantly {big}, with possibly a small {small} component"
+                         if soft else
+                         f"predominantly {big}, with {art} {small} component")
+                desc = f"a metabolic acidosis that is {inner}"
+            head = f"Mixed metabolic acidosis: {inner}"
+        elif nongap:
+            nouns = " and ".join(g[2] for g in nongap)
+            head = f"Non-gap metabolic acidosis — {nouns}"
+            desc = f"a non-gap metabolic acidosis ({nouns})"
+        elif gap:
+            nouns = " and ".join(g[2] for g in gap)
+            head = f"High-gap metabolic acidosis — {nouns}"
+            desc = f"a high-gap metabolic acidosis ({nouns})"
+        else:
+            head, desc = "Metabolic acidosis", "a metabolic acidosis"
+
+        others = []
+        if alk:
+            others.append("a metabolic alkalosis (" + " and ".join(alk) + ")")
+        if resp:
+            others.append(f"a {resp}")
+        if others:
+            label = "Triple disorder" if len(others) == 2 else "Mixed disorder"
+            sentences = [f"{label}: {desc} — plus " + " and ".join(others) + "."]
+            if masks:
+                sentences.append(" and ".join(masks).capitalize()
+                                 + " also partly masks the acidosis.")
+        else:
+            if masks:
+                head += ", partly masked by " + " and ".join(masks)
+            sentences = [head + "."]
+            if comp_note == "appropriate respiratory compensation":
+                sentences.append("Respiratory compensation appropriate.")
+            elif comp_note:
+                sentences.append(comp_note[0].upper() + comp_note[1:] + ".")
+        if not has_gas:
+            sentences.append("(No gas — pCO₂ assumed ≈40.)")
+        acid_headline = " ".join(sentences)
+
     sections = [
         {"title": None, "steps": s_pre},
-        {"title": "Traditional approach", "steps": s_trad},
-        {"title": "Physicochemical approach (Stewart)", "steps": s_phys},
-        {"title": "Synthesis", "steps": s_syn},
+        {"title": "Boston — bicarbonate", "steps": s_bos},
+        {"title": "Copenhagen — base excess", "steps": s_cop},
+        {"title": "Stewart, simplified — base-excess partitioning (Fencl–Story)",
+         "steps": s_fs},
+        {"title": "Stewart, full — SIDa / SIDe / SIG", "steps": s_full},
+        {"title": "Putting it together", "steps": s_syn},
     ]
 
     if core is None:
@@ -954,6 +1441,43 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                 "Enter whatever is available — a BMP is enough to start; a "
                 "gas, albumin, lactate and the rest sharpen it. A clinical "
                 "context alone is interpreted by the AI layer.")
+    elif acid_headline is not None:
+        headline = acid_headline
+    elif has_gas and (primary.startswith("mixed: metabolic alkalosis")
+                      or primary == "combined metabolic and respiratory alkalosis") \
+            and chloride_eff is not None:
+        parts = []
+        if chloride_eff >= SIG:
+            tag = "chloride depletion"
+            if urine_cl is not None:
+                tag += (", chloride-responsive by urine Cl⁻" if urine_cl < 20
+                        else ", chloride-resistant by urine Cl⁻")
+            parts.append(tag)
+        if water_eff is not None and water_eff >= SIG:
+            parts.append("contraction")
+        if residual is not None and residual >= SIG and not albumin_assumed:
+            parts.append("unexplained alkali")
+        alk_desc = "a metabolic alkalosis" + (f" ({'; '.join(parts)})" if parts else "")
+        resp = ("respiratory acidosis" if primary.startswith("mixed")
+                else "respiratory alkalosis")
+        headline = f"Mixed disorder: {alk_desc} — plus a {resp}."
+        if not albumin_assumed and alb_eff is not None and alb_eff >= SIG:
+            headline += " Hypoalbuminemic alkalosis adds to it."
+    elif primary in ("respiratory acidosis", "respiratory alkalosis") and comp_note \
+            and not comp_note.startswith("appropriate"):
+        if comp_note.startswith("acute vs chronic"):
+            head = primary.capitalize() + " (acute vs chronic hard to separate here)"
+        else:
+            head = (("Acute " if comp_note == "consistent with acute" else
+                     "Chronic (or partly compensated) ") + primary)
+        extras_all = [e.replace(" (free-water)", "")
+                      for e in dict.fromkeys(resp_extras + processes)]
+        if extras_all and sbe is not None and abs(sbe) < SIG:
+            head += (", with offsetting metabolic forces ("
+                     + ", ".join(extras_all) + ")")
+        elif extras_all:
+            head += " — plus " + " + ".join(extras_all)
+        headline = head + "."
     else:
         headline = core[0].upper() + core[1:]
         extras_all = []
@@ -963,6 +1487,12 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                 extras_all.append(e)
         if extras_all:
             headline += " — " + " + ".join(extras_all)
+        if comp_note == "appropriate respiratory compensation":
+            headline += ". Respiratory compensation appropriate."
+        elif comp_note and comp_note.startswith("borderline"):
+            headline += f". {comp_note[0].upper()}{comp_note[1:]}."
+        elif comp_note:
+            headline += f" — {comp_note}."
 
     # de-duplicate differential keys, preserving order
     seen: set[str] = set()
@@ -980,36 +1510,34 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
         ("iCa", ca, " mmol/L"), ("Mg", mg, " mg/dL"), ("phosphate", phos, " mg/dL"),
         ("lactate", lactate, " mmol/L"), ("BHB", bhb, " mmol/L"),
         ("glucose", glucose, " mg/dL"), ("BUN", bun, " mg/dL"),
-        ("osmolality", osm, " mOsm/kg"),
+        ("osmolality", osm, " mOsm/kg"), ("urine Cl", urine_cl, " mEq/L"),
     ]:
         if val is not None:
             parts.append(f"{label} {_fmt(val)}{unit}")
     if sbe is not None:
-        parts.append(f"base excess {_sfmt(sbe)}" if has_gas
-                     else f"HCO₃⁻ deviation {_sfmt(sbe)} (BE stand-in, pCO₂ assumed 40)")
+        parts.append(f"HCO₃⁻ deviation {_sfmt(sbe)} (BE stand-in, pCO₂ assumed 40)"
+                     if be_source == "hco3" else
+                     f"base excess {_sfmt(sbe)}" + (" (analyzer)" if be_source == "measured" else ""))
     effect_bits = []
     if water_eff is not None:
         effect_bits.append(f"water {_sfmt(water_eff)}")
     if chloride_eff is not None:
-        effect_bits.append(f"chloride {_sfmt(chloride_eff)}")
-    if k_eff is not None:
-        effect_bits.append(f"K {_sfmt(k_eff)}")
+        effect_bits.append(f"chloride {_sfmt(chloride_eff)}"
+                           + (" (renal compensation)" if chloride_is_comp else ""))
+    if alb_eff is not None and not albumin_assumed:
+        effect_bits.append(f"albumin {_sfmt(alb_eff)}")
     if lactate_eff is not None:
         effect_bits.append(f"lactate {_sfmt(lactate_eff)}")
-    if alb_eff is not None:
-        effect_bits.append(f"albumin {_sfmt(alb_eff)}")
-    if phos_eff is not None:
-        effect_bits.append(f"phosphate {_sfmt(phos_eff)}")
     if residual is not None:
-        effect_bits.append(f"residual {_sfmt(residual)}")
+        effect_bits.append(f"unmeasured {_sfmt(residual)}")
     if effect_bits:
-        parts.append("Stewart effects (mEq/L): " + ", ".join(effect_bits))
+        parts.append("Fencl–Story effects (mEq/L): " + ", ".join(effect_bits))
     if sida is not None:
         parts.append(f"SIDa {_fmt(sida)}")
     if side is not None:
         parts.append(f"SIDe {_fmt(side)}")
     if sig is not None and not albumin_assumed:
-        parts.append(f"strong ion gap {_fmt(sig)}")
+        parts.append(f"SIG {_fmt(sig)} (healthy baseline {_fmt(BASE_SIG)})")
     if vbg_applied:
         parts.append("gas VBG-adjusted to arterial estimates")
     if hco3_derived:
@@ -1025,3 +1553,4 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
         "next": next_info,
         "needs": needs,
     }
+
