@@ -860,8 +860,9 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                                if urine_cl < 20 else
                                "≥20: chloride-resistant — mineralocorticoid "
                                "excess, ongoing diuretics, or severe hypokalemia. "
-                               "Recent diuretics also raise urine Cl⁻, so a high "
-                               "value is less conclusive than a low one."),
+                               "A loop or thiazide diuretic within ~24 h also "
+                               "keeps urine Cl⁻ high, so a high value is less "
+                               "conclusive than a low one."),
                             level=1)
         else:
             add(s_fs, "Chloride effect: needs Cl⁻.")
@@ -918,6 +919,11 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
             elif residual <= -2:
                 text += " → borderline (the cut is about −2 to −3)."
                 borderline = "a mild unmeasured-anion load"
+            elif residual >= SIG and be_source == "hco3":
+                text += (" → an alkalinizing remainder, but with no gas the HCO₃⁻ "
+                         "deviation assumes a pCO₂ of 40 — renal compensation for "
+                         "chronic hypercapnia would look exactly like this. A gas "
+                         "is needed before calling it a metabolic alkali.")
             elif residual >= SIG:
                 if not albumin_assumed and sbe > 2:
                     diff_keys.append("alk_load")
@@ -1128,7 +1134,7 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
                            "uremic-anion acidosis"
                            if residual < 0 and not keto_elevated and (uremic or phos_share >= 2)
                            else "unmeasured-anion acidosis",
-                           "an alkalinizing remainder"
+                           "alkalinizing remainder"
                            + (" (likely an unentered low albumin)" if albumin_assumed else ""),
                            "unmeasured-anion"))
 
@@ -1266,7 +1272,10 @@ def interpret(pH=None, pco2=None, hco3=None, na=None, cl=None, albumin=None,
     elif anything and hco3 is None and not has_gas:
         wants.append("the CO₂ (HCO₃⁻) to quantify the forces")
     if needs["split"]:
-        wants.append(", ".join(needs["split"]) + " to itemise the unmeasured anions")
+        wants.append(", ".join(needs["split"])
+                     + (" to itemise the unmeasured anions"
+                        if residual is not None and residual < 0 else
+                        " to split the remainder"))
     if urine_cl is None and chloride_eff is not None and chloride_eff >= SIG \
             and not chloride_is_comp:
         wants.append("urine Cl⁻ to separate chloride-responsive from -resistant alkalosis")

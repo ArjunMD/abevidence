@@ -3706,6 +3706,18 @@ def acid_base_ai_interpretation(context: str, values_summary: str) -> dict:
         "patient.\n"
         "- 'differential': 2-5 items, most likely first, each ≤12 words, specific to "
         "the context. No generic list.\n"
+        "- The values include computed Stewart (Fencl–Story) effects in mEq/L: "
+        "positive = alkalinizing, negative = acidifying. Treat them as established "
+        "findings. Name a mechanism only if its effect supports it — e.g. call an "
+        "alkalosis chloride-depletion or contraction only if the chloride or "
+        "free-water effect is at least +3. If the context suggests a cause the "
+        "numbers don't show (e.g. a diuretic with a chloride effect of 0 or "
+        "below), say the chemistry doesn't show it as the driver.\n"
+        "- If the values say 'BE stand-in, pCO₂ assumed 40', no gas was run: a high "
+        "HCO₃⁻ may be renal compensation for chronic hypercapnia.\n"
+        "- Urine Cl⁻ can't separate chloride-responsive from -resistant alkalosis "
+        "within ~24 h of a loop or thiazide diuretic.\n"
+        "- Diagnosis only: no treatment or management advice.\n"
         "- Do not restate the raw numbers or add safety boilerplate.\n"
         'Return ONLY JSON: {"summary": "...", "differential": ["...", ...]}'
     )
