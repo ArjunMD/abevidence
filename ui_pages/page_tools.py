@@ -1027,14 +1027,16 @@ Within 4.5 h of last known well, disabling deficit.
 """
 
 
-def _render_thrombolytic_ci() -> None:
+def _render_thrombolytic_ci(tab: str) -> None:
     st.subheader("Thrombolytic contraindications")
 
-    shown = st.session_state.get("tools_lysis_shown", False)
+    # Rendered under more than one tab, so keys carry the tab to stay unique.
+    shown_key = f"tools_lysis_shown_{tab}"
+    shown = st.session_state.get(shown_key, False)
     # Same toggle as the antibiotics reference: rerun so the label keeps up.
     if st.button("Hide reference" if shown else "See reference",
-                 type="primary", key="tools_lysis_toggle"):
-        st.session_state["tools_lysis_shown"] = not shown
+                 type="primary", key=f"tools_lysis_toggle_{tab}"):
+        st.session_state[shown_key] = not shown
         st.rerun()
 
     if shown:
@@ -1172,30 +1174,39 @@ def _render_procedures_checklist() -> None:
         st.markdown("\n".join(f"- {item}" for item in items))
 
 
+# Tab → tools, in display order. A tool may sit under more than one tab; if it
+# owns widgets, give it a per-tab key suffix (see _render_thrombolytic_ci).
+_TOOL_TABS = {
+    "Labs": [
+        _render_acid_base,
+        _render_corrected_sodium,
+        _render_apri,
+        _render_r_factor,
+        _render_retic_index,
+        _render_iron_deficit,
+    ],
+    "Neuro": [
+        _render_nihss,
+        _render_gcs,
+        lambda: _render_thrombolytic_ci("neuro"),
+    ],
+    "Cardiology": [_render_qtc],
+    "Pulmonary": [_render_pft],
+    "Reference": [
+        _render_empiric_abx,
+        lambda: _render_thrombolytic_ci("reference"),
+        _render_procedures_checklist,
+    ],
+}
+
+
 def render() -> None:
     st.title("🧰 Tools")
-    _render_acid_base()
-    st.divider()
-    _render_pft()
-    st.divider()
-    _render_qtc()
-    st.divider()
-    _render_nihss()
-    st.divider()
-    _render_gcs()
-    st.divider()
-    _render_iron_deficit()
-    st.divider()
-    _render_corrected_sodium()
-    st.divider()
-    _render_apri()
-    st.divider()
-    _render_r_factor()
-    st.divider()
-    _render_retic_index()
-    st.divider()
-    _render_empiric_abx()
-    st.divider()
-    _render_thrombolytic_ci()
-    st.divider()
-    _render_procedures_checklist()
+    # Tabs (not a selector) so every tool's widgets stay rendered and entered
+    # values survive switching tabs.
+    for tab, tools in zip(st.tabs(list(_TOOL_TABS)), _TOOL_TABS.values()):
+        with tab:
+            for i, tool in enumerate(tools):
+                if i:
+                    st.divider()
+                tool()
