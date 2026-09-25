@@ -942,9 +942,7 @@ def _render_empiric_abx() -> None:
         st.markdown(EMPIRIC_ABX_MD)
 
 
-# Contraindications differ by indication, so each gets its own list from its own
-# guideline rather than one merged list: AHA/ASA 2019 (stroke), ACC/AHA 2013
-# (STEMI), ESC 2019 (PE).
+# Acute ischemic stroke only, per AHA/ASA 2019.
 _THROMBOLYTIC_CI_MD = """\
 #### Acute ischemic stroke (alteplase / tenecteplase) — AHA/ASA 2019
 
@@ -977,58 +975,11 @@ Within 4.5 h of last known well, disabling deficit.
 - Unruptured aneurysm ≥ 10 mm, untreated AVM, > 10 cerebral microbleeds
 - Mild non-disabling deficit (NIHSS 0–5) — no benefit shown
 - Pre-existing dementia or severe disability; limited life expectancy
-
-#### STEMI — ACC/AHA 2013
-
-**Absolute**
-- Any prior intracranial hemorrhage
-- Known structural cerebral vascular lesion (e.g. AVM)
-- Known malignant intracranial neoplasm
-- Ischemic stroke within 3 months (except acute stroke within 4.5 h)
-- Suspected aortic dissection
-- Active bleeding or bleeding diathesis (excluding menses)
-- Significant closed-head or facial trauma within 3 months
-- Intracranial or intraspinal surgery within 2 months
-- Severe uncontrolled hypertension unresponsive to emergency therapy
-- Streptokinase: prior treatment within 6 months
-
-**Relative**
-- Chronic, severe, poorly controlled hypertension
-- SBP > 180 or DBP > 110 at presentation
-- Ischemic stroke > 3 months ago; dementia; other intracranial pathology
-- Traumatic or prolonged (> 10 min) CPR
-- Major surgery within 3 weeks
-- Internal bleeding within 2–4 weeks
-- Non-compressible vascular puncture
-- Pregnancy
-- Active peptic ulcer
-- Oral anticoagulant therapy
-
-#### Pulmonary embolism — ESC 2019
-
-**Absolute**
-- Hemorrhagic stroke or stroke of unknown origin, at any time
-- Ischemic stroke within 6 months
-- CNS neoplasm
-- Major trauma, surgery or head injury within 3 weeks
-- Bleeding diathesis
-- Active bleeding
-
-**Relative**
-- TIA within 6 months
-- Oral anticoagulation
-- Pregnancy or first postpartum week
-- Non-compressible puncture site
-- Traumatic resuscitation
-- Refractory hypertension (SBP > 180)
-- Advanced liver disease
-- Infective endocarditis
-- Active peptic ulcer
 """
 
 
 def _render_thrombolytic_ci(tab: str) -> None:
-    st.subheader("Thrombolytic contraindications")
+    st.subheader("Thrombolytic contraindications (stroke)")
 
     # Rendered under more than one tab, so keys carry the tab to stay unique.
     shown_key = f"tools_lysis_shown_{tab}"
