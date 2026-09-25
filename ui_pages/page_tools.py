@@ -4,6 +4,7 @@ import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
 from extract import acid_base_ai_interpretation
+from pft import FLOW_LOOP_SHAPES, interpret as interpret_pft
 from references_data import EMPIRIC_ABX_MD
 
 
@@ -26,6 +27,69 @@ def _ab_kwargs() -> dict:
     kw = {name: st.session_state.get(key) for name, key in _AB_KEYS.items()}
     kw["vbg"] = st.session_state.get("tools_ab_gassrc") == "VBG"
     return kw
+
+
+def _render_steps(result: dict) -> None:
+    """Live step-by-step interpretation shared by the acid-base and PFT tools.
+    Each first-order value is a bullet with its plugged-in formula beneath it;
+    corrections nest under it. Mechanism notes sit in a hover tooltip on the
+    "?" badge. Ends with the conclusion, what would sharpen it, and the
+    differential."""
+    for w in result["warnings"]:
+        st.warning(w)
+    st.markdown(
+        "<style>.ab-q{display:inline-block;width:1.1em;height:1.1em;"
+        "line-height:1.1em;text-align:center;border-radius:50%;"
+        "background:rgba(128,128,128,.25);font-size:.72em;font-weight:600;"
+        "cursor:help;vertical-align:super;}"
+        ".ab-calc{display:block;opacity:.65;font-size:.85em;"
+        "font-family:ui-monospace,Menlo,monospace;}"
+        ".ab ul{margin:0 0 .25rem 0;}</style>",
+        unsafe_allow_html=True,
+    )
+
+    def _item(s: dict) -> str:
+        text = s["text"]
+        if s.get("note"):
+            note = s["note"].replace('"', "'")
+            text += f' <span class="ab-q" title="{note}">?</span>'
+        if s.get("calc"):
+            calc = s["calc"].replace("\n", "<br>")
+            text += f'<span class="ab-calc">{calc}</span>'
+        return text
+
+    for sec in result["sections"]:
+        if not sec["steps"]:
+            continue
+        if sec["title"]:
+            st.markdown(f"**{sec['title']}**")
+        html, open_sub = [], False
+        for s in sec["steps"]:
+            if s.get("level", 0) == 0:
+                if open_sub:
+                    html.append("</ul></li>")
+                    open_sub = False
+                elif html:
+                    html.append("</li>")
+                html.append(f"<li>{_item(s)}")
+            else:
+                if not html:        # a correction with no parent line
+                    html.append("<li>")
+                if not open_sub:
+                    html.append("<ul>")
+                    open_sub = True
+                html.append(f"<li>{_item(s)}</li>")
+        html.append("</ul></li>" if open_sub else "</li>")
+        st.markdown(
+            '<div class="ab"><ol style="margin-bottom:0.5rem">'
+            + "".join(html) + "</ol></div>",
+            unsafe_allow_html=True,
+        )
+    st.markdown(f"**Conclusion:** {result['headline']}")
+    if result.get("next"):
+        st.markdown(f"_{result['next']}_")
+    if result["differential"]:
+        st.markdown("\n".join(f"- {d}" for d in result["differential"]))
 
 
 def _render_acid_base() -> None:
@@ -79,67 +143,10 @@ def _render_acid_base() -> None:
     kw = _ab_kwargs()
     anything = any(v is not None for n, v in kw.items() if n != "vbg")
 
-    # Live interpretation. Each first-order value is a bullet with its
-    # plugged-in formula beneath it; corrections nest under it. Mechanism
-    # notes sit in a hover tooltip on the "?" badge.
     result = None
     if anything:
         result = interpret_acid_base(**kw)
-        for w in result["warnings"]:
-            st.warning(w)
-        st.markdown(
-            "<style>.ab-q{display:inline-block;width:1.1em;height:1.1em;"
-            "line-height:1.1em;text-align:center;border-radius:50%;"
-            "background:rgba(128,128,128,.25);font-size:.72em;font-weight:600;"
-            "cursor:help;vertical-align:super;}"
-            ".ab-calc{display:block;opacity:.65;font-size:.85em;"
-            "font-family:ui-monospace,Menlo,monospace;}"
-            ".ab ul{margin:0 0 .25rem 0;}</style>",
-            unsafe_allow_html=True,
-        )
-
-        def _item(s: dict) -> str:
-            text = s["text"]
-            if s.get("note"):
-                note = s["note"].replace('"', "'")
-                text += f' <span class="ab-q" title="{note}">?</span>'
-            if s.get("calc"):
-                calc = s["calc"].replace("\n", "<br>")
-                text += f'<span class="ab-calc">{calc}</span>'
-            return text
-
-        for sec in result["sections"]:
-            if not sec["steps"]:
-                continue
-            if sec["title"]:
-                st.markdown(f"**{sec['title']}**")
-            html, open_sub = [], False
-            for s in sec["steps"]:
-                if s.get("level", 0) == 0:
-                    if open_sub:
-                        html.append("</ul></li>")
-                        open_sub = False
-                    elif html:
-                        html.append("</li>")
-                    html.append(f"<li>{_item(s)}")
-                else:
-                    if not html:        # a correction with no parent line
-                        html.append("<li>")
-                    if not open_sub:
-                        html.append("<ul>")
-                        open_sub = True
-                    html.append(f"<li>{_item(s)}</li>")
-            html.append("</ul></li>" if open_sub else "</li>")
-            st.markdown(
-                '<div class="ab"><ol style="margin-bottom:0.5rem">'
-                + "".join(html) + "</ol></div>",
-                unsafe_allow_html=True,
-            )
-        st.markdown(f"**Conclusion:** {result['headline']}")
-        if result.get("next"):
-            st.markdown(f"_{result['next']}_")
-        if result["differential"]:
-            st.markdown("\n".join(f"- {d}" for d in result["differential"]))
+        _render_steps(result)
 
     context = st.text_input(
         "Clinical context (optional — adds an AI interpretation)",
@@ -171,6 +178,79 @@ def _render_acid_base() -> None:
                 st.markdown(ai["summary"])
             for d in ai.get("differential", []):
                 st.markdown(f"- {d}")
+
+
+# PFT rows by report section: (param key, row label with unit). Each row takes
+# the report's measured value, % predicted, LLN and z-score — any subset.
+_PFT_GROUPS = [
+    ("Spirometry (pre-bronchodilator)", [
+        ("fev1", "FEV1 (L)"), ("fvc", "FVC (L)"), ("ratio", "FEV1/FVC (%)"),
+        ("fef2575", "FEF25–75 (L/s)"),
+    ]),
+    ("Lung volumes", [
+        ("tlc", "TLC (L)"), ("rv", "RV (L)"), ("rv_tlc", "RV/TLC (%)"),
+        ("frc", "FRC (L)"), ("ivc", "IVC (L)"),
+    ]),
+    ("Diffusion", [
+        ("dlco", "DLCO"), ("dlco_adj", "DLCO Hb-adjusted"), ("va", "VA (L)"),
+        ("kco", "KCO (DL/VA)"),
+    ]),
+]
+_PFT_FIELDS = [("meas", "Measured"), ("pct", "% pred"), ("lln", "LLN"), ("z", "z-score")]
+_PFT_COLS = [1.4, 1, 1, 1, 1]
+
+
+def _render_pft() -> None:
+    st.subheader("PFTs")
+    st.caption("Enter what the report shows — measured, % predicted, LLN and/or "
+               "z-score for any row. Abnormal = beyond the LLN (z ±1.645, ATS/ERS "
+               "2022); rows without LLN or z fall back to fixed % cutoffs.")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    rows: dict[str, dict] = {}
+    for title, params in _PFT_GROUPS:
+        st.caption(title)
+        for key, label in params:
+            cols = st.columns(_PFT_COLS, vertical_alignment="center")
+            cols[0].markdown(label)
+            rows[key] = {
+                field: _num(col, ph, f"tools_pft_{key}_{field}",
+                            0.1 if field == "z" else 0.01 if field == "meas" else 1.0,
+                            "%.2f" if field in ("z", "meas") else None)
+                for col, (field, ph) in zip(cols[1:], _PFT_FIELDS)
+            }
+        if title.startswith("Spirometry"):
+            cols = st.columns(_PFT_COLS, vertical_alignment="center")
+            cols[0].markdown("Post-bronchodilator")
+            fev1_post = _num(cols[1], "FEV1 post (L)", "tools_pft_fev1_post", 0.01, "%.2f")
+            fvc_post = _num(cols[2], "FVC post (L)", "tools_pft_fvc_post", 0.01, "%.2f")
+        if title == "Diffusion":
+            cols = st.columns(_PFT_COLS, vertical_alignment="center")
+            cols[0].markdown("Hb adjustment")
+            hb = _num(cols[1], "Hb g/dL", "tools_pft_hb", 0.1, "%.1f")
+            sex = cols[2].selectbox("Sex", ["Male", "Female / <15 y"],
+                                    key="tools_pft_sex", label_visibility="collapsed")
+
+    st.caption("Flow-volume loop — shape as seen · flows in L/s")
+    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
+    shape = f1.selectbox("Loop shape", list(FLOW_LOOP_SHAPES), key="tools_pft_loop",
+                         label_visibility="collapsed")
+    pef = _num(f2, "PEF (L/s)", "tools_pft_pef", 0.1, "%.2f")
+    fef50 = _num(f3, "FEF50 (L/s)", "tools_pft_fef50", 0.1, "%.2f")
+    fif50 = _num(f4, "FIF50 (L/s)", "tools_pft_fif50", 0.1, "%.2f")
+
+    entered = [v for r in rows.values() for v in r.values()]
+    entered += [fev1_post, fvc_post, pef, fef50, fif50]
+    if all(v is None for v in entered) and FLOW_LOOP_SHAPES.get(shape) is None:
+        return
+    _render_steps(interpret_pft(
+        rows, fev1_post=fev1_post, fvc_post=fvc_post, hb=hb, male=sex == "Male",
+        loop_shape=shape, pef=pef, fef50=fef50, fif50=fif50,
+    ))
 
 
 # At the standard 25 mm/s paper speed one small box is 1 mm = 0.04 s.
@@ -862,6 +942,105 @@ def _render_empiric_abx() -> None:
         st.markdown(EMPIRIC_ABX_MD)
 
 
+# Contraindications differ by indication, so each gets its own list from its own
+# guideline rather than one merged list: AHA/ASA 2019 (stroke), ACC/AHA 2013
+# (STEMI), ESC 2019 (PE).
+_THROMBOLYTIC_CI_MD = """\
+#### Acute ischemic stroke (alteplase / tenecteplase) — AHA/ASA 2019
+
+Within 4.5 h of last known well, disabling deficit.
+
+**Contraindicated**
+- Intracranial hemorrhage on CT, or extensive clear hypodensity
+- Symptoms suggestive of subarachnoid hemorrhage
+- Prior intracranial hemorrhage
+- Ischemic stroke or significant head trauma within 3 months
+- Intracranial or intraspinal surgery within 3 months
+- Intra-axial intracranial neoplasm
+- GI malignancy, or GI bleed within 21 days
+- Infective endocarditis
+- Known or suspected aortic arch dissection
+- Platelets < 100,000, INR > 1.7, aPTT > 40 s, or PT > 15 s
+- Treatment-dose LMWH within 24 h
+- DOAC within 48 h, unless drug-specific labs are normal
+- Concurrent glycoprotein IIb/IIIa inhibitor
+- BP > 185/110 that cannot be brought below it
+- Glucose < 50 mg/dL (recheck — hypoglycemia mimics stroke)
+
+**Relative — weigh bleeding risk against deficit**
+- Major surgery or serious trauma within 14 days
+- GU bleeding within 21 days
+- Arterial puncture at a non-compressible site, or lumbar puncture, within 7 days
+- MI within 3 months; acute pericarditis; LV/LA thrombus
+- Pregnancy or early postpartum
+- Seizure at onset with residual deficit (possible postictal Todd paralysis)
+- Unruptured aneurysm ≥ 10 mm, untreated AVM, > 10 cerebral microbleeds
+- Mild non-disabling deficit (NIHSS 0–5) — no benefit shown
+- Pre-existing dementia or severe disability; limited life expectancy
+
+#### STEMI — ACC/AHA 2013
+
+**Absolute**
+- Any prior intracranial hemorrhage
+- Known structural cerebral vascular lesion (e.g. AVM)
+- Known malignant intracranial neoplasm
+- Ischemic stroke within 3 months (except acute stroke within 4.5 h)
+- Suspected aortic dissection
+- Active bleeding or bleeding diathesis (excluding menses)
+- Significant closed-head or facial trauma within 3 months
+- Intracranial or intraspinal surgery within 2 months
+- Severe uncontrolled hypertension unresponsive to emergency therapy
+- Streptokinase: prior treatment within 6 months
+
+**Relative**
+- Chronic, severe, poorly controlled hypertension
+- SBP > 180 or DBP > 110 at presentation
+- Ischemic stroke > 3 months ago; dementia; other intracranial pathology
+- Traumatic or prolonged (> 10 min) CPR
+- Major surgery within 3 weeks
+- Internal bleeding within 2–4 weeks
+- Non-compressible vascular puncture
+- Pregnancy
+- Active peptic ulcer
+- Oral anticoagulant therapy
+
+#### Pulmonary embolism — ESC 2019
+
+**Absolute**
+- Hemorrhagic stroke or stroke of unknown origin, at any time
+- Ischemic stroke within 6 months
+- CNS neoplasm
+- Major trauma, surgery or head injury within 3 weeks
+- Bleeding diathesis
+- Active bleeding
+
+**Relative**
+- TIA within 6 months
+- Oral anticoagulation
+- Pregnancy or first postpartum week
+- Non-compressible puncture site
+- Traumatic resuscitation
+- Refractory hypertension (SBP > 180)
+- Advanced liver disease
+- Infective endocarditis
+- Active peptic ulcer
+"""
+
+
+def _render_thrombolytic_ci() -> None:
+    st.subheader("Thrombolytic contraindications")
+
+    shown = st.session_state.get("tools_lysis_shown", False)
+    # Same toggle as the antibiotics reference: rerun so the label keeps up.
+    if st.button("Hide reference" if shown else "See reference",
+                 type="primary", key="tools_lysis_toggle"):
+        st.session_state["tools_lysis_shown"] = not shown
+        st.rerun()
+
+    if shown:
+        st.markdown(_THROMBOLYTIC_CI_MD)
+
+
 # Class I-IV figure on Wikimedia Commons (Jmarchn, CC BY-SA 3.0) — the file the
 # Mallampati score article itself uses. Points at the original SVG so tapping it
 # opens the figure directly rather than a description page.
@@ -997,6 +1176,8 @@ def render() -> None:
     st.title("🧰 Tools")
     _render_acid_base()
     st.divider()
+    _render_pft()
+    st.divider()
     _render_qtc()
     st.divider()
     _render_nihss()
@@ -1014,5 +1195,7 @@ def render() -> None:
     _render_retic_index()
     st.divider()
     _render_empiric_abx()
+    st.divider()
+    _render_thrombolytic_ci()
     st.divider()
     _render_procedures_checklist()
