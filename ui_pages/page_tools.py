@@ -1125,16 +1125,377 @@ def _render_procedures_checklist() -> None:
         st.markdown("\n".join(f"- {item}" for item in items))
 
 
+def _temp_c(value: float | None, unit: str) -> float | None:
+    """Temperature in °C to one decimal — the resolution the published score
+    bands are written at, so a converted °F reading lands in the right band."""
+    if value is None:
+        return None
+    return round((value - 32.0) * 5.0 / 9.0 if unit == "°F" else value, 1)
+
+
+# Glasgow-Blatchford (Blatchford 2000). Urea bands converted from mmol/L to BUN
+# mg/dL (× 2.8): 6.5 / 8 / 10 / 25 mmol/L → 18.2 / 22.4 / 28 / 70 mg/dL.
+_GBS_BUN = [(70.0, 6), (28.0, 4), (22.4, 3), (18.2, 2)]
+_GBS_HB_MALE = [(13.0, 0), (12.0, 1), (10.0, 3)]
+_GBS_HB_FEMALE = [(12.0, 0), (10.0, 1)]
+_GBS_HB_FLOOR = 6
+_GBS_SBP = [(110.0, 0), (100.0, 1), (90.0, 2)]
+_GBS_SBP_FLOOR = 3
+_GBS_FLAGS = [
+    ("melena", "Melena", 1),
+    ("syncope", "Presented with syncope", 2),
+    ("liver", "Hepatic disease (known, or clinical/lab evidence)", 2),
+    ("hf", "Cardiac failure (known, or clinical/echo evidence)", 2),
+]
+# Stanley 2017 (BMJ): ≤1 is the cutoff that best identifies patients who will
+# need no intervention and survive; ≥7 best predicts need for endoscopic therapy.
+_GBS_VERY_LOW = 1
+_GBS_ENDOSCOPIC = 7
+
+
+def _band_down(value: float, bands: list[tuple[float, int]], floor: int) -> int:
+    """Points for the first band whose lower bound the value reaches."""
+    for lower, pts in bands:
+        if value >= lower:
+            return pts
+    return floor
+
+
+def _render_glasgow_blatchford() -> None:
+    st.subheader("Glasgow-Blatchford (upper GI bleed)")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3 = st.columns(3)
+    bun = _num(c1, "BUN mg/dL", "tools_gbs_bun", 1.0)
+    hb = _num(c2, "Hb g/dL", "tools_gbs_hb", 0.1, "%.1f")
+    sex = c3.selectbox("Sex", ["Male", "Female"], key="tools_gbs_sex",
+                       label_visibility="collapsed")
+    c4, c5, _ = st.columns(3)
+    sbp = _num(c4, "Systolic BP mmHg", "tools_gbs_sbp", 1.0)
+    hr = _num(c5, "Heart rate bpm", "tools_gbs_hr", 1.0)
+    flags = {key: st.checkbox(f"{label} (+{pts})", key=f"tools_gbs_{key}")
+             for key, label, pts in _GBS_FLAGS}
+
+    if None in (bun, hb, sbp, hr):
+        st.caption("Enter BUN, Hb, systolic BP and heart rate to score.")
+        return
+
+    hb_bands = _GBS_HB_MALE if sex == "Male" else _GBS_HB_FEMALE
+    parts = [
+        (f"BUN {bun:.0f}", _band_down(bun, _GBS_BUN, 0)),
+        (f"Hb {hb:.1f} ({sex.lower()})", _band_down(hb, hb_bands, _GBS_HB_FLOOR)),
+        (f"SBP {sbp:.0f}", _band_down(sbp, _GBS_SBP, _GBS_SBP_FLOOR)),
+        (f"HR {hr:.0f}", 1 if hr >= 100 else 0),
+    ]
+    parts += [(label.split(" (")[0], pts) for key, label, pts in _GBS_FLAGS if flags[key]]
+    total = sum(p for _, p in parts)
+
+    st.markdown(f"**GBS = {total} / 23**")
+    st.markdown("\n".join(f"- {name}: +{pts}" for name, pts in parts if pts))
+
+    if total <= _GBS_VERY_LOW:
+        st.success(f"≤{_GBS_VERY_LOW} — very low risk of needing transfusion, endoscopic "
+                   "therapy or surgery, or of death (Stanley 2017; ACG 2021 cutoff).")
+    elif total >= _GBS_ENDOSCOPIC:
+        st.error(f"≥{_GBS_ENDOSCOPIC} — the threshold that best predicted need for "
+                 "endoscopic therapy (Stanley 2017).")
+    else:
+        st.warning(f"{_GBS_VERY_LOW + 1}–{_GBS_ENDOSCOPIC - 1} — not low risk; the "
+                   "chance of needing intervention rises with the score.")
+
+
+# Hestia (Zondag 2011): any "yes" excludes the patient from the low-risk group.
+_HESTIA_CRITERIA = [
+    "Hemodynamically unstable (e.g. SBP < 100 with HR > 100, or needing ICU care)",
+    "Thrombolysis or embolectomy necessary",
+    "Active bleeding or high bleeding risk (GI bleed < 14 d, stroke < 4 wk, "
+    "surgery < 2 wk, bleeding disorder, platelets < 75, BP > 180/110)",
+    "Supplemental O₂ needed > 24 h to keep SaO₂ > 90%",
+    "PE diagnosed while already on anticoagulation",
+    "Severe pain needing IV analgesia > 24 h",
+    "Medical or social reason for admission > 24 h (infection, malignancy, "
+    "no support system)",
+    "CrCl < 30 mL/min (Cockcroft-Gault)",
+    "Severe liver impairment",
+    "Pregnant",
+    "Documented history of HIT",
+]
+
+
+def _render_hestia() -> None:
+    st.subheader("Hestia (PE)")
+    st.caption("Tick any that apply.")
+
+    present = [c for i, c in enumerate(_HESTIA_CRITERIA)
+               if st.checkbox(c, key=f"tools_hestia_{i}")]
+
+    st.markdown(f"**Hestia: {len(present)} of {len(_HESTIA_CRITERIA)} criteria present**")
+    if present:
+        st.warning("Hestia positive — not low risk.")
+    else:
+        st.success("Hestia negative — low risk. Derivation cohort (Zondag 2011): 3-month "
+                   "recurrent VTE 2.0%, mortality 1.0%, major bleeding 0.7%.")
+
+
+# PESI (Aujesky 2005): age in years plus fixed points; class I–V with the 30-day
+# mortality ranges from the ESC 2019 PE guideline.
+_PESI_FLAGS = [
+    ("cancer", "Cancer", 30),
+    ("hf", "Chronic heart failure", 10),
+    ("lung", "Chronic lung disease", 10),
+    ("ams", "Altered mental status", 60),
+]
+_PESI_CLASSES = [
+    (65, "I", "0–1.6%"),
+    (85, "II", "1.7–3.5%"),
+    (105, "III", "3.2–7.1%"),
+    (125, "IV", "4.0–11.4%"),
+]
+_PESI_CLASS_V = ("V", "10.0–24.5%")
+
+
+def _render_pesi() -> None:
+    st.subheader("PESI & sPESI (PE)")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3, c4 = st.columns(4)
+    age = _num(c1, "Age (years)", "tools_pesi_age", 1.0)
+    sex = c2.selectbox("Sex", ["Male", "Female"], key="tools_pesi_sex",
+                       label_visibility="collapsed")
+    hr = _num(c3, "Heart rate bpm", "tools_pesi_hr", 1.0)
+    sbp = _num(c4, "Systolic BP mmHg", "tools_pesi_sbp", 1.0)
+    c5, c6, c7, c8 = st.columns(4)
+    sao2 = _num(c5, "SaO₂ %", "tools_pesi_sao2", 1.0)
+    rr = _num(c6, "Resp rate /min", "tools_pesi_rr", 1.0)
+    temp = _num(c7, "Temperature", "tools_pesi_temp", 0.1, "%.1f")
+    unit = c8.selectbox("Unit", ["°F", "°C"], key="tools_pesi_unit",
+                        label_visibility="collapsed")
+    flags = {key: st.checkbox(label, key=f"tools_pesi_{key}")
+             for key, label, _ in _PESI_FLAGS}
+
+    # sPESI needs only age, HR, SBP and SaO₂; full PESI also needs RR and temp.
+    if None in (age, hr, sbp, sao2):
+        st.caption("Enter age, heart rate, systolic BP and SaO₂ for sPESI; add "
+                   "respiratory rate and temperature for PESI.")
+        return
+
+    spesi = [
+        (age > 80, "Age > 80"),
+        (flags["cancer"], "Cancer"),
+        (flags["hf"] or flags["lung"], "Chronic cardiopulmonary disease"),
+        (hr >= 110, "HR ≥ 110"),
+        (sbp < 100, "SBP < 100"),
+        (sao2 < 90, "SaO₂ < 90%"),
+    ]
+    s_total = sum(hit for hit, _ in spesi)
+    st.markdown(f"**sPESI = {s_total}**")
+    if s_total:
+        st.markdown("\n".join(f"- {name}: +1" for hit, name in spesi if hit))
+        st.warning("≥1 — not low risk. 30-day mortality 10.9% (Jiménez 2010).")
+    else:
+        st.success("0 — low risk. 30-day mortality 1.0% (Jiménez 2010).")
+
+    t = _temp_c(temp, unit)
+    if rr is None or t is None:
+        st.caption("Add respiratory rate and temperature for full PESI.")
+        return
+
+    parts = [(f"Age {age:.0f}", round(age)), ("Male sex", 10 if sex == "Male" else 0)]
+    parts += [(label, pts) for key, label, pts in _PESI_FLAGS if flags[key]]
+    parts += [
+        ("HR ≥ 110", 20 if hr >= 110 else 0),
+        ("SBP < 100", 30 if sbp < 100 else 0),
+        ("RR ≥ 30", 20 if rr >= 30 else 0),
+        ("Temp < 36 °C", 20 if t < 36.0 else 0),
+        ("SaO₂ < 90%", 20 if sao2 < 90 else 0),
+    ]
+    total = sum(p for _, p in parts)
+    cls, mort = next(((c, m) for top, c, m in _PESI_CLASSES if total <= top), _PESI_CLASS_V)
+
+    st.markdown(f"**PESI = {total} — class {cls}** (30-day mortality {mort})")
+    st.markdown("\n".join(f"- {name}: +{pts}" for name, pts in parts if pts))
+    if cls in ("I", "II"):
+        st.success(f"Class {cls} — low risk.")
+    elif cls == "III":
+        st.warning("Class III — intermediate risk.")
+    else:
+        st.error(f"Class {cls} — high risk.")
+
+
+# Bova (Bova 2014): normotensive PE only. Stages by points, with 30-day
+# PE-related complication rates (death, hemodynamic collapse, recurrent PE)
+# from the derivation cohort.
+_BOVA_STAGES = [
+    (2, "I", "4.2%"),
+    (4, "II", "10.8%"),
+]
+_BOVA_STAGE_III = ("III", "29.2%")
+
+
+def _render_bova() -> None:
+    st.subheader("Bova (normotensive PE)")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2 = st.columns(2)
+    sbp = _num(c1, "Systolic BP mmHg", "tools_bova_sbp", 1.0)
+    hr = _num(c2, "Heart rate bpm", "tools_bova_hr", 1.0)
+    trop = st.checkbox("Elevated cardiac troponin", key="tools_bova_trop")
+    rv = st.checkbox("RV dysfunction on echo or CT", key="tools_bova_rv")
+
+    if sbp is None or hr is None:
+        st.caption("Enter systolic BP and heart rate to score.")
+        return
+    if sbp < 90:
+        st.error("SBP < 90 — hemodynamically unstable (high-risk PE). Bova applies "
+                 "only to normotensive patients.")
+        return
+
+    parts = [
+        ("SBP 90–100", 2 if sbp <= 100 else 0),
+        ("Elevated troponin", 2 if trop else 0),
+        ("RV dysfunction", 2 if rv else 0),
+        ("HR ≥ 110", 1 if hr >= 110 else 0),
+    ]
+    total = sum(p for _, p in parts)
+    stage, rate = next(((s, r) for top, s, r in _BOVA_STAGES if total <= top),
+                       _BOVA_STAGE_III)
+
+    st.markdown(f"**Bova = {total} / 7 — stage {stage}** "
+                f"(30-day PE-related complications {rate})")
+    st.markdown("\n".join(f"- {name}: +{pts}" for name, pts in parts if pts))
+    if stage == "I":
+        st.success("Stage I — low risk.")
+    elif stage == "II":
+        st.warning("Stage II — intermediate risk.")
+    else:
+        st.error("Stage III — high risk.")
+
+
+# NEWS (RCP 2012) and NEWS2 (RCP 2017) share every band except SpO₂ scale 2
+# (hypercapnic respiratory failure) and NEWS2 scoring new confusion as 3.
+# Each list is (upper bound inclusive, points), checked in order.
+_NEWS_RR = [(8, 3), (11, 1), (20, 0), (24, 2)]
+_NEWS_RR_TOP = 3
+_NEWS_SPO2_1 = [(91, 3), (93, 2), (95, 1)]
+_NEWS_TEMP = [(35.0, 3), (36.0, 1), (38.0, 0), (39.0, 1)]
+_NEWS_TEMP_TOP = 2
+_NEWS_SBP = [(90, 3), (100, 2), (110, 1), (219, 0)]
+_NEWS_SBP_TOP = 3
+_NEWS_HR = [(40, 3), (50, 1), (90, 0), (110, 1), (130, 2)]
+_NEWS_HR_TOP = 3
+_NEWS_LOC = ["Alert", "New confusion", "Voice", "Pain", "Unresponsive"]
+_NEWS_MEDIUM = 5
+_NEWS_HIGH = 7
+
+
+def _band_up(value: float, bands: list[tuple[float, int]], top: int) -> int:
+    """Points for the first band whose upper bound (inclusive) holds the value."""
+    for upper, pts in bands:
+        if value <= upper:
+            return pts
+    return top
+
+
+def _news2_spo2_scale2(spo2: float, on_o2: bool) -> int:
+    if spo2 <= 83:
+        return 3
+    if spo2 <= 85:
+        return 2
+    if spo2 <= 87:
+        return 1
+    if spo2 <= 92 or not on_o2:
+        return 0
+    return 1 if spo2 <= 94 else 2 if spo2 <= 96 else 3
+
+
+def _news_band(total: int, red: bool, low_medium: str) -> str:
+    if total >= _NEWS_HIGH:
+        return "High"
+    if total >= _NEWS_MEDIUM:
+        return "Medium"
+    return low_medium if red else "Low"
+
+
+def _render_news() -> None:
+    st.subheader("NEWS & NEWS2")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3, c4 = st.columns(4)
+    rr = _num(c1, "Resp rate /min", "tools_news_rr", 1.0)
+    spo2 = _num(c2, "SpO₂ %", "tools_news_spo2", 1.0)
+    sbp = _num(c3, "Systolic BP mmHg", "tools_news_sbp", 1.0)
+    hr = _num(c4, "Heart rate bpm", "tools_news_hr", 1.0)
+    c5, c6, c7, c8 = st.columns(4)
+    temp = _num(c5, "Temperature", "tools_news_temp", 0.1, "%.1f")
+    unit = c6.selectbox("Unit", ["°F", "°C"], key="tools_news_unit",
+                        label_visibility="collapsed")
+    loc = c7.selectbox("Consciousness", _NEWS_LOC, key="tools_news_loc",
+                       label_visibility="collapsed")
+    on_o2 = c8.checkbox("On supplemental O₂", key="tools_news_o2")
+    scale2 = st.checkbox("NEWS2 SpO₂ scale 2 — hypercapnic respiratory failure "
+                         "with a prescribed 88–92% target", key="tools_news_scale2")
+
+    t = _temp_c(temp, unit)
+    if None in (rr, spo2, sbp, hr, t):
+        st.caption("Enter respiratory rate, SpO₂, systolic BP, heart rate and "
+                   "temperature to score.")
+        return
+
+    shared = {
+        "RR": _band_up(rr, _NEWS_RR, _NEWS_RR_TOP),
+        "Supplemental O₂": 2 if on_o2 else 0,
+        "Temp": _band_up(t, _NEWS_TEMP, _NEWS_TEMP_TOP),
+        "SBP": _band_up(sbp, _NEWS_SBP, _NEWS_SBP_TOP),
+        "HR": _band_up(hr, _NEWS_HR, _NEWS_HR_TOP),
+    }
+    spo2_1 = _band_up(spo2, _NEWS_SPO2_1, 0)
+    news = {**shared, "SpO₂": spo2_1,
+            # NEWS 2012 scores AVPU only; new confusion in an alert patient is 0.
+            "Consciousness": 3 if loc in ("Voice", "Pain", "Unresponsive") else 0}
+    news2 = {**shared,
+             "SpO₂" + (" (scale 2)" if scale2 else ""):
+                 _news2_spo2_scale2(spo2, on_o2) if scale2 else spo2_1,
+             "Consciousness": 0 if loc == "Alert" else 3}
+
+    for name, parts, low_medium in (("NEWS2", news2, "Low–medium"),
+                                    ("NEWS", news, "Low, with a red score")):
+        total = sum(parts.values())
+        red = 3 in parts.values()
+        band = _news_band(total, red, low_medium)
+        st.markdown(f"**{name} = {total}** — {band} clinical risk")
+        detail = [f"{k}: +{v}" for k, v in parts.items() if v]
+        if detail:
+            st.markdown("- " + " · ".join(detail))
+        if red and total < _NEWS_MEDIUM:
+            st.caption("A single parameter scores 3 (red score).")
+
+    if loc == "New confusion":
+        st.caption("New confusion scores 3 in NEWS2 but nothing in NEWS 2012, "
+                   "which scored AVPU only.")
+
+
 # Tab → tools, in display order. A tool may sit under more than one tab; if it
 # owns widgets, give it a per-tab key suffix (see _render_thrombolytic_ci).
 _TOOL_TABS = {
     "Labs": [
         _render_acid_base,
         _render_corrected_sodium,
-        _render_apri,
-        _render_r_factor,
-        _render_retic_index,
-        _render_iron_deficit,
     ],
     "Neuro": [
         _render_nihss,
@@ -1142,7 +1503,14 @@ _TOOL_TABS = {
         lambda: _render_thrombolytic_ci("neuro"),
     ],
     "Cardiology": [_render_qtc],
-    "Pulmonary": [_render_pft],
+    "Pulmonary": [_render_pft, _render_pesi, _render_bova, _render_hestia],
+    "GI & Hepatology": [
+        _render_glasgow_blatchford,
+        _render_apri,
+        _render_r_factor,
+    ],
+    "Heme": [_render_retic_index, _render_iron_deficit],
+    "General": [_render_news],
     "Reference": [
         _render_empiric_abx,
         lambda: _render_thrombolytic_ci("reference"),
