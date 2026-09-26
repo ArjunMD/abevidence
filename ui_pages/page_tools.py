@@ -994,6 +994,127 @@ def _render_thrombolytic_ci(tab: str) -> None:
         st.markdown(_THROMBOLYTIC_CI_MD)
 
 
+# OMI (occlusion MI) paradigm: ECG patterns of acute coronary occlusion that
+# STEMI millimeter criteria miss. Diagnostic findings only.
+_OMI_MD = """\
+#### The paradigm
+
+Classify MI by whether the culprit artery is **occluded (OMI)** or not (NOMI),
+rather than by whether ST elevation meets millimeter criteria.
+- About 25% of "NSTEMIs" have a totally occluded culprit artery, mostly
+  circumflex or RCA, with higher mortality (Khan 2017 meta-analysis)
+- OMI ECG findings identify occlusion with about twice the sensitivity of
+  STEMI criteria, and earlier (Meyers 2021, DIFOCCULT)
+- Serial ECGs matter: evolution, or T waves pseudonormalizing, is itself a finding
+
+**STEMI criteria, for contrast (4th UDMI):** new J-point elevation ≥ 1 mm in
+2 contiguous leads, except V2–V3: ≥ 2 mm men ≥ 40, ≥ 2.5 mm men < 40,
+≥ 1.5 mm women.
+
+#### Anterior / LAD
+
+- **Hyperacute T waves:** broad-based, bulky, symmetric T waves, large
+  relative to the QRS; often the earliest sign
+- **De Winter pattern:** upsloping ST depression at the J point in V1–V6
+  running into tall, symmetric T waves, often with slight STE in aVR
+- **Wellens syndrome:** biphasic (type A) or deep symmetric inverted (type B)
+  T waves in V2–V3, in a now pain-free patient, with preserved R waves.
+  A *reperfused* LAD lesion at high risk of reocclusion
+- **Terminal QRS distortion:** absence of *both* an S wave and a J wave in
+  V2 or V3. Favors anterior OMI over benign early repolarization
+- **Smith 4-variable formula** (subtle LAD OMI vs early repolarization):
+  0.052 × QTc(Bazett) − 0.151 × QRS amplitude V2 − 0.268 × R amplitude V4
+  + 1.062 × STE 60 ms after J in V3. **≥ 18.2 favors LAD occlusion**
+- **LV aneurysm vs acute anterior MI:** T/QRS ratio > 0.36 in any of V1–V4,
+  or ΣT / ΣQRS in V1–V4 > 0.22, favors acute MI (Smith)
+
+#### Posterior
+
+- **ST depression maximal in V1–V4**, often with tall R waves and upright T
+  waves in V2–V3. That's posterior STE seen in the mirror
+- Posterior leads **V7–V9: STE ≥ 0.5 mm** (≥ 1 mm in men < 40) confirms,
+  but a normal V7–V9 does not exclude it
+
+#### Inferior, lateral and RV
+
+- **Reciprocal ST depression or T inversion in aVL:** very sensitive for
+  subtle inferior OMI, and argues against pericarditis
+- **South African flag sign:** STE in I, aVL and V2 with reciprocal ST
+  depression in III (and often II, aVF). High lateral OMI, typically D1
+- **Aslanger pattern:** STE in III only (not II or aVF), ST depression in
+  V4–V6 with a positive or terminally positive T, and ST in V1 > V2.
+  Inferior OMI with multivessel disease
+- **RV involvement:** STE in V1 with inferior STE, STE in III > II;
+  right-sided leads **V3R–V4R STE ≥ 0.5 mm** (≥ 1 mm in men < 30)
+
+#### LBBB or ventricular pacing — Smith-modified Sgarbossa
+
+Any one is positive:
+- Concordant STE ≥ 1 mm in any lead
+- Concordant ST depression ≥ 1 mm in any of V1–V3
+- Excessively discordant STE: ST/S ratio ≤ −0.25 (STE ≥ 25% of the depth
+  of the preceding S wave) in any lead with ≥ 1 mm STE
+
+Sensitivity about 80–90% with specificity about 99%, versus about 20% for the
+original weighted Sgarbossa score.
+
+#### Not OMI on its own
+
+- **Diffuse ST depression with STE in aVR (± V1):** subendocardial ischemia,
+  from left main or 3-vessel disease, or supply–demand. Usually not an
+  acute occlusion, though high risk
+
+#### ECG territory → POCUS walls and views
+
+| ECG pattern | Usual artery | Walls to look at | Views that show them |
+|---|---|---|---|
+| Anterior STE V1–V4, hyperacute T, de Winter, Wellens | LAD | Anterior, anteroseptal, apex | PLAX (anteroseptum, top wall) · PSAX mid (anterior, anteroseptal) · A2C (anterior) · A3C (anteroseptal) · all apical views for the apex |
+| Septal STE V1–V2 | LAD (septal perforators) | Anteroseptal, inferoseptal | PLAX (anteroseptum) · PSAX (both septal segments) · A4C (inferoseptum) |
+| Inferior STE II, III, aVF | RCA (most, ~65–80%) or LCx | Inferior, basal inferoseptal | A2C (bottom wall) · PSAX (inferior, 6 o'clock) |
+| Lateral STE I, aVL, V5–V6 | LCx or diagonal | Anterolateral, inferolateral | A4C (lateral wall) · PSAX (anterolateral, inferolateral) · A3C (inferolateral) |
+| High lateral: I, aVL (South African flag) | First diagonal | Basal–mid anterolateral, basal anterior | PSAX basal and mid (anterolateral) · A4C basal lateral · A2C basal anterior |
+| Posterior: ST depression maximal V1–V4 | LCx, or RCA via PDA/posterolateral | Inferolateral (old term: posterior) | PLAX (bottom wall) · A3C · PSAX (inferolateral, 4–5 o'clock) |
+| RV: STE V1 with inferior STE, V3R–V4R | Proximal RCA | RV free wall | A4C (RV free wall, TAPSE) · subcostal 4-chamber · PSAX (RV size) |
+| Aslanger pattern | RCA or LCx plus multivessel disease | Inferior, plus possible global hypokinesis | A2C · PSAX |
+| Diffuse STD with STE aVR | LM or 3-vessel (subendocardial) | Often no single regional abnormality; may be global | All views |
+
+**Which walls each view shows**
+- **PLAX:** anteroseptum (top) and inferolateral wall (bottom)
+- **PSAX (basal, mid, apical):** all six segments at each level: anterior,
+  anteroseptal, inferoseptal, inferior, inferolateral, anterolateral
+- **A4C:** inferoseptum and anterolateral wall, apex, RV free wall
+- **A2C:** anterior and inferior walls
+- **A3C (apical long axis):** anteroseptal and inferolateral walls
+- **Subcostal 4-chamber:** RV free wall and septum
+
+**Reading it**
+- Wall motion abnormalities appear within seconds of occlusion, before ECG
+  changes, in the ischemic cascade. A normal study during active pain argues
+  against a large OMI but does not exclude a small one
+- An old infarct also moves abnormally, but looks thinned and bright (scar).
+  Acute ischemia has normal wall thickness that fails to thicken
+- Posterior (inferolateral) OMI is where echo adds most, since the standard
+  ECG has no leads facing that wall
+- Coronary anatomy varies: a wrap-around LAD can supply the inferior apex,
+  and dominance decides whether the RCA or LCx owns the inferior wall
+- Regional hypokinesis that doesn't fit one coronary territory (e.g. apical
+  ballooning with basal hyperkinesis) suggests takotsubo
+"""
+
+def _render_omi() -> None:
+    st.subheader("OMI / STEMI equivalents")
+
+    shown = st.session_state.get("tools_omi_shown", False)
+    # Same toggle as the other references: rerun so the label keeps up.
+    if st.button("Hide reference" if shown else "See reference",
+                 type="primary", key="tools_omi_toggle"):
+        st.session_state["tools_omi_shown"] = not shown
+        st.rerun()
+
+    if shown:
+        st.markdown(_OMI_MD)
+
+
 # Class I-IV figure on Wikimedia Commons (Jmarchn, CC BY-SA 3.0) — the file the
 # Mallampati score article itself uses. Points at the original SVG so tapping it
 # opens the figure directly rather than a description page.
@@ -1502,7 +1623,7 @@ _TOOL_TABS = {
         _render_gcs,
         lambda: _render_thrombolytic_ci("neuro"),
     ],
-    "Cardiology": [_render_qtc],
+    "Cardiology": [_render_qtc, _render_omi],
     "Pulmonary": [_render_pft, _render_pesi, _render_bova, _render_hestia],
     "GI & Hepatology": [
         _render_glasgow_blatchford,
