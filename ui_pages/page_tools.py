@@ -6,6 +6,8 @@ from acid_base import interpret as interpret_acid_base
 from extract import acid_base_ai_interpretation
 from pft import FLOW_LOOP_SHAPES, interpret as interpret_pft
 from references_data import EMPIRIC_ABX_MD
+from stroke_localizer import localize as localize_stroke
+from stroke_localizer_data import DOMAINS as _LOC_DOMAINS, FINDINGS as _LOC_FINDINGS
 
 
 # Session-state keys for every lab the acid-base walk can ask for. Values
@@ -483,6 +485,51 @@ def _render_gcs() -> None:
         st.warning("Moderate (9–12).")
     else:
         st.success("Mild (13–15).")
+
+
+# Segmented-control label → the value stroke_localizer.localize expects.
+_LOC_VALUES = {"Left": "L", "Right": "R", "Both": "B",
+               "Present": "present", "Absent": "absent"}
+_LOC_SIDED = ["Left", "Right", "Both", "Absent"]
+_LOC_UNSIDED = ["Present", "Absent"]
+
+
+def _render_stroke_localizer() -> None:
+    st.subheader("Stroke localizer — exam → infarct site")
+    st.caption("Record what you examined; leave anything not tested blank. "
+               "For sided findings, hover the label to see what the side means "
+               "(the weak side, the lost field, the direction of gaze…). "
+               "Documented negatives sharpen the answer. Assumes left-hemisphere "
+               "language dominance. Localization only — no management.")
+
+    if st.button("Clear exam", key="tools_loc_clear"):
+        for f in _LOC_FINDINGS:
+            st.session_state.pop(f"tools_loc_{f['id']}", None)
+        st.rerun()
+
+    entered: dict[str, str | None] = {}
+    for domain in _LOC_DOMAINS:
+        items = [f for f in _LOC_FINDINGS if f["domain"] == domain]
+        if not items:
+            continue
+        st.caption(domain)
+        cols = st.columns(3)
+        for i, f in enumerate(items):
+            tip = []
+            if f["lateralized"]:
+                tip.append(f"Side = {f['side_meaning']}.")
+            if f.get("notes"):
+                tip.append(f["notes"])
+            choice = cols[i % 3].segmented_control(
+                f["label"],
+                _LOC_SIDED if f["lateralized"] else _LOC_UNSIDED,
+                key=f"tools_loc_{f['id']}",
+                help=" ".join(tip) or None,
+            )
+            entered[f["id"]] = _LOC_VALUES.get(choice) if choice else None
+
+    if any(v is not None for v in entered.values()):
+        _render_steps(localize_stroke(entered))
 
 
 # Ganzoni: deficit (mg) = weight (kg) × (target − actual) Hb (g/dL) × 2.4 + stores.
@@ -1621,6 +1668,7 @@ _TOOL_TABS = {
     "Neuro": [
         _render_nihss,
         _render_gcs,
+        _render_stroke_localizer,
         lambda: _render_thrombolytic_ci("neuro"),
     ],
     "Cardiology": [_render_qtc, _render_omi],
