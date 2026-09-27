@@ -237,8 +237,7 @@ def _render_hospitalization_reason(reason: str) -> None:
     if not reason:
         return
     st.subheader("7 · Reason care requires hospitalization")
-    # Plain text with a copy button — this line gets pasted back into the note.
-    st.code(reason, language=None)
+    st.markdown(reason)
 
 
 def _render_new_literature(papers: list[dict], seconds, error: str) -> None:

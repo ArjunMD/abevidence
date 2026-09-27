@@ -636,6 +636,15 @@ def render() -> None:
     default_month = int(default_month_date.month)
     min_year = max(1900, default_year - 25)
     year_options = list(range(default_year, min_year - 1, -1))
+    # "Next month" (shown under a cleared month) hands off here: point the
+    # pickers at the new month and search it straight away. The widget keys are
+    # dropped so the selectboxes re-seed from the sticky values below.
+    goto = st.session_state.pop("search_pubmed_goto", None)
+    auto_search = isinstance(goto, dict)
+    if auto_search:
+        st.session_state["search_pubmed_filters_sticky"] = goto
+        st.session_state.pop("search_pubmed_year", None)
+        st.session_state.pop("search_pubmed_month", None)
     sticky = st.session_state.get("search_pubmed_filters_sticky")
     if not isinstance(sticky, dict):
         sticky = {}
@@ -669,6 +678,7 @@ def render() -> None:
     b_search, b_clear = st.columns(2)
     with b_search:
         search_clicked = st.button("Search all journals", type="primary", width="stretch", key="search_pubmed_btn")
+    search_clicked = search_clicked or auto_search
     with b_clear:
         clear_clicked = st.button("Clear search", width="stretch", key="search_pubmed_clear_btn")
 
@@ -856,6 +866,7 @@ def render() -> None:
 
     # One ledger row per month (all journals rolled into one). The month is
     # cleared when nothing is left to show across every journal.
+    month_cleared = False
     if not is_future:
         month_cleared = bool(grand_shown == 0 and all_verified and is_time_clearable)
         upsert_search_pubmed_ledger(
@@ -879,6 +890,19 @@ def render() -> None:
 
     if not any_visible:
         st.info("No visible results across any journal for this month.")
+
+    ym = _parse_year_month_key(ym_key)
+    if month_cleared and ym is not None:
+        next_y, next_m = (ym[0] + 1, 1) if ym[1] == 12 else (ym[0], ym[1] + 1)
+        if not _is_future_year_month(f"{next_y}-{next_m:02d}", today=today) and next_y in year_options:
+            st.success(f"{ym_label} is cleared.")
+            if st.button(
+                f"Next month → {calendar.month_name[next_m]} {next_y}",
+                type="primary",
+                key="search_pubmed_next_month",
+            ):
+                st.session_state["search_pubmed_goto"] = {"year": next_y, "month": next_m}
+                st.rerun()
 
     st.divider()
     _render_search_ledger()

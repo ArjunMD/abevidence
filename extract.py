@@ -698,6 +698,12 @@ def search_pubmed_pmids_page(
         # leniently so a cosmetic quirk in NCBI's echo can't fail the search.
         payload = json.loads(r.text, strict=False) or {}
     esearch = payload.get("esearchresult") or {}
+    # NCBI reports backend outages ("Cannot connect to SOLR") as HTTP 200 with
+    # an ERROR field and no count. Raise so callers don't read it as "0 results"
+    # — the monthly sweep would otherwise mark the month cleared in the ledger.
+    backend_error = str(esearch.get("ERROR") or payload.get("error") or "").strip()
+    if backend_error or "count" not in esearch:
+        raise requests.HTTPError(f"PubMed returned an error instead of results: {backend_error or 'no result count'}")
     idlist = esearch.get("idlist") or []
     total_count_raw = str(esearch.get("count") or "").strip()
     try:
@@ -3847,6 +3853,12 @@ def review_assessment_and_plan(note: str) -> dict:
         "represented by at least one item. NEVER list as a negative anything the "
         "note documents as present or abnormal, and skip negatives that only "
         "restate a workup the note already resolved definitively.\n"
+        "   * Only what the note does NOT already say: before finalizing, re-read "
+        "the HPI (and any ROS) and drop every symptom it already mentions — "
+        "whether as present or as absent ('denies chest pain' means chest pain "
+        "is already covered). Likewise re-read the physical exam and drop every "
+        "finding it already documents, normal or abnormal. The output is only "
+        "the negatives the physician has not yet written.\n"
         "Rules:\n"
         "- Reason only from the note; if a pivotal datum is missing, say so rather "
         "than inventing it.\n"
@@ -3977,7 +3989,7 @@ def related_saved_papers(note: str) -> list[dict]:
     """Match the admission against the personal library of saved abstracts.
     Two cheap calls: stage 1 sees the note plus every saved paper's
     pmid/year/journal/title line and picks the few genuinely relevant to a
-    management decision in this admission; stage 2 sees the picked papers'
+    management decision in this admission (any A&P problem); stage 2 sees the picked papers'
     saved summaries and writes each 'why' as a concrete tie to the clinician's
     own plan. Returns [{"pmid", "title", "year", "journal", "why"}] — often
     empty, by design. Deliberately NOT the reasoning model: this runs after the
@@ -4010,9 +4022,8 @@ def related_saved_papers(note: str) -> list[dict]:
         "'pmid | year | journal | title' lines.\n"
         "Pick ONLY papers relevant to a management decision in THIS admission — "
         "evidence the clinician would actually cite on rounds for this patient. "
-        "Topical overlap alone is not enough. Focus on the FIRST 1-3 problems in "
-        "the note's assessment and plan — the main problems of the admission; "
-        "skip papers that only bear on problems listed below those. Up to 8, "
+        "Topical overlap alone is not enough. Any problem in the note's "
+        "assessment and plan counts, not just the first ones. Up to 8, "
         "most relevant first; usually 0-4, and returning none is a perfectly "
         "good answer — never stretch.\n"
         "Copy each pmid verbatim from its library line.\n"
@@ -4076,8 +4087,7 @@ def related_saved_papers(note: str) -> list[dict]:
         "order', 'consider adding acetazolamide 500mg IV to the diuresis'). Ground "
         "each 'why' in that article's saved summary — never a description of what "
         "the study is about, and never a claim its summary doesn't support. DROP "
-        "any article you cannot tie to a specific plan item, and any that only "
-        "bears on a problem below the first 1-3 in their A&P. Keep the given "
+        "any article you cannot tie to a specific plan item. Keep the given "
         "order; copy each pmid verbatim.\n"
         'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
     )
@@ -4114,13 +4124,14 @@ def related_saved_papers(note: str) -> list[dict]:
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def suggest_new_literature(note: str) -> list[dict]:
-    """Suggest ONE article the clinician has NOT saved — an RCT or systematic
-    review from PubMed bearing on the first 1-3 problems in their A&P, with a
-    strong preference for major journals. Grounded: a cheap call writes PubMed
-    queries, esearch (restricted to those two publication types) supplies real
-    candidates, saved pmids are excluded, and a second cheap call picks the
-    single best (or none). Returns [] or [{"pmid", "title", "year", "journal",
-    "why"}]. Cached for a day so re-running the same note doesn't re-bill."""
+    """Suggest up to THREE articles the clinician has NOT saved — RCTs or
+    systematic reviews from PubMed bearing on any problem in their A&P,
+    preferring recent papers and major journals. Grounded: a cheap call writes
+    PubMed queries, esearch (restricted to those two publication types, once
+    any-date and once last-5-years so recent work reaches the picker) supplies
+    real candidates, saved pmids are excluded, and a second cheap call picks
+    the best 0-3. Returns [{"pmid", "title", "year", "journal", "why"}, ...].
+    Cached for a day so re-running the same note doesn't re-bill."""
     note = (note or "").strip()
     if not note:
         return []
@@ -4129,12 +4140,12 @@ def suggest_new_literature(note: str) -> list[dict]:
     if not key:
         raise RuntimeError("Missing OpenAI API key. Put OPENAI_API_KEY in .streamlit/secrets.toml.")
 
-    # Stage 1: turn problems 1-3 into PubMed queries.
+    # Stage 1: turn the A&P's management questions into PubMed queries.
     instructions = (
         "You write PubMed searches for a hospitalist. Given a deidentified "
         "admission note whose assessment and plan lists numbered problems, write "
-        "1-2 PubMed queries that would find high-impact trial evidence for the "
-        "biggest management questions in the FIRST 1-3 problems. Each query: 2-5 "
+        "1-3 PubMed queries that would find high-impact trial evidence for the "
+        "biggest management questions across ANY of the problems. Each query: 2-5 "
         "terms joined with AND (condition plus intervention or question), quotes "
         "only around fixed phrases, and NO publication-type, journal, or date "
         "filters — the caller adds those.\n"
@@ -4156,21 +4167,24 @@ def suggest_new_literature(note: str) -> list[dict]:
         timeout=60,
     )
     data = _parse_json_from_model(_extract_output_text(r.json()))
-    queries = _str_list(data.get("queries") if isinstance(data, dict) else None)[:2]
+    queries = _str_list(data.get("queries") if isinstance(data, dict) else None)[:3]
     if not queries:
         return []
 
     # Stage 2: real candidates from PubMed — RCTs and systematic reviews only
-    # (no guidelines or other study types), best-match order.
+    # (no guidelines or other study types), best-match order. Each query runs
+    # twice: last 5 years first (relevance sort alone skews toward older, highly
+    # cited papers), then any date so landmark trials stay in reach.
     candidate_pmids: list[str] = []
     seen: set[str] = set()
-    for q in queries:
+    for q, recent in ((q, recent) for q in queries for recent in (True, False)):
         params = {
             "db": "pubmed",
             "term": f"({q}) AND (randomized controlled trial[pt] OR systematic review[pt])",
             "retmode": "json",
-            "retmax": "15",
+            "retmax": "10",
             "sort": "relevance",
+            **({"datetype": "pdat", "reldate": "1825"} if recent else {}),
             **_ncbi_params_base(),
         }
         try:
@@ -4228,11 +4242,11 @@ def suggest_new_literature(note: str) -> list[dict]:
         for m in (meta[p] for p in candidate_pmids if p in meta)
     )
 
-    # Stage 3: pick the single best suggestion (or none).
+    # Stage 3: pick the best 0-3 suggestions.
     pick_instructions = (
-        "You suggest at most ONE article to a hospitalist for the admission in "
-        "the note — a paper NOT in their library that best informs the plan for "
-        "the FIRST 1-3 problems in their A&P. Candidates are 'pmid | year | "
+        "You suggest up to THREE articles to a hospitalist for the admission in "
+        "the note — papers NOT in their library that best inform the plan for "
+        "any problem in their A&P. Candidates are 'pmid | year | "
         "journal | publication types | title' lines from a PubMed search already "
         "restricted to randomized controlled trials and systematic reviews.\n"
         "Rules:\n"
@@ -4241,14 +4255,21 @@ def suggest_new_literature(note: str) -> list[dict]:
         "European Heart Journal, AJRCCM, CHEST, Kidney International, JASN, "
         "Blood, Gut, Hepatology, Clinical Infectious Diseases). A landmark trial "
         "in a major journal beats a newer paper in a minor one.\n"
+        "- Prefer modern papers: among comparable candidates, pick the more "
+        "recent one, and favor work from the last ~5-10 years. Suggest an older "
+        "paper only when it is a landmark that still defines practice and "
+        "nothing newer answers the same question.\n"
         "- RCT or systematic review only — skip anything that reads as a "
         "guideline, protocol, editorial, or subgroup/secondary analysis of "
         "marginal value.\n"
-        "- It must bear on a management decision for the first 1-3 problems.\n"
+        "- Each must bear on a management decision for a problem in the A&P, and "
+        "each must add something the others don't — no two papers answering the "
+        "same question.\n"
         "- 'why': at most 15 words naming what it does to THEIR written plan — "
         "the specific order it supports, argues against, or would add.\n"
-        "- If nothing is genuinely worth the clinician's time, return an empty "
-        "list — never stretch. Copy the pmid verbatim.\n"
+        "- 1 is fine; 2-3 only when each is genuinely worth reading. If nothing "
+        "is worth the clinician's time, return an empty list — never stretch. "
+        "Best first; copy each pmid verbatim.\n"
         'Return ONLY JSON: {"papers": [{"pmid": "...", "why": "..."}]}'
     )
     payload = {
@@ -4269,20 +4290,23 @@ def suggest_new_literature(note: str) -> list[dict]:
     data = _parse_json_from_model(_extract_output_text(r.json()))
     if not isinstance(data, dict):
         return []
+    picks: list[dict] = []
     for p in data.get("papers") or []:
         if not isinstance(p, dict):
             continue
         pmid = str(p.get("pmid") or "").strip()
-        if pmid in meta:
+        if pmid in meta and all(x["pmid"] != pmid for x in picks):
             m = meta[pmid]
-            return [{
+            picks.append({
                 "pmid": pmid,
                 "title": m["title"],
                 "journal": m["journal"],
                 "year": m["year"],
                 "why": str(p.get("why") or "").strip(),
-            }]
-    return []
+            })
+        if len(picks) == 3:
+            break
+    return picks
 
 
 @st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
