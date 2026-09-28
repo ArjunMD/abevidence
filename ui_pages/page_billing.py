@@ -214,6 +214,83 @@ _QA: list[tuple[str, str]] = [
      two-midnight documentation → admit (protected by the presumption); thin documentation,
      an MA plan that ignores the presumption, or a patient back within 30 days of discharge
      → observation pressure. Utilization-review teams exist to arbitrate exactly this line.
+- **What if one hospitalist just defaulted everyone one way?** — Say a hospitalist puts
+  every patient in the same status and switches it the moment the facts call for it. Assume
+  the switch is never late or forgotten. Even then, the two directions are not mirror
+  images:
+   - **The hospitalist's own pay barely changes** — Since 2023 the admission, daily-visit,
+     and discharge codes are the same for inpatient and observation (99221–99223,
+     99231–99233, 99238–99239). The status decides the *hospital's* payment and the
+     *patient's* cost-sharing, not the doctor's professional fee.
+   - **Audit protection, as a reminder** — The Two-Midnight Rule counts midnights two ways:
+      - **Benchmark** — Counts from the start of care, including ED and observation time
+        before the inpatient order. It answers "was admitting correct?"
+      - **Presumption** — Counts only midnights *after* the inpatient order. Two or more of
+        them and auditors (MACs, RACs) are told to leave the claim alone. MA plans don't
+        honor it.
+      - **In practice** — Every midnight in observation before an upgrade still counts
+        toward the benchmark but not toward the presumption. Example: 1 observation
+        midnight, then upgrade, then discharge after 1 inpatient midnight. Admitting was
+        correct, but the claim stays open to review and has to be defended with
+        documentation.
+   - **Default to admission, downgrade to observation when the stay looks short** — Even
+     with perfect timing, downgrading is clumsy. Condition Code 44 requires the flip before
+     discharge, agreement from a utilization-review physician *and* the attending, and a
+     claim not yet submitted. Once flipped, the whole stay is billed as outpatient.
+      - **Harm to the hospital** — Observation billing starts only at the new observation
+        order, so the hours before it can't be billed as observation. Short stays often
+        then miss the 8-hour threshold for the comprehensive observation payment. Every
+        short stay costs a UR physician review. CC44 is meant for occasional mistakes, so a
+        high CC44 rate tells UR and auditors that the admission orders don't reflect real
+        expectations. Admitting patients the doctor doesn't expect to stay two midnights is
+        the pattern behind large False Claims Act settlements (e.g., Community Health
+        Systems, 2014).
+      - **Harm to the patient** — The patient is told "admitted" and later gets a written
+        notice that they're outpatient. The inpatient midnights they may have been
+        counting on for SNF coverage disappear, and their bill switches from the Part A
+        deductible to Part B cost-sharing.
+      - **What perfect timing does fix** — Flipped stays are never billed as inpatient.
+        Short-stay audits, deductible-for-a-one-night-stay bills, and distorted
+        LOS/mortality/HRRP metrics mostly go away.
+   - **Default to observation, upgrade to inpatient the moment two midnights are
+     expected** — Whether this is harmless depends on what triggers the upgrade.
+      - **If the trigger is exactly the rule's standard** — Upgrade the moment a
+        *reasonable* two-midnight expectation exists. Then this default makes the same
+        call as case-by-case judgment, and nothing is lost.
+      - **If the trigger is certainty** — Upgrade only once two midnights are *clearly*
+        needed. That bar is higher than the rule's, and the gap costs audit protection.
+        Take a patient who reasonably needed two midnights on arrival but is observed the
+        first night anyway, upgraded on day 2, and discharged on day 3. That stay has 1
+        post-order midnight, so no presumption, and it can be reviewed. Admitted on
+        arrival, the same stay would have had 2 post-order midnights and been protected.
+        Across a whole panel, this default quietly turns presumption-protected stays into
+        reviewable ones. The stays meet the benchmark, so they *should* be upheld, but the
+        hospital has to win each review on documentation.
+      - **This is where most gray-zone patients land** — Two midnights is usually
+        *probable* at the door, not *certain*. So in practice, default-to-observation
+        tends to mean waiting for certainty.
+      - **Cost-sharing mostly disappears** — Outpatient services before the upgrade are
+        bundled into the DRG under the 3-day window. Upgraded patients owe the Part A
+        deductible, not Part B coinsurance, for that time. Only patients who stay in
+        observation the whole way pay Part B costs and self-administered drug charges,
+        and for them observation is the correct status.
+      - **The SNF clock, same logic** — Any observation midnight before the upgrade also
+        doesn't count toward the SNF 3-day rule. If the patient was truly uncertain at
+        arrival, that cost comes from the uncertainty itself: careful case-by-case
+        judgment would have observed them too. If a reasonable expectation already
+        existed, the default is what cost them that midnight. MA plans may also deny the
+        upgrade under their own prior-authorization rules.
+   - **Bottom line** — Even with perfect switching, both defaults cost something:
+      - **Default-to-admission** — The inpatient order is supposed to state this doctor's
+        reasonable expectation for this patient. A blanket order that routinely gets
+        downgraded via CC44 doesn't do that.
+      - **Default-to-observation** — Harmless only if the upgrade trigger is "reasonably
+        expected" rather than "certain." Otherwise it gives up the presumption, plus an
+        SNF-qualifying midnight, on exactly the borderline stays auditors look at.
+      - **The asymmetry is built into the rules** — CMS lets observation become inpatient
+        freely but makes the reverse hard. Separately, the presumption rewards writing
+        the inpatient order as soon as the expectation is reasonable, not waiting until
+        it's certain.
 - **The punchline** — The three incentives only align for genuinely short, simple stays
   (everyone is fine with observation) and genuinely sick multi-day patients (everyone
   accepts admission). Every borderline case is a three-way tug-of-war — Medicare pulling

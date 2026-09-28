@@ -3,7 +3,8 @@ import math
 import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
-from extract import acid_base_ai_interpretation
+from extract import acid_base_ai_interpretation, code_imaging_findings
+from icd10 import FISCAL_YEAR as _ICD_FY
 from pft import FLOW_LOOP_SHAPES, interpret as interpret_pft
 from references_data import EMPIRIC_ABX_MD
 from stroke_localizer import localize as localize_stroke
@@ -1148,14 +1149,16 @@ original weighted Sgarbossa score.
   ballooning with basal hyperkinesis) suggests takotsubo
 """
 
-def _render_omi() -> None:
+def _render_omi(tab: str) -> None:
     st.subheader("OMI / STEMI equivalents")
 
-    shown = st.session_state.get("tools_omi_shown", False)
+    # Rendered under Cardiology and Reference, so keys carry the tab to stay unique.
+    shown_key = f"tools_omi_shown_{tab}"
+    shown = st.session_state.get(shown_key, False)
     # Same toggle as the other references: rerun so the label keeps up.
     if st.button("Hide reference" if shown else "See reference",
-                 type="primary", key="tools_omi_toggle"):
-        st.session_state["tools_omi_shown"] = not shown
+                 type="primary", key=f"tools_omi_toggle_{tab}"):
+        st.session_state[shown_key] = not shown
         st.rerun()
 
     if shown:
@@ -1658,6 +1661,238 @@ def _render_news() -> None:
                    "which scored AVPU only.")
 
 
+# Inhaler reference: US products by drug class, then the asthma (GINA) and COPD
+# (GOLD) step-up frameworks. Device key — MDI: pressurized aerosol (HFA,
+# Aerosphere, RediHaler); DPI: dry powder, needs a decent inspiratory effort
+# (Ellipta, Diskus, HandiHaler, Pressair, Twisthaler, Flexhaler, RespiClick,
+# Digihaler, Inhub); SMI: soft mist, low flow is fine (Respimat); neb: nebulized.
+_INHALERS_MD = """\
+#### Rescue (short-acting)
+
+| Class | Brand | Drug | Device |
+|---|---|---|---|
+| **SABA** | Ventolin HFA · albuterol HFA generics (the former ProAir and Proventil brands, discontinued 2022) | albuterol | MDI |
+| SABA | ProAir RespiClick | albuterol | DPI |
+| SABA | Xopenex HFA | levalbuterol | MDI |
+| SABA | albuterol solution; Xopenex solution | albuterol; levalbuterol | neb |
+| **SAMA** | Atrovent HFA; ipratropium solution | ipratropium | MDI; neb |
+| **SABA + SAMA** | Combivent Respimat | albuterol + ipratropium | SMI |
+| SABA + SAMA | ipratropium-albuterol solution (DuoNeb — brand discontinued) | albuterol + ipratropium | neb |
+| **ICS + SABA** | Airsupra (asthma ≥ 18 y, as-needed reliever) | budesonide + albuterol | MDI |
+| **Epinephrine (OTC)** | Primatene Mist (OTC; patients call it their "rescue inhaler" — not a SABA substitute) | epinephrine | MDI |
+
+#### Maintenance — single agents
+
+| Class | Brand | Drug | Device |
+|---|---|---|---|
+| **ICS** | Flovent HFA / Diskus (brand withdrawn Jan 2024 — authorized generics; first true generic HFA 2026) | fluticasone propionate | MDI / DPI |
+| ICS | Arnuity Ellipta | fluticasone furoate | DPI |
+| ICS | Pulmicort Flexhaler; Pulmicort Respules | budesonide | DPI; neb |
+| ICS | Qvar RediHaler | beclomethasone | MDI (breath-actuated) |
+| ICS | Asmanex Twisthaler; Asmanex HFA | mometasone | DPI; MDI |
+| ICS | Alvesco | ciclesonide | MDI |
+| **LABA** | Serevent Diskus | salmeterol | DPI |
+| LABA | Striverdi Respimat | olodaterol | SMI |
+| LABA | Perforomist; Brovana | formoterol; arformoterol | neb |
+| **LAMA** | Spiriva HandiHaler · tiotropium capsules (generic since 2023) | tiotropium | DPI |
+| LAMA | Spiriva Respimat (2 puffs daily: 2.5 µg/puff = 5 µg COPD; 1.25 µg/puff = 2.5 µg asthma ≥ 6 y) | tiotropium | SMI |
+| LAMA | Incruse Ellipta | umeclidinium | DPI |
+| LAMA | Tudorza Pressair | aclidinium | DPI |
+| LAMA | Yupelri | revefenacin | neb |
+| **Mast-cell stabilizer** | cromolyn solution (generic only) | cromolyn | neb |
+
+LABA alone is a COPD drug — never LABA without ICS in asthma. Formoterol is
+fast-onset (why it can double as the reliever in ICS-formoterol regimens);
+salmeterol is slow-onset. Vilanterol and olodaterol are once-daily.
+Withdrawn from the US market but still seen on med lists: Foradil Aerolizer;
+Arcapta, Seebri and Utibron Neohaler (2020); ProAir HFA and Proventil HFA
+brands (2022); Lonhala Magnair (2023); ProAir, AirDuo and ArmonAir Digihaler
+(2024).
+
+#### Maintenance — combinations
+
+| Class | Brand | Drug | Device |
+|---|---|---|---|
+| **ICS + LABA** | Advair Diskus · Wixela Inhub (generic) | fluticasone propionate + salmeterol | DPI |
+| ICS + LABA | Advair HFA | fluticasone propionate + salmeterol | MDI |
+| ICS + LABA | AirDuo RespiClick (+ authorized generic) | fluticasone propionate + salmeterol | DPI |
+| ICS + LABA | Breo Ellipta | fluticasone furoate + vilanterol | DPI |
+| ICS + LABA | Symbicort · authorized generic · Breyna (generic) | budesonide + formoterol | MDI |
+| ICS + LABA | Dulera | mometasone + formoterol | MDI |
+| **LAMA + LABA** | Anoro Ellipta | umeclidinium + vilanterol | DPI |
+| LAMA + LABA | Stiolto Respimat | tiotropium + olodaterol | SMI |
+| LAMA + LABA | Bevespi Aerosphere | glycopyrrolate + formoterol | MDI |
+| LAMA + LABA | Duaklir Pressair | aclidinium + formoterol | DPI |
+| **ICS + LAMA + LABA** | Trelegy Ellipta (COPD and asthma) | fluticasone furoate + umeclidinium + vilanterol | DPI |
+| ICS + LAMA + LABA | Breztri Aerosphere (COPD; asthma ≥ 12 y since 2026) | budesonide + glycopyrrolate + formoterol | MDI |
+| **PDE3/PDE4 inhibitor** | Ohtuvayre (COPD maintenance, 2024) | ensifentrine | neb |
+
+Device fit: a DPI needs a brisk inhalation — frail, dyspneic or post-extubation
+patients often can't generate it; an MDI with spacer or a Respimat works at low
+flow. Many products are the same molecules in a different device.
+"""
+
+_ASTHMA_STEPS_MD = """\
+#### Asthma step-up — GINA 2025 (adults and adolescents ≥ 12 y)
+
+| | Step 1 | Step 2 | Step 3 | Step 4 | Step 5 |
+|---|---|---|---|---|---|
+| **Track 1 (preferred)** — reliever is as-needed low-dose **ICS-formoterol** at every step | As-needed low-dose ICS-formoterol | As-needed low-dose ICS-formoterol | Low-dose maintenance ICS-formoterol (MART) | Medium-dose maintenance ICS-formoterol (MART) | Add-on LAMA; refer for phenotyping ± biologic (anti-IgE, anti-IL5/5R, anti-IL4Rα, anti-TSLP); consider high-dose ICS-formoterol |
+| **Track 2 (alternative)** — reliever is as-needed SABA, or ICS-SABA (adults ≥ 18 y) | As-needed ICS-SABA, or take ICS whenever SABA is taken | Low-dose maintenance ICS | Low-dose ICS-LABA | Medium-dose ICS-LABA | Add-on LAMA; refer ± biologic; consider a 3–6 month trial of high-dose ICS-LABA |
+
+Before stepping up: confirm the diagnosis, adherence, inhaler technique,
+triggers and comorbidities. Step down after ~3 months of good control. Track 1
+is preferred because it cuts severe exacerbations at any step; a patient on
+Track 2 with exacerbations despite good adherence is a candidate for Track 1.
+"""
+
+_COPD_INITIAL_MD = """\
+#### COPD initial therapy — GOLD 2026 (ABE groups)
+
+| Group | Defined by | Initial inhaler |
+|---|---|---|
+| **A** | No exacerbations in the past year and mMRC 0–1 / CAT < 10 | A bronchodilator — long-acting (LAMA or LABA) preferred |
+| **B** | No exacerbations in the past year and mMRC ≥ 2 / CAT ≥ 10 | LABA + LAMA |
+| **E** | ≥ 1 moderate or severe exacerbation in the past year, whatever the symptoms | LABA + LAMA; consider LABA + LAMA + ICS if blood eosinophils ≥ 300 |
+
+GOLD 2026 moved anyone with even one exacerbation into group E (2025 required
+two, or one hospitalization). ICS + LABA without a LAMA is not recommended in
+COPD. Blood eosinophils guide ICS: ≥ 300 favors it, < 100 argues against it
+(and for pneumonia risk).
+
+#### COPD follow-up — treat the dominant problem
+"""
+
+_COPD_FOLLOWUP_DOT = """\
+digraph copd {
+  rankdir=LR; fontname="Helvetica"; nodesep=0.35; ranksep=0.5;
+  node [shape=box, style="rounded,filled", fillcolor="#f3f4f6", fontname="Helvetica", fontsize=11, margin="0.15,0.08"];
+  edge [fontname="Helvetica", fontsize=10];
+
+  subgraph cluster_d {
+    label="Dyspnea"; style="rounded"; color="#9ca3af"; fontname="Helvetica-Bold";
+    d1 [label="LABA or LAMA"];
+    d2 [label="LABA + LAMA"];
+    d3 [label="Switch device or molecules\\nConsider adding ensifentrine\\nLook for other causes of dyspnea"];
+    d1 -> d2 -> d3;
+  }
+
+  subgraph cluster_e {
+    label="Exacerbations"; style="rounded"; color="#9ca3af"; fontname="Helvetica-Bold";
+    e1 [label="LABA or LAMA"];
+    e2 [label="LABA + LAMA"];
+    e3 [label="LABA + LAMA + ICS"];
+    e4 [label="Roflumilast (FEV1 < 50% + chronic bronchitis)\\nAzithromycin (preferably former smokers)"];
+    e5 [label="Add a biologic (eos ≥ 300):\\ndupilumab (needs chronic bronchitis)\\nor mepolizumab"];
+    e6 [label="If pneumonia or other significant ICS side effects:\\nconsider stepping ICS down\\n(more likely to provoke exacerbations if eos ≥ 300)"];
+    e1 -> e2 [label="eos < 300"];
+    e1 -> e3 [label="eos ≥ 300"];
+    e2 -> e3 [label="eos ≥ 100"];
+    e2 -> e4 [label="eos < 100"];
+    e3 -> e4;
+    e3 -> e5;
+    e3 -> e6 [style=dashed];
+  }
+}
+"""
+
+
+def _render_inhalers(tab: str) -> None:
+    st.subheader("Inhalers & step-up therapy")
+
+    # Rendered under Pulmonary and Reference, so keys carry the tab to stay unique.
+    shown_key = f"tools_inhalers_shown_{tab}"
+    shown = st.session_state.get(shown_key, False)
+    # Same toggle as the antibiotics reference: rerun so the label keeps up.
+    if st.button("Hide reference" if shown else "See reference",
+                 type="primary", key=f"tools_inhalers_toggle_{tab}"):
+        st.session_state[shown_key] = not shown
+        st.rerun()
+
+    if shown:
+        st.markdown(_INHALERS_MD)
+        st.markdown(_ASTHMA_STEPS_MD)
+        st.markdown(_COPD_INITIAL_MD)
+        st.graphviz_chart(_COPD_FOLLOWUP_DOT, width="stretch")
+        st.caption("GINA 2025 and GOLD 2026 reports; US market status as of "
+                   "September 2026. Doses and biologic eligibility are not covered here.")
+
+
+_ICD_STATUS_TAG = {
+    "finding": "imaging finding, not yet a diagnosis",
+    "history": "history / sequela",
+}
+
+
+def _render_icd10_coder() -> None:
+    st.subheader("Imaging finding → ICD-10-CM")
+    st.caption("Paste a radiology impression or a single finding. Returns the most "
+               f"specific {_ICD_FY} ICD-10-CM code the wording supports, checked against "
+               "the official CMS code table. Hedged or descriptive findings get the "
+               "finding code, with the diagnosis code held for when you confirm it. "
+               "AI-generated — the diagnosis is yours. Do not paste PHI.")
+
+    text = st.text_area(
+        "Imaging text",
+        key="tools_icd_text",
+        height=160,
+        placeholder="e.g. IMPRESSION: 1. Acute infarct in the left MCA territory. "
+                    "2. 6 mm right upper lobe pulmonary nodule. 3. Hepatic steatosis.",
+        label_visibility="collapsed",
+    )
+    if st.button("Find codes", type="primary", key="tools_icd_go"):
+        if not text.strip():
+            st.warning("Paste an imaging finding first.")
+            st.session_state.pop("tools_icd_result", None)
+        else:
+            try:
+                with st.spinner("Coding…"):
+                    st.session_state["tools_icd_result"] = code_imaging_findings(text)
+            except Exception as e:
+                st.session_state["tools_icd_result"] = {"error": str(e)}
+
+    result = st.session_state.get("tools_icd_result")
+    if not result:
+        return
+    if result.get("error"):
+        st.error(f"Coding failed: {result['error']}")
+        return
+    items = result.get("items") or []
+    if not items:
+        st.info("Nothing codeable found — normal or negative statements are skipped.")
+        return
+
+    lines = []
+    for it in items:
+        head = f"**{it['finding']}**"
+        if it["validation"] == "unresolved":
+            st.markdown(f"- {head} — no valid code found for “{it['code']}”" +
+                        (". Closest in the table: " + "; ".join(
+                            f"{c['code']} {c['description']}" for c in it["candidates"][:4])
+                         if it["candidates"] else "."))
+            continue
+        tag = _ICD_STATUS_TAG.get(it["status"])
+        body = f"- {head} → **{it['code']}** {it['description']}"
+        if tag:
+            body += f" — _{tag}_"
+        st.markdown(body)
+        detail = []
+        if it["basis"]:
+            detail.append(f"Why this code: {it['basis']}")
+        if it["if_confirmed"]:
+            when = f" ({it['if_confirmed_when']})" if it["if_confirmed_when"] else ""
+            detail.append(f"If confirmed: **{it['if_confirmed']}** {it['if_confirmed_description']}{when}")
+        if it["sharpen"]:
+            detail.append(f"More specific if documented: {it['sharpen']}")
+        for d in detail:
+            st.markdown(f"   - {d}")
+        lines.append(f"{it['code']} {it['description']}")
+
+    if lines:
+        st.caption("Problem-list lines")
+        st.code("\n".join(lines), language=None)
+
+
 # Tab → tools, in display order. A tool may sit under more than one tab; if it
 # owns widgets, give it a per-tab key suffix (see _render_thrombolytic_ci).
 _TOOL_TABS = {
@@ -1671,8 +1906,14 @@ _TOOL_TABS = {
         lambda: _render_thrombolytic_ci("neuro"),
         _render_stroke_localizer,
     ],
-    "Cardiology": [_render_qtc, _render_omi],
-    "Pulmonary": [_render_pft, _render_pesi, _render_bova, _render_hestia],
+    "Cardiology": [_render_qtc, lambda: _render_omi("cardio")],
+    "Pulmonary": [
+        _render_pft,
+        _render_pesi,
+        _render_bova,
+        _render_hestia,
+        lambda: _render_inhalers("pulm"),
+    ],
     "GI & Hepatology": [
         _render_glasgow_blatchford,
         _render_apri,
@@ -1680,9 +1921,12 @@ _TOOL_TABS = {
     ],
     "Heme": [_render_retic_index, _render_iron_deficit],
     "General": [_render_news],
+    "Coding": [_render_icd10_coder],
     "Reference": [
         _render_empiric_abx,
         lambda: _render_thrombolytic_ci("reference"),
+        lambda: _render_omi("reference"),
+        lambda: _render_inhalers("reference"),
         _render_procedures_checklist,
     ],
 }
