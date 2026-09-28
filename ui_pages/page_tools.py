@@ -1908,11 +1908,11 @@ _TOOL_TABS = {
     ],
     "Cardiology": [_render_qtc, lambda: _render_omi("cardio")],
     "Pulmonary": [
-        _render_pft,
         _render_pesi,
         _render_bova,
         _render_hestia,
         lambda: _render_inhalers("pulm"),
+        _render_pft,
     ],
     "GI & Hepatology": [
         _render_glasgow_blatchford,
