@@ -1668,8 +1668,8 @@ _TOOL_TABS = {
     "Neuro": [
         _render_nihss,
         _render_gcs,
-        _render_stroke_localizer,
         lambda: _render_thrombolytic_ci("neuro"),
+        _render_stroke_localizer,
     ],
     "Cardiology": [_render_qtc, _render_omi],
     "Pulmonary": [_render_pft, _render_pesi, _render_bova, _render_hestia],
