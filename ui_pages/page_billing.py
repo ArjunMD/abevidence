@@ -84,6 +84,22 @@ _QA: list[tuple[str, str]] = [
 """,
     ),
     (
+        "Switching between statuses",
+        r"""
+- Observation to inpatient is fairly benign; just don't forget the 3-midnight SNF rule.
+- MA plans may require their own authorization for the upgrade.
+- Inpatient to observation downgrades occurring before discharge are an administrative
+  burden (Condition Code 44).
+- Condition Code 44 requires a utilization review (UR) committee physician to agree.
+- Patients have to be formally notified.
+- If the admission is found unnecessary after discharge (by the hospital's own review or by
+  a denial), Condition Code 44 is no longer possible. The hospital submits a Medicare
+  Part A "no-pay" claim and rebills as a Part B "inpatient" claim, and might make even less
+  money than if the patient had been in observation initially.
+- Condition Code 44s are tracked, but I don't think they are common audit targets.
+""",
+    ),
+    (
         "Social Security",
         r"""
 - **Relevance** — People already drawing from SS are automatically enrolled in Medicare
@@ -823,6 +839,28 @@ Work in progress: material cut from other expanders that still needs a home.
   accepts admission). Every borderline case is a three-way tug-of-war — Medicare pulling
   toward observation, hospital revenue pulling toward admission tempered by audit fear, and
   the patient's interest swinging on how long and service-heavy the stay turns out to be.
+
+**To cover: audits and reviewers:**
+- PEPPER reports (short-stay and other billing patterns compared against peer hospitals)
+- OIG (HHS Office of Inspector General)
+- RACs (Recovery Audit Contractors)
+- MACs (Medicare Administrative Contractors)
+- QIOs, including BFCC-QIOs
+- Targeted Probe and Educate (TPE)
+- "Pay to deny"
+
+**From the first Switching between statuses draft:**
+- Inpatient status starts at the time of the order and is never backdated.
+- On an upgrade, care before the order counts toward the two-midnight benchmark but not the
+  presumption, and pre-order outpatient services are bundled into the DRG under the 3-day
+  payment window.
+- Condition Code 44's full conditions: patient not yet discharged, UR physician agrees,
+  attending agrees and documents it, no inpatient claim submitted yet. The whole stay is
+  then billed as outpatient, and observation is billable only from the new observation
+  order onward.
+- MOON timing: required after more than 24 hours in observation, delivered no later than
+  36 hours after observation starts.
+- *Alexander v. Azar* appeals for patients downgraded from inpatient to observation.
 """,
     ),
 ]
