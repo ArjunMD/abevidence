@@ -23,14 +23,13 @@ _QA: list[tuple[str, str]] = [
 - If the benchmark is met at the time of admission but the patient is discharged in under
   two midnights due to unforeseen circumstances (death, transfer, rapid improvement, or
   leaving AMA), inpatient status can still be appropriate.
-- The two-midnight presumption is a policy under which Medicare Administrative Contractors
-  (MACs) and Recovery Audit Contractors (RACs) presume that stays spanning two or more
-  midnights after the admission order should not be targeted for review of the
-  appropriateness of admission.
+- The two-midnight presumption is a policy under which Medicare reviewers presume that
+  stays spanning two or more midnights after the admission order should not be targeted for
+  review of the appropriateness of admission.
 - The benchmark can take into account care already given (e.g., ED care, or observation
   time before an upgrade to inpatient), but audit protection from the presumption applies
   only if two midnights are reached after the admission order is placed.
-- **2016 case-by-case exception** — A physician can admit as inpatient for an expected
+- 2016 case-by-case exception — A physician can admit as inpatient for an expected
   sub-two-midnight stay, but they have to support it, and this is supposed to be rare.
 - Since 2024, Medicare Advantage (MA) plans must follow the two-midnight rule, but the
   presumption (audit protection) does not apply to them. They can review stays of any
@@ -38,238 +37,50 @@ _QA: list[tuple[str, str]] = [
 - Since 2000, there has been an Inpatient-Only (IPO) list of procedures to which the
   two-midnight rule does not apply; Medicare Part A covers them. This list is being
   gradually phased out.
-- 2026 Part A inpatient deductible is \$1,736 (covers up to 60 days).
-- 2026 Part B deductible is \$283, plus uncapped 20% coinsurance on all services.
 """,
     ),
     (
-        "What is the 72-hour rule?",
+        "What is the 3-day payment window?",
         """
-- **One liner** — The 72-hour rule (Medicare's "3-day payment window") folds a hospital's
-  outpatient services given just before an inpatient admission into the inpatient DRG
-  payment, so they can't be billed separately.
-- **The window** — The 3 calendar days immediately before an inpatient admission, plus the
-  admission day itself. For hospitals or units not paid under the inpatient PPS (IPPS), the
-  window is only 1 day.
-- **What gets bundled** — All outpatient *diagnostic* services in the window are bundled
-  into the DRG. Outpatient *non-diagnostic* (therapeutic) services are bundled too when
-  they're clinically related to the admission — and since a 2010 law, they're presumed
-  related unless the hospital documents that they're unrelated.
-- **Whose services count** — Services furnished by the admitting hospital or by an entity
-  wholly owned or operated by it. Truly unrelated services, or services from an unaffiliated
-  provider, stay separately billable.
-- **Why it exists** — It blocks "unbundling" — billing pre-admission outpatient care
-  separately under Part B on top of the inpatient DRG, which would pay the hospital twice for
-  one episode of care.
-- **Observation that converts to inpatient** — When a patient starts in observation
-  (outpatient) and is then switched to inpatient by an admission order, the observation and
-  other outpatient services delivered in the window get pulled into the inpatient DRG rather
-  than billed separately. This mirrors the Two-Midnight benchmark, which counts that
-  pre-order time toward the admission decision.
-- **The admission order is the pivot** — Inpatient status begins only with a physician's
-  inpatient admission order; the 3-day window looks backward from that admission. Before a
-  valid order the stay is outpatient. If it's decided before discharge that inpatient wasn't
-  appropriate, the hospital can flip inpatient to outpatient using Condition Code 44 (with
-  utilization-review and physician sign-off while the patient is still in house); after
-  discharge the equivalent is a Part A-to-Part B rebill.
-- **Does Medicare Advantage do this?** — Not automatically. The 3-day window is a
-  traditional-Medicare IPPS rule. MA plans pay hospitals under their own contracts, which
-  are often DRG-based and bundle the pre-admission window similarly — but the specifics are
-  contract-driven, and some MA and commercial payers apply their own windows (e.g., 24- or
-  72-hour) instead.
-- **Other traps** — Despite the "72-hour" nickname it's really 3 *calendar* days, which can
-  span more than 72 actual hours. Only the facility/technical services are bundled —
-  physicians' professional fees stay separately billable. And to bill related-looking but
-  genuinely unrelated non-diagnostic services separately, the hospital attests with
-  Condition Code 51.
-- **Not the SNF 3-day rule** — Different "3 days": that rule requires a 3-day inpatient stay
-  to unlock SNF coverage. This is a billing/payment window, and it's also distinct from the
-  Two-Midnight Rule.
+- A Medicare rule that says a hospital's (or an affiliated entity's) outpatient services
+  given just before an inpatient admission can't be billed separately from the bundled DRG
+  payment.
+- Physicians' professional fees stay separately billable.
+- Diagnostic services in the window are always bundled.
+- Non-diagnostic services are presumed related to the admission and bundled too, unless
+  specifically documented otherwise (Condition Code 51 — "Attestation of Unrelated Outpatient Non-diagnostic
+  Services").
+- This includes observation services when observation converts to inpatient.
 """,
     ),
     (
         "What is the SNF 3-day rule?",
         r"""
-- **One liner** — Medicare Part A covers a skilled nursing facility (SNF) stay only if it
-  follows a qualifying inpatient hospital stay of at least 3 consecutive days.
-- **How the 3 days are counted** — Counted by midnights as an admitted inpatient: the
-  admission day counts, the discharge day does not. So three inpatient midnights are needed
-  to qualify.
-- **Observation doesn't count** — The biggest trap. Time in observation (outpatient) status
-  does not count toward the 3 days, even when the patient occupies a hospital bed for days.
-  Someone observed for 3 days and then sent to a SNF can owe the entire SNF bill, because
-  there was never a qualifying inpatient stay. This is the practical bite of the
-  observation-vs-inpatient call (and why the MOON notice exists to warn patients of
-  observation status).
-- **Other conditions** — The SNF care must be for a condition treated during the hospital
-  stay (or one that arose while in the SNF), the patient must need daily skilled nursing or
-  rehab, and the SNF admission generally must occur within 30 days of hospital discharge.
-- **What coverage looks like** — Once qualified, Part A covers up to 100 days per benefit
-  period — days 1–20 fully, days 21–100 at \$217/day (2026), nothing after 100 (see the
-  Part A section for detail).
-- **Waivers** — Medicare Advantage plans commonly waive the 3-day requirement, as do some
-  ACOs and value-based arrangements. CMS also waived it temporarily during the COVID-19
-  public health emergency, but that blanket waiver ended with the PHE.
-- **Not the 72-hour payment window** — Different "3 days": that rule bundles pre-admission
-  outpatient billing into the DRG. This one gates whether a later SNF stay is covered.
+- Medicare Part A covers a skilled nursing facility (SNF) stay only if it follows a
+  qualifying inpatient hospital stay of at least 3 consecutive midnights.
+- Time in observation status does not count toward the 3 days.
+- Someone observed for 3 days and then sent to a SNF can owe the entire SNF bill.
+- The SNF care must be for a condition treated during the hospital stay.
+- The SNF admission generally must occur within 30 days of hospital discharge.
+- Medicare Advantage plans commonly waive the 3-day requirement, as do some ACOs and
+  value-based arrangements.
+- CMS also waived it temporarily during the COVID-19 public health emergency.
 """,
     ),
     (
-        "Admission vs. observation — who wins, who loses",
+        "Stakeholders in the Admission vs. Observation decision",
         r"""
-- **The setup** — Same bed, same nurses, often the same care — but the status determines
-  which payment machinery runs. Inpatient triggers a Part A DRG lump sum to the hospital
-  (commonly on the order of \$10,000+ for a medical DRG); observation is billed as hospital
-  *outpatient* under Part B (a comprehensive observation payment, roughly \$2,500). Three
-  stakeholders experience that difference very differently.
-- **Medicare (the payer)**:
-   - **Cost** — Pays far more for an inpatient stay than an observation stay.
-   - **Borderline incentive** — Toward *observation*, since it's cheaper per stay — which is
-     why the audit apparatus (MACs, RACs) targets short inpatient stays, and why the
-     Two-Midnight Rule exists at all: to draw a defensible line and stop the status
-     tug-of-war case by case.
-- **The patient**:
-   - **Inpatient cost** — One Part A deductible (\$1,736) covers the hospital facility bill
-     for up to 60 days; physician services still run through Part B.
-   - **Observation cost** — Part B cost-sharing instead: the annual deductible (\$283) plus
-     20% coinsurance on the services, *plus* the self-administered drug trap covered below.
-   - **Borderline incentive** — It genuinely cuts both ways. A short, simple stay can cost
-     *less* as observation (20% of a modest outpatient bill beats a \$1,736 deductible), while
-     a long stay or one loaded with services favors inpatient, since the uncapped 20% keeps
-     accruing under observation. The MOON notice exists because patients often discover their
-     status only when the bills arrive; a court-ordered appeals process (from *Alexander v.
-     Azar*, implemented 2025) now lets some patients retroactively challenge
-     inpatient-to-observation downgrades.
-- **What's actually on an observation bill** — Rough Medicare hospital-outpatient (facility)
-  payment estimates, unverified; hospital *charges* run far higher before Medicare's rates
-  apply:
-   - **ED visit (facility fee)** — ~\$450–800 for a level 4–5 visit.
-   - **Routine labwork** — ~\$10–40 per test (CBC, CMP, troponin), so ~\$50–150 for a day of
-     routine draws; EKG ~\$15.
-   - **Imaging (technical component)** — CXR ~\$40; CT head without contrast ~\$150; CT
-     chest/abdomen/pelvis with contrast ~\$450–650 (billed as multiple CTs); MRI spine
-     ~\$300; TTE with Doppler ~\$450.
-   - **Telemetry** — Hospitals charge for it, but Medicare packages cardiac monitoring into
-     the visit payment rather than paying it separately.
-   - **IV therapy** — Infusions/hydration ~\$150 for the first hour, less for add-on hours.
-   - **Physician fees cancel out** — Radiologist reads, hospitalist visits, and consultant
-     fees are professional charges billed under Part B *in both statuses*, so they don't
-     differentiate observation from admission and are left out here.
-   - **The packaging nuance** — For traditional Medicare, a qualifying observation stay
-     (8+ hours) usually collapses all of the above into a single comprehensive payment
-     (~\$2,500), with the patient owing 20% of that — roughly \$500 — rather than 20% of each
-     line. The line items above matter when the stay doesn't qualify for packaging, and for
-     MA/commercial payers that pay per service.
-- **The self-administered drug trap** — During observation, the patient's routine home
-  medications (the daily statin, metformin, blood-pressure pills) are excluded from
-  coverage: not Part A (the stay isn't inpatient), not Part B (which covers only drugs that
-  are *not usually self-administered*, i.e., clinician-administered infusions and
-  injections), and usually not Part D at the point of sale (the hospital pharmacy isn't in
-  the Part D network — though a patient can sometimes submit the receipt for partial
-  reimbursement). The hospital therefore bills these directly at chargemaster prices — the
-  infamous \$10 aspirin.
-   - **Does it apply to inpatient?** — No. During an inpatient stay, all drugs are bundled
-     into the Part A DRG payment; the trap is observation-only.
-   - **Why "self-administered" if a nurse hands it over?** — The term classifies the *drug*,
-     not the event: Part B asks whether a drug is *usually* self-administered by the people
-     who take it (an oral pill normally swallowed at home fails the test), regardless of who
-     actually administers it in the hospital. A nurse bringing lisinopril in a paper cup
-     doesn't turn it into a Part B "clinician-administered" drug.
-- **The hospital**:
-   - **Revenue** — The DRG pays several times what observation pays for a similar short
-     stay, so raw revenue always points toward admitting.
-   - **What points the other way** — Audit exposure: a RAC clawback takes back the entire
-     DRG, and the Condition Code 44 / Part B rebill salvage recovers far less, so a
-     borderline admission is revenue *at risk*. Observation revenue is smaller but safe.
-     Observation stays also don't count as admissions for the readmission-penalty program
-     (HRRP) — a returning recently-discharged patient placed in observation is invisible to
-     the penalty, a quiet incentive that has drawn scrutiny.
-   - **Borderline incentive** — Split by patient and payer: traditional Medicare with solid
-     two-midnight documentation → admit (protected by the presumption); thin documentation,
-     an MA plan that ignores the presumption, or a patient back within 30 days of discharge
-     → observation pressure. Utilization-review teams exist to arbitrate exactly this line.
-- **What if one hospitalist just defaulted everyone one way?** — Say a hospitalist puts
-  every patient in the same status and switches it the moment the facts call for it. Assume
-  the switch is never late or forgotten. Even then, the two directions are not mirror
-  images:
-   - **The hospitalist's own pay barely changes** — Since 2023 the admission, daily-visit,
-     and discharge codes are the same for inpatient and observation (99221–99223,
-     99231–99233, 99238–99239). The status decides the *hospital's* payment and the
-     *patient's* cost-sharing, not the doctor's professional fee.
-   - **Audit protection, as a reminder** — The Two-Midnight Rule counts midnights two ways:
-      - **Benchmark** — Counts from the start of care, including ED and observation time
-        before the inpatient order. It answers "was admitting correct?"
-      - **Presumption** — Counts only midnights *after* the inpatient order. Two or more of
-        them and auditors (MACs, RACs) are told to leave the claim alone. MA plans don't
-        honor it.
-      - **In practice** — Every midnight in observation before an upgrade still counts
-        toward the benchmark but not toward the presumption. Example: 1 observation
-        midnight, then upgrade, then discharge after 1 inpatient midnight. Admitting was
-        correct, but the claim stays open to review and has to be defended with
-        documentation.
-   - **Default to admission, downgrade to observation when the stay looks short** — Even
-     with perfect timing, downgrading is clumsy. Condition Code 44 requires the flip before
-     discharge, agreement from a utilization-review physician *and* the attending, and a
-     claim not yet submitted. Once flipped, the whole stay is billed as outpatient.
-      - **Harm to the hospital** — Observation billing starts only at the new observation
-        order, so the hours before it can't be billed as observation. Short stays often
-        then miss the 8-hour threshold for the comprehensive observation payment. Every
-        short stay costs a UR physician review. CC44 is meant for occasional mistakes, so a
-        high CC44 rate tells UR and auditors that the admission orders don't reflect real
-        expectations. Admitting patients the doctor doesn't expect to stay two midnights is
-        the pattern behind large False Claims Act settlements (e.g., Community Health
-        Systems, 2014).
-      - **Harm to the patient** — The patient is told "admitted" and later gets a written
-        notice that they're outpatient. The inpatient midnights they may have been
-        counting on for SNF coverage disappear, and their bill switches from the Part A
-        deductible to Part B cost-sharing.
-      - **What perfect timing does fix** — Flipped stays are never billed as inpatient.
-        Short-stay audits, deductible-for-a-one-night-stay bills, and distorted
-        LOS/mortality/HRRP metrics mostly go away.
-   - **Default to observation, upgrade to inpatient the moment two midnights are
-     expected** — Whether this is harmless depends on what triggers the upgrade.
-      - **If the trigger is exactly the rule's standard** — Upgrade the moment a
-        *reasonable* two-midnight expectation exists. Then this default makes the same
-        call as case-by-case judgment, and nothing is lost.
-      - **If the trigger is certainty** — Upgrade only once two midnights are *clearly*
-        needed. That bar is higher than the rule's, and the gap costs audit protection.
-        Take a patient who reasonably needed two midnights on arrival but is observed the
-        first night anyway, upgraded on day 2, and discharged on day 3. That stay has 1
-        post-order midnight, so no presumption, and it can be reviewed. Admitted on
-        arrival, the same stay would have had 2 post-order midnights and been protected.
-        Across a whole panel, this default quietly turns presumption-protected stays into
-        reviewable ones. The stays meet the benchmark, so they *should* be upheld, but the
-        hospital has to win each review on documentation.
-      - **This is where most gray-zone patients land** — Two midnights is usually
-        *probable* at the door, not *certain*. So in practice, default-to-observation
-        tends to mean waiting for certainty.
-      - **Cost-sharing mostly disappears** — Outpatient services before the upgrade are
-        bundled into the DRG under the 3-day window. Upgraded patients owe the Part A
-        deductible, not Part B coinsurance, for that time. Only patients who stay in
-        observation the whole way pay Part B costs and self-administered drug charges,
-        and for them observation is the correct status.
-      - **The SNF clock, same logic** — Any observation midnight before the upgrade also
-        doesn't count toward the SNF 3-day rule. If the patient was truly uncertain at
-        arrival, that cost comes from the uncertainty itself: careful case-by-case
-        judgment would have observed them too. If a reasonable expectation already
-        existed, the default is what cost them that midnight. MA plans may also deny the
-        upgrade under their own prior-authorization rules.
-   - **Bottom line** — Even with perfect switching, both defaults cost something:
-      - **Default-to-admission** — The inpatient order is supposed to state this doctor's
-        reasonable expectation for this patient. A blanket order that routinely gets
-        downgraded via CC44 doesn't do that.
-      - **Default-to-observation** — Harmless only if the upgrade trigger is "reasonably
-        expected" rather than "certain." Otherwise it gives up the presumption, plus an
-        SNF-qualifying midnight, on exactly the borderline stays auditors look at.
-      - **The asymmetry is built into the rules** — CMS lets observation become inpatient
-        freely but makes the reverse hard. Separately, the presumption rewards writing
-        the inpatient order as soon as the expectation is reasonable, not waiting until
-        it's certain.
-- **The punchline** — The three incentives only align for genuinely short, simple stays
-  (everyone is fine with observation) and genuinely sick multi-day patients (everyone
-  accepts admission). Every borderline case is a three-way tug-of-war — Medicare pulling
-  toward observation, hospital revenue pulling toward admission tempered by audit fear, and
-  the patient's interest swinging on how long and service-heavy the stay turns out to be.
+- Medicare usually pays far more for an inpatient stay than an observation stay, so it has
+  an incentive toward observation, hence its ability to audit.
+- For the patient, assuming a short hospitalization, it is difficult to predict which will
+  save them money.
+- We will ignore for now the risk of the accidental situation where the patient goes to
+  STR before qualifying under the 3-midnight rule.
+- For the hospital, as implied by the Medicare bullet point, revenue is usually more for an
+  admission compared to an observation stay.
+- However, admissions are exposed to audits and severe clawbacks, while observations are
+  safer.
+- Observations also do not count as readmissions for the HRRP.
 """,
     ),
     (
@@ -406,20 +217,7 @@ has its own detailed section.)
   fund.
    - **Covers** — Inpatient hospital stays, skilled nursing facility (SNF) care after a
      qualifying hospital stay, home health, and hospice.
-   - **Benefit period** — Part A is metered in benefit periods, not calendar years. One
-     begins on the day of inpatient admission and ends only after 60 straight days out of
-     any hospital or SNF. A new admission after that gap starts a fresh benefit period — and
-     a fresh deductible. There's no cap on how many benefit periods a person can have in a
-     year or a lifetime. Hospital and SNF care fall under the *same* benefit period, so a
-     hospital stay followed by SNF care doesn't reset the clock.
-   - **Costs (2026)** — Premium-free for most (the 40-credit rule). The dollar figures below
-     are the patient's out-of-pocket share per day; Medicare covers the rest. Each benefit
-     period starts with a \$1,736 deductible, after which hospital days 1–60 cost \$0/day;
-     days 61–90 cost \$434/day; days 91+ draw on a lifetime bank of 60 reserve days at
-     \$868/day (once used, gone for good) — and after those run out Medicare pays nothing, so
-     the patient owes the full bill. SNF care within the same benefit period is \$0/day for
-     days 1–20, then \$217/day for days 21–100; after day 100 Medicare pays nothing and the
-     patient covers the entire cost.
+   - **Costs** — See the Part A patient-costs section.
    - **Doesn't cover custodial care** — Medicare pays for skilled care, not long-term
      custodial care — routine help with daily living like bathing, dressing, eating,
      toileting, and supervision. So it pays nothing for assisted living, memory care, adult
@@ -433,22 +231,130 @@ has its own detailed section.)
      it isn't cut off at 100 days. Once the 60 lifetime reserve days are exhausted, though,
      Medicare pays nothing and the patient owes the full cost — a hard stop that lands at day
      150 within a single benefit period (days 1–90 plus 60 reserve days).
-   - **Resets and backstops** — The day counts reset only after the 60-day benefit-period
-     break above, and supplemental coverage (Medigap) softens this — both discussed
-     elsewhere.
+   - **Resets and backstops** — The day counts reset only after a 60-day benefit-period
+     break (see the Part A patient-costs section), and supplemental coverage (Medigap)
+     softens this.
 - **Part B — Medical Insurance** — The outpatient/physician side, funded by the SMI trust
   fund (beneficiary premiums plus general Treasury revenue).
    - **Covers** — Physician and outpatient services, labs, imaging, durable medical
      equipment, preventive care, and hospital outpatient/observation services.
-   - **Costs (2026)** — Standard premium \$202.90/month (higher earners pay IRMAA on top),
-     a \$283 annual deductible, then 20% coinsurance on most services — with no out-of-pocket
-     cap under Original Medicare.
+   - **Costs** — See the Part B patient-costs section.
    - **Dialysis / ESRD** — Outpatient dialysis (in-center or home) is a Part B benefit, paid
      under the ESRD bundled per-treatment rate — and ESRD is itself a Medicare pathway
      regardless of age. But since Part B has no out-of-pocket cap, the patient owes 20% of
      every treatment with no ceiling; on ongoing dialysis that runs to several thousand
      dollars a year, so it isn't free. Supplemental coverage (Medigap, Medicaid, or a
      Medicare Advantage out-of-pocket max) is what makes it affordable.
+""",
+    ),
+    (
+        "Medicare Part A and Part B payment structure",
+        r"""
+- **One liner** — A hospital stay produces separate bills paid by separate machinery. The
+  *hospital's* facility bill is paid by Part A if the patient is inpatient and by Part B
+  if they're in observation. *Physicians'* professional bills are always paid by Part B.
+- **Inpatient — the hospital (Part A, IPPS)**:
+   - **How Medicare pays** — One lump sum per discharge, set by the MS-DRG: the DRG's
+     relative weight × the hospital's base rate (adjusted for local wages, teaching,
+     disproportionate-share status, etc.). Room, nursing, meds, labs, and hospital imaging
+     are all inside it. Length of stay doesn't change the payment, except that extremely
+     expensive stays can earn an extra outlier payment.
+   - **What the patient owes** — The \$1,736 Part A deductible (2026) once per benefit
+     period. The benefit period and day-61+ tiers are in the Part A patient-costs section.
+   - **It doesn't cap anything else** — The deductible covers only the hospital's facility
+     bill. Physician services during the same stay are billed separately under Part B.
+- **Observation — the hospital (Part B, OPPS)**:
+   - **How Medicare pays** — Since 2016, a qualifying observation stay is paid as one
+     comprehensive payment (C-APC 8011), roughly \$2,500 nationally (\$2,283 in 2021,
+     updated yearly; about 60% is adjusted by the local wage index). The ED visit,
+     infusions, echo, and similar services are bundled into it.
+   - **What qualifies** — 8+ hours of observation (billed under G0378), a qualifying ED,
+     critical care, or clinic visit, and no surgical (status T) procedure on the claim.
+     Stays that don't qualify are paid per service, usually for less.
+   - **What the patient owes** — The \$283 Part B annual deductible (if not yet met) plus
+     20% of the bundled payment, so roughly \$500. The coinsurance for any single
+     outpatient service can't exceed the inpatient deductible (\$1,736), but observation
+     rarely gets near that.
+   - **Outside the bundle** — Self-administered drugs (routine oral home meds) aren't
+     covered by Part B, so the hospital bills the patient directly at chargemaster prices.
+     The patient's Part D plan may reimburse some of it afterward.
+   - **The SNF catch** — Observation nights don't count toward the SNF 3-day qualifying
+     stay.
+- **Physicians — both statuses (Part B, Physician Fee Schedule)**:
+   - **How Medicare pays** — Each physician bills their own work (hospitalist,
+     consultants, surgeons, radiology and pathology reads) per code, priced by RVUs × the
+     conversion factor. Details are in the professional-services section.
+   - **What the patient owes** — The Part B deductible (once a year, shared with
+     observation facility charges), then 20% of every Medicare-approved physician charge.
+     A physician who doesn't accept assignment can charge up to 15% more.
+- **Putting it together** — For an inpatient admission, the patient owes the Part A
+  deductible for the hospital, plus the Part B deductible and 20% of every physician bill.
+  For observation, everything runs through Part B: the deductible, plus 20% of the
+  facility bundle and 20% of every physician bill, plus self-administered drug charges.
+  Original Medicare has no out-of-pocket maximum, so a long stay with many daily
+  consultant visits can add up.
+- **What changes the picture** — Most Medigap plans cover the Part A deductible and the
+  Part B 20%, leaving the patient little or nothing. Medicare Advantage uses its own
+  copays but must have an annual out-of-pocket cap.
+- **If Medicare pays a bundle, why itemize?** — The hospital still lists every service on
+  the claim, even though Medicare pays one bundled rate. The lines do other jobs:
+   - **Setting future rates** — CMS sets each year's DRG weights and C-APC rates from the
+     costs on hospitals' claims, converting line charges to cost with each hospital's
+     cost-to-charge ratio. Stop reporting the echo and the bundle shrinks over time.
+   - **Deciding which payment applies** — The lines determine whether a claim qualifies
+     for the observation bundle at all, and which DRG a stay groups to.
+   - **Outlier payments** — Calculated from itemized charges converted to cost.
+   - **Other payers** — The hospital sends essentially the same claim to everyone, and
+     many commercial, Medicaid, workers' comp, and self-pay arrangements pay per line or
+     as a percentage of charges.
+   - **Items outside the bundle** — Self-administered drugs and similar items have to be
+     identifiable to be billed separately.
+   - **Cost reports and audits** — Medicare cost reports and compliance reviews depend on
+     line-level detail.
+""",
+    ),
+    (
+        "Medicare Part A — patient costs in the hospital and SNF (2026)",
+        r"""
+- **Premium** — \$0 for most people (40 work credits). Otherwise \$311/month with 30–39
+  credits, or \$565/month with fewer than 30.
+- **Benefit period** — Part A costs reset by benefit period, not calendar year. One starts
+  at inpatient admission and ends after 60 straight days out of any hospital or SNF. A
+  patient can have more than one in a year, and each one starts with a new deductible.
+  There's no limit on how many benefit periods a person can have. Hospital and SNF care
+  share the *same* benefit period, so a hospital stay followed by SNF care doesn't reset
+  the clock.
+- **Hospital (per benefit period)**:
+   - Deductible: \$1,736.
+   - Days 1–60: \$0/day after the deductible.
+   - Days 61–90: \$434/day.
+   - Days 91+: \$868/day, drawn from 60 lifetime reserve days. Once used, they're gone
+     for good.
+   - After the reserve days run out: the patient pays all costs.
+- **SNF (per benefit period, after a qualifying 3-day stay)**:
+   - Days 1–20: \$0/day.
+   - Days 21–100: \$217/day.
+   - After day 100: the patient pays all costs.
+- **What Part A doesn't include** — Physician services during the stay (hospitalist,
+  consultants, surgeons, radiology and pathology reads) are billed under Part B.
+""",
+    ),
+    (
+        "Medicare Part B — patient costs (2026)",
+        r"""
+- **Premium** — \$202.90/month standard. Higher earners pay more (IRMAA).
+- **Deductible** — \$283 per calendar year.
+- **Coinsurance** — 20% of the Medicare-approved amount for most services: physician
+  visits, hospital outpatient and observation care, imaging, DME, and Part B drugs.
+- **No out-of-pocket cap** — Original Medicare has no annual maximum. Medigap or
+  Medicare Advantage is what limits it.
+- **Physicians who don't accept assignment** — Can charge up to 15% above the approved
+  amount (the "limiting charge"), which the patient owes on top of the 20%.
+- **Hospital outpatient cap** — The coinsurance for any single outpatient service can't
+  exceed the Part A inpatient deductible (\$1,736).
+- **\$0 services** — Clinical lab tests and most preventive services have no deductible or
+  coinsurance.
+- **Insulin** — Capped at \$35/month when covered under Part B (e.g., insulin pumps).
 """,
     ),
     (
@@ -530,6 +436,41 @@ has its own detailed section.)
   guaranteed-issue with no medical underwriting. Miss that window and — outside limited
   guaranteed-issue situations — insurers can medically underwrite, charging more or denying
   coverage based on health.
+""",
+    ),
+    (
+        "ACOs and value-based arrangements",
+        r"""
+- **What an ACO is** — An accountable care organization is a group of doctors, hospitals,
+  and other providers who take joint responsibility for the quality and total cost of
+  care for a population of traditional Medicare patients.
+- **How payment works** — Everyone is still paid fee-for-service as usual. Once a year,
+  the ACO's total spending is compared to a benchmark. If it comes in under and meets
+  quality standards, the ACO shares the savings. In two-sided (downside-risk) tracks, it
+  also pays back part of any overspending.
+- **Not the same as Medicare Advantage** — Patients stay in traditional Medicare. They're
+  assigned to an ACO based on where they get primary care, and they keep full freedom to
+  see any Medicare provider.
+- **Medicare Shared Savings Program (MSSP)** — The permanent ACO program, running since
+  2012. The BASIC track phases in downside risk over time. The ENHANCED track offers the
+  largest share of savings in exchange for the most risk.
+- **ACO REACH** — A CMS Innovation Center model with higher risk and more flexibility. It
+  runs through 2026, with a successor model planned.
+- **The SNF 3-day waiver** — Available to ACOs in two-sided risk tracks and to REACH. An
+  ACO-assigned patient can go to a participating SNF without the usual 3-day inpatient
+  stay. The SNF generally must have a 3-star or higher quality rating.
+- **Episode-based (bundled) payments** — A different value-based approach. The hospital
+  is accountable for total spending across one episode of care, e.g., a surgery plus the
+  following 30 days. TEAM (Transforming Episode Accountability Model) started January
+  2026 and is mandatory for selected hospitals for five surgical episodes: lower-extremity
+  joint replacement, hip/femur fracture surgery, spinal fusion, CABG, and major bowel
+  procedures.
+- **Hospital pay-for-performance** — Separate from ACOs: HRRP (readmissions), Hospital
+  Value-Based Purchasing, and the HAC Reduction Program adjust a hospital's Medicare
+  payments up or down based on its own performance.
+- **Why it matters for a hospitalist** — ACO-assigned patients may come with ACO care
+  managers, preferred SNF networks, and pressure to avoid readmissions and costly
+  post-acute care. The SNF waiver can also change a discharge plan.
 """,
     ),
     (
@@ -720,6 +661,168 @@ has its own detailed section.)
   level. Prescription drug management alone reaches moderate risk. Copy-forward notes that
   don't reflect the day's real problems, data, and risk are a common audit target — the
   level must match the work genuinely done that day.
+""",
+    ),
+    (
+        "Notes for later",
+        r"""
+Work in progress: material cut from other expanders that still needs a home.
+
+**From the old Admission vs. Observation expander:**
+
+- **The setup** — Same bed, same nurses, often the same care — but the status determines
+  which payment machinery runs. Inpatient triggers a Part A DRG lump sum to the hospital
+  (commonly on the order of \$10,000+ for a medical DRG); observation is billed as hospital
+  *outpatient* under Part B (a comprehensive observation payment, roughly \$2,500). Three
+  stakeholders experience that difference very differently.
+- **Medicare (the payer)**:
+   - **Cost** — Pays far more for an inpatient stay than an observation stay.
+   - **Borderline incentive** — Toward *observation*, since it's cheaper per stay — which is
+     why Medicare's reviewers target short inpatient stays, and why the
+     Two-Midnight Rule exists at all: to draw a defensible line and stop the status
+     tug-of-war case by case.
+- **The patient**:
+   - **Inpatient cost** — One Part A deductible (\$1,736) covers the hospital facility bill
+     for up to 60 days; physician services still run through Part B.
+   - **Observation cost** — Part B cost-sharing instead: the annual deductible (\$283) plus
+     20% coinsurance on the services, *plus* the self-administered drug trap covered below.
+   - **Borderline incentive** — It genuinely cuts both ways. A short, simple stay can cost
+     *less* as observation (20% of a modest outpatient bill beats a \$1,736 deductible), while
+     a long stay or one loaded with services favors inpatient, since the uncapped 20% keeps
+     accruing under observation. The MOON notice exists because patients often discover their
+     status only when the bills arrive; a court-ordered appeals process (from *Alexander v.
+     Azar*, implemented 2025) now lets some patients retroactively challenge
+     inpatient-to-observation downgrades.
+- **What's actually on an observation bill** — Rough Medicare hospital-outpatient (facility)
+  payment estimates, unverified; hospital *charges* run far higher before Medicare's rates
+  apply:
+   - **ED visit (facility fee)** — ~\$450–800 for a level 4–5 visit.
+   - **Routine labwork** — ~\$10–40 per test (CBC, CMP, troponin), so ~\$50–150 for a day of
+     routine draws; EKG ~\$15.
+   - **Imaging (technical component)** — CXR ~\$40; CT head without contrast ~\$150; CT
+     chest/abdomen/pelvis with contrast ~\$450–650 (billed as multiple CTs); MRI spine
+     ~\$300; TTE with Doppler ~\$450.
+   - **Telemetry** — Hospitals charge for it, but Medicare packages cardiac monitoring into
+     the visit payment rather than paying it separately.
+   - **IV therapy** — Infusions/hydration ~\$150 for the first hour, less for add-on hours.
+   - **Physician fees cancel out** — Radiologist reads, hospitalist visits, and consultant
+     fees are professional charges billed under Part B *in both statuses*, so they don't
+     differentiate observation from admission and are left out here.
+   - **The packaging nuance** — For traditional Medicare, a qualifying observation stay
+     (8+ hours) usually collapses all of the above into a single comprehensive payment
+     (~\$2,500), with the patient owing 20% of that — roughly \$500 — rather than 20% of each
+     line. The line items above matter when the stay doesn't qualify for packaging, and for
+     MA/commercial payers that pay per service.
+- **The self-administered drug trap** — During observation, the patient's routine home
+  medications (the daily statin, metformin, blood-pressure pills) are excluded from
+  coverage: not Part A (the stay isn't inpatient), not Part B (which covers only drugs that
+  are *not usually self-administered*, i.e., clinician-administered infusions and
+  injections), and usually not Part D at the point of sale (the hospital pharmacy isn't in
+  the Part D network — though a patient can sometimes submit the receipt for partial
+  reimbursement). The hospital therefore bills these directly at chargemaster prices — the
+  infamous \$10 aspirin.
+   - **Does it apply to inpatient?** — No. During an inpatient stay, all drugs are bundled
+     into the Part A DRG payment; the trap is observation-only.
+   - **Why "self-administered" if a nurse hands it over?** — The term classifies the *drug*,
+     not the event: Part B asks whether a drug is *usually* self-administered by the people
+     who take it (an oral pill normally swallowed at home fails the test), regardless of who
+     actually administers it in the hospital. A nurse bringing lisinopril in a paper cup
+     doesn't turn it into a Part B "clinician-administered" drug.
+- **The hospital**:
+   - **Revenue** — The DRG pays several times what observation pays for a similar short
+     stay, so raw revenue always points toward admitting.
+   - **What points the other way** — Audit exposure: a reviewer's denial takes back the
+     entire DRG, and the Condition Code 44 / Part B rebill salvage recovers far less, so a
+     borderline admission is revenue *at risk*. Observation revenue is smaller but safe.
+     Observation stays also don't count as admissions for the readmission-penalty program
+     (HRRP) — a returning recently-discharged patient placed in observation is invisible to
+     the penalty, a quiet incentive that has drawn scrutiny.
+   - **Borderline incentive** — Split by patient and payer: traditional Medicare with solid
+     two-midnight documentation → admit (protected by the presumption); thin documentation,
+     an MA plan that ignores the presumption, or a patient back within 30 days of discharge
+     → observation pressure. Utilization-review teams exist to arbitrate exactly this line.
+- **What if one hospitalist just defaulted everyone one way?** — Say a hospitalist puts
+  every patient in the same status and switches it the moment the facts call for it. Assume
+  the switch is never late or forgotten. Even then, the two directions are not mirror
+  images:
+   - **The hospitalist's own pay barely changes** — Since 2023 the admission, daily-visit,
+     and discharge codes are the same for inpatient and observation (99221–99223,
+     99231–99233, 99238–99239). The status decides the *hospital's* payment and the
+     *patient's* cost-sharing, not the doctor's professional fee.
+   - **Audit protection, as a reminder** — The Two-Midnight Rule counts midnights two ways:
+      - **Benchmark** — Counts from the start of care, including ED and observation time
+        before the inpatient order. It answers "was admitting correct?"
+      - **Presumption** — Counts only midnights *after* the inpatient order. Two or more of
+        them and reviewers are told to leave the claim alone. MA plans don't
+        honor it.
+      - **In practice** — Every midnight in observation before an upgrade still counts
+        toward the benchmark but not toward the presumption. Example: 1 observation
+        midnight, then upgrade, then discharge after 1 inpatient midnight. Admitting was
+        correct, but the claim stays open to review and has to be defended with
+        documentation.
+   - **Default to admission, downgrade to observation when the stay looks short** — Even
+     with perfect timing, downgrading is clumsy. Condition Code 44 requires the flip before
+     discharge, agreement from a utilization-review physician *and* the attending, and a
+     claim not yet submitted. Once flipped, the whole stay is billed as outpatient.
+      - **Harm to the hospital** — Observation billing starts only at the new observation
+        order, so the hours before it can't be billed as observation. Short stays often
+        then miss the 8-hour threshold for the comprehensive observation payment. Every
+        short stay costs a UR physician review. CC44 is meant for occasional mistakes, so a
+        high CC44 rate tells UR and auditors that the admission orders don't reflect real
+        expectations. Admitting patients the doctor doesn't expect to stay two midnights is
+        the pattern behind large False Claims Act settlements (e.g., Community Health
+        Systems, 2014).
+      - **Harm to the patient** — The patient is told "admitted" and later gets a written
+        notice that they're outpatient. The inpatient midnights they may have been
+        counting on for SNF coverage disappear, and their bill switches from the Part A
+        deductible to Part B cost-sharing.
+      - **What perfect timing does fix** — Flipped stays are never billed as inpatient.
+        Short-stay audits, deductible-for-a-one-night-stay bills, and distorted
+        LOS/mortality/HRRP metrics mostly go away.
+   - **Default to observation, upgrade to inpatient the moment two midnights are
+     expected** — Whether this is harmless depends on what triggers the upgrade.
+      - **If the trigger is exactly the rule's standard** — Upgrade the moment a
+        *reasonable* two-midnight expectation exists. Then this default makes the same
+        call as case-by-case judgment, and nothing is lost.
+      - **If the trigger is certainty** — Upgrade only once two midnights are *clearly*
+        needed. That bar is higher than the rule's, and the gap costs audit protection.
+        Take a patient who reasonably needed two midnights on arrival but is observed the
+        first night anyway, upgraded on day 2, and discharged on day 3. That stay has 1
+        post-order midnight, so no presumption, and it can be reviewed. Admitted on
+        arrival, the same stay would have had 2 post-order midnights and been protected.
+        Across a whole panel, this default quietly turns presumption-protected stays into
+        reviewable ones. The stays meet the benchmark, so they *should* be upheld, but the
+        hospital has to win each review on documentation.
+      - **This is where most gray-zone patients land** — Two midnights is usually
+        *probable* at the door, not *certain*. So in practice, default-to-observation
+        tends to mean waiting for certainty.
+      - **Cost-sharing mostly disappears** — Outpatient services before the upgrade are
+        bundled into the DRG under the 3-day window. Upgraded patients owe the Part A
+        deductible, not Part B coinsurance, for that time. Only patients who stay in
+        observation the whole way pay Part B costs and self-administered drug charges,
+        and for them observation is the correct status.
+      - **The SNF clock, same logic** — Any observation midnight before the upgrade also
+        doesn't count toward the SNF 3-day rule. If the patient was truly uncertain at
+        arrival, that cost comes from the uncertainty itself: careful case-by-case
+        judgment would have observed them too. If a reasonable expectation already
+        existed, the default is what cost them that midnight. MA plans may also deny the
+        upgrade under their own prior-authorization rules.
+   - **Bottom line** — Even with perfect switching, both defaults cost something:
+      - **Default-to-admission** — The inpatient order is supposed to state this doctor's
+        reasonable expectation for this patient. A blanket order that routinely gets
+        downgraded via CC44 doesn't do that.
+      - **Default-to-observation** — Harmless only if the upgrade trigger is "reasonably
+        expected" rather than "certain." Otherwise it gives up the presumption, plus an
+        SNF-qualifying midnight, on exactly the borderline stays auditors look at.
+      - **The asymmetry is built into the rules** — CMS lets observation become inpatient
+        freely but makes the reverse hard. Separately, the presumption rewards writing
+        the inpatient order as soon as the expectation is reasonable, not waiting until
+        it's certain.
+- **The punchline** — The three incentives only align for genuinely short, simple stays
+  (everyone is fine with observation) and genuinely sick multi-day patients (everyone
+  accepts admission). Every borderline case is a three-way tug-of-war — Medicare pulling
+  toward observation, hospital revenue pulling toward admission tempered by audit fear, and
+  the patient's interest swinging on how long and service-heavy the stay turns out to be.
 """,
     ),
 ]
