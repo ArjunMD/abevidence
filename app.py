@@ -209,9 +209,15 @@ _view_key = "|".join([
     (st.session_state.get("db_search_open_gid") or "").strip(),
     str(st.session_state.get("browse_scroll_token") or ""),
 ])
+# The slot is created on every run so the page below always sits at the same
+# element position. Emitting the iframe only on some runs would shift every
+# element after it, and Streamlit would rebuild them — e.g. st.tabs snapping
+# back to its first tab on the first click inside a tab.
+_scroll_slot = st.empty()
 if st.session_state.get("_last_view_key") != _view_key:
     st.session_state["_last_view_key"] = _view_key
-    _scroll_main_to_top(_view_key)
+    with _scroll_slot:
+        _scroll_main_to_top(_view_key)
 
 if _IS_PUBLIC and st.session_state.get("public_study_overlay"):
     render_db_search()
