@@ -1554,6 +1554,256 @@ def _render_bova() -> None:
         st.error("Stage III — high risk.")
 
 
+# VTE prophylaxis in acutely ill medical inpatients: Padua (Barbar 2010) for
+# VTE risk, IMPROVE bleeding (Decousus 2011) for bleeding risk. Items shared by
+# both scores (cancer, rheumatologic disease) are ticked once.
+_PADUA_FLAGS = [
+    ("cancer", "Active cancer (local/distant metastases, or chemo/RT in past 6 mo)", 3),
+    ("prior_vte", "Previous VTE (excluding superficial thrombophlebitis)", 3),
+    ("immobile", "Reduced mobility — bed rest (bathroom privileges only) ≥ 3 days", 3),
+    ("thrombophilia", "Known thrombophilia (e.g. factor V Leiden, APS, AT/protein C/S deficiency)", 3),
+    ("trauma_surgery", "Trauma or surgery in the past month", 2),
+    ("hf_rf", "Heart and/or respiratory failure", 1),
+    ("mi_stroke", "Acute MI or ischemic stroke", 1),
+    ("infection", "Acute infection", 1),
+    ("rheum", "Rheumatologic disorder", 1),
+    ("obesity", "Obesity (BMI ≥ 30)", 1),
+    ("hormones", "Ongoing hormonal therapy", 1),
+]
+_PADUA_HIGH = 4
+_IMPROVE_FLAGS = [
+    ("ulcer", "Active gastroduodenal ulcer", 4.5),
+    ("recent_bleed", "Bleeding in the 3 months before admission", 4.0),
+    ("hepatic", "Hepatic failure (INR > 1.5)", 2.5),
+    ("icu", "ICU / CCU admission", 2.5),
+    ("cvc", "Central venous catheter", 2.0),
+]
+_IMPROVE_HIGH = 7.0
+
+
+def _render_vte_prophylaxis() -> None:
+    st.subheader("VTE prophylaxis — Padua & IMPROVE bleeding (medical inpatient)")
+
+    def _num(col, label, key, step):
+        return col.number_input(label, value=None, step=step, placeholder=label,
+                                label_visibility="collapsed", key=key)
+
+    c1, c2, c3, c4 = st.columns(4)
+    age = _num(c1, "Age (years)", "tools_vte_age", 1.0)
+    sex = c2.selectbox("Sex", ["Male", "Female"], key="tools_vte_sex",
+                       label_visibility="collapsed")
+    plt = _num(c3, "Platelets ×10³/µL", "tools_vte_plt", 1.0)
+    gfr = _num(c4, "eGFR / CrCl mL/min", "tools_vte_gfr", 1.0)
+
+    st.caption("VTE risk factors (Padua)")
+    flags = {key: st.checkbox(f"{label} (+{pts})", key=f"tools_vte_{key}")
+             for key, label, pts in _PADUA_FLAGS}
+    st.caption("Bleeding risk factors (IMPROVE)")
+    flags |= {key: st.checkbox(f"{label} (+{pts:g})", key=f"tools_vte_{key}")
+              for key, label, pts in _IMPROVE_FLAGS}
+
+    if None in (age, plt, gfr):
+        st.caption("Enter age, platelets and eGFR to score.")
+        return
+
+    # Padua: acute infection and rheumatologic disorder are one 1-point item.
+    padua = [(label.split(" (")[0].split(" —")[0], pts)
+             for key, label, pts in _PADUA_FLAGS
+             if flags[key] and key not in ("infection", "rheum")]
+    if flags["infection"] or flags["rheum"]:
+        padua.append(("Acute infection / rheumatologic disorder", 1))
+    if age >= 70:
+        padua.append((f"Age {age:.0f} (≥ 70)", 1))
+    p_total = sum(p for _, p in padua)
+    p_high = p_total >= _PADUA_HIGH
+
+    st.markdown(f"**Padua = {p_total} / 20**")
+    if padua:
+        st.markdown("\n".join(f"- {name}: +{pts}" for name, pts in padua))
+    if p_high:
+        st.error(f"≥{_PADUA_HIGH} — high VTE risk. Without prophylaxis, 90-day VTE "
+                 "11.0% (Barbar 2010).")
+    else:
+        st.success(f"<{_PADUA_HIGH} — low VTE risk. Without prophylaxis, 90-day VTE "
+                   "0.3% (Barbar 2010).")
+
+    improve = [(label.split(" (")[0], pts) for key, label, pts in _IMPROVE_FLAGS
+               if flags[key]]
+    if plt < 50:
+        improve.append((f"Platelets {plt:.0f} (< 50)", 4.0))
+    if age >= 85:
+        improve.append((f"Age {age:.0f} (≥ 85)", 3.5))
+    elif age >= 40:
+        improve.append((f"Age {age:.0f} (40–84)", 1.5))
+    if gfr < 30:
+        improve.append((f"eGFR {gfr:.0f} (< 30)", 2.5))
+    elif gfr < 60:
+        improve.append((f"eGFR {gfr:.0f} (30–59)", 1.0))
+    if flags["rheum"]:
+        improve.append(("Rheumatic disease", 2.0))
+    if flags["cancer"]:
+        improve.append(("Current cancer", 2.0))
+    if sex == "Male":
+        improve.append(("Male sex", 1.0))
+    i_total = sum(p for _, p in improve)
+    i_high = i_total >= _IMPROVE_HIGH
+
+    st.markdown(f"**IMPROVE bleeding = {i_total:g}**")
+    if improve:
+        st.markdown("\n".join(f"- {name}: +{pts:g}" for name, pts in improve))
+    if i_high:
+        st.error(f"≥{_IMPROVE_HIGH:g} — high bleeding risk. 14-day major bleeding "
+                 "4.1% (Decousus 2011).")
+    else:
+        st.success(f"<{_IMPROVE_HIGH:g} — bleeding risk not elevated. 14-day major "
+                   "bleeding 0.4% (Decousus 2011).")
+
+    if not p_high:
+        verdict = ("low VTE risk — ACCP 2012 advises against routine pharmacologic "
+                   "or mechanical prophylaxis.")
+    elif i_high:
+        verdict = ("high VTE risk with high bleeding risk — ACCP 2012 favors "
+                   "mechanical prophylaxis until bleeding risk falls, then "
+                   "pharmacologic.")
+    else:
+        verdict = ("high VTE risk without high bleeding risk — ACCP 2012 and ASH "
+                   "2018 favor pharmacologic prophylaxis.")
+    st.markdown(f"**Conclusion:** {verdict[0].upper()}{verdict[1:]}")
+    st.caption("Validated in acutely ill medical inpatients; not for surgical, "
+               "major-trauma, or already-anticoagulated patients.")
+
+
+# Caprini (2005 version) for surgical patients, with the risk bands and
+# untreated VTE rates ACCP 2012 (Gould) uses for general/abdominal-pelvic
+# surgery. Each item counts separately, so thrombophilias add up.
+_CAPRINI_SURGERY = [
+    ("None", 0),
+    ("Minor surgery", 1),
+    ("Arthroscopic surgery", 2),
+    ("Major open surgery > 45 min", 2),
+    ("Laparoscopic surgery > 45 min", 2),
+    ("Elective major lower-extremity arthroplasty", 5),
+]
+_CAPRINI_GROUPS = [
+    ("History & comorbidities", [
+        ("major_surg_1mo", "Major surgery in the past month", 1),
+        ("varicose", "Varicose veins", 1),
+        ("ibd", "Inflammatory bowel disease", 1),
+        ("swollen", "Swollen legs (current)", 1),
+        ("bmi25", "BMI > 25", 1),
+        ("mi", "Acute MI", 1),
+        ("chf", "Heart failure (< 1 month)", 1),
+        ("sepsis", "Sepsis (< 1 month)", 1),
+        ("lung", "Serious lung disease incl. pneumonia (< 1 month)", 1),
+        ("copd", "COPD / abnormal PFTs", 1),
+        ("bedrest_med", "Medical patient currently at bed rest", 1),
+        ("cancer", "Malignancy (present or previous)", 2),
+    ]),
+    ("Mobility & lines", [
+        ("bed72", "Confined to bed > 72 h", 2),
+        ("cast", "Immobilizing plaster cast (< 1 month)", 2),
+        ("cvc", "Central venous access", 2),
+    ]),
+    ("Thrombosis history & thrombophilia", [
+        ("vte", "History of VTE", 3),
+        ("fhx", "Family history of VTE", 3),
+        ("fvl", "Factor V Leiden", 3),
+        ("pt20210", "Prothrombin 20210A", 3),
+        ("la", "Lupus anticoagulant", 3),
+        ("acl", "Anticardiolipin antibodies", 3),
+        ("hcy", "Elevated homocysteine", 3),
+        ("hit", "Heparin-induced thrombocytopenia", 3),
+        ("other_thromb", "Other congenital or acquired thrombophilia", 3),
+    ]),
+    ("Within the past month", [
+        ("fracture", "Hip, pelvis or leg fracture", 5),
+        ("stroke", "Stroke", 5),
+        ("polytrauma", "Multiple trauma", 5),
+        ("sci", "Acute spinal cord injury with paralysis", 5),
+    ]),
+]
+_CAPRINI_WOMEN = [
+    ("ocp", "Oral contraceptives or hormone replacement", 1),
+    ("preg", "Pregnant or postpartum (< 1 month)", 1),
+    ("ob_hx", "Unexplained stillbirth, ≥ 3 spontaneous abortions, or preterm "
+              "birth with toxemia / growth restriction", 1),
+]
+# (upper bound inclusive, category, untreated VTE risk — Gould 2012)
+_CAPRINI_BANDS = [
+    (0, "very low", "< 0.5%"),
+    (2, "low", "~1.5%"),
+    (4, "moderate", "~3.0%"),
+]
+_CAPRINI_HIGH = ("high", "~6.0%")
+
+
+def _render_caprini() -> None:
+    st.subheader("VTE prophylaxis — Caprini (surgical patient)")
+
+    c1, c2, c3 = st.columns([1, 1, 2])
+    age = c1.number_input("Age (years)", value=None, step=1.0, placeholder="Age (years)",
+                          label_visibility="collapsed", key="tools_cap_age")
+    sex = c2.selectbox("Sex", ["Male", "Female"], key="tools_cap_sex",
+                       label_visibility="collapsed")
+    surgery = c3.selectbox(
+        "Planned surgery", [name for name, _ in _CAPRINI_SURGERY],
+        format_func=lambda n: f"{n} (+{dict(_CAPRINI_SURGERY)[n]})" if n != "None"
+        else "Planned surgery: none",
+        key="tools_cap_surgery", label_visibility="collapsed")
+
+    groups = list(_CAPRINI_GROUPS)
+    if sex == "Female":
+        groups.append(("Women only", _CAPRINI_WOMEN))
+    parts = []
+    for title, items in groups:
+        st.caption(title)
+        for key, label, pts in items:
+            if st.checkbox(f"{label} (+{pts})", key=f"tools_cap_{key}"):
+                parts.append((label.split(" (")[0], pts))
+    bleed = st.checkbox("High risk for major bleeding, or bleeding would be "
+                        "catastrophic (e.g. neurosurgery)", key="tools_cap_bleed")
+
+    if age is None:
+        st.caption("Enter age to score.")
+        return
+
+    if age >= 75:
+        parts.insert(0, (f"Age {age:.0f} (≥ 75)", 3))
+    elif age >= 61:
+        parts.insert(0, (f"Age {age:.0f} (61–74)", 2))
+    elif age >= 41:
+        parts.insert(0, (f"Age {age:.0f} (41–60)", 1))
+    if dict(_CAPRINI_SURGERY)[surgery]:
+        parts.insert(0, (surgery, dict(_CAPRINI_SURGERY)[surgery]))
+    total = sum(p for _, p in parts)
+    cat, rate = next(((c, r) for top, c, r in _CAPRINI_BANDS if total <= top),
+                     _CAPRINI_HIGH)
+
+    st.markdown(f"**Caprini = {total} — {cat} risk** (untreated VTE {rate}, Gould 2012)")
+    if parts:
+        st.markdown("\n".join(f"- {name}: +{pts}" for name, pts in parts))
+    box = {"very low": st.success, "low": st.success,
+           "moderate": st.warning, "high": st.error}[cat]
+    box(f"{cat.capitalize()} VTE risk.")
+
+    if cat == "very low":
+        verdict = "very low VTE risk — ACCP 2012 advises early ambulation only, no specific prophylaxis."
+    elif cat == "low":
+        verdict = "low VTE risk — ACCP 2012 suggests mechanical prophylaxis (preferably IPC)."
+    elif bleed:
+        verdict = (f"{cat} VTE risk with high bleeding risk — ACCP 2012 suggests "
+                   "mechanical prophylaxis until bleeding risk falls, then pharmacologic.")
+    elif cat == "moderate":
+        verdict = "moderate VTE risk — ACCP 2012 suggests pharmacologic prophylaxis (or mechanical)."
+    else:
+        verdict = ("high VTE risk — ACCP 2012 recommends pharmacologic prophylaxis, "
+                   "plus mechanical prophylaxis.")
+    st.markdown(f"**Conclusion:** {verdict[0].upper()}{verdict[1:]}")
+    st.caption("Risk bands are from ACCP 2012 for general and abdominal-pelvic "
+               "surgery; major orthopedic surgery (arthroplasty, hip fracture) has "
+               "its own guideline, in which prophylaxis is recommended for all.")
+
+
 # SOFA (Vincent 1996), the organ-dysfunction score Sepsis-3 is built on. Each
 # list is (lower bound inclusive, points) for "higher is worse" values, checked
 # in order; P/F and platelets run the other way.
@@ -2152,7 +2402,8 @@ _TOOL_TABS = {
         _render_apri,
         _render_r_factor,
     ],
-    "Heme": [_render_retic_index, _render_iron_deficit],
+    "Heme": [_render_retic_index, _render_iron_deficit, _render_vte_prophylaxis,
+             _render_caprini],
     "General": [_render_sofa2, _render_sofa, _render_qsofa, _render_news],
     "Coding": [_render_icd10_coder],
     "Reference": [
