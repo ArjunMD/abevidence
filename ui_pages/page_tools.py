@@ -3,8 +3,7 @@ import math
 import streamlit as st
 
 from acid_base import interpret as interpret_acid_base
-from extract import acid_base_ai_interpretation, code_imaging_findings
-from icd10 import FISCAL_YEAR as _ICD_FY
+from extract import acid_base_ai_interpretation
 from pft import FLOW_LOOP_SHAPES, interpret as interpret_pft
 from references_data import EMPIRIC_ABX_MD
 from stroke_localizer import localize as localize_stroke
@@ -2303,81 +2302,6 @@ def _render_inhalers(tab: str) -> None:
                    "September 2026. Doses and biologic eligibility are not covered here.")
 
 
-_ICD_STATUS_TAG = {
-    "finding": "imaging finding, not yet a diagnosis",
-    "history": "history / sequela",
-}
-
-
-def _render_icd10_coder() -> None:
-    st.subheader("Imaging finding → ICD-10-CM")
-    st.caption("Paste a radiology impression or a single finding. Returns the most "
-               f"specific {_ICD_FY} ICD-10-CM code the wording supports, checked against "
-               "the official CMS code table. Hedged or descriptive findings get the "
-               "finding code, with the diagnosis code held for when you confirm it. "
-               "AI-generated — the diagnosis is yours. Do not paste PHI.")
-
-    text = st.text_area(
-        "Imaging text",
-        key="tools_icd_text",
-        height=160,
-        placeholder="e.g. IMPRESSION: 1. Acute infarct in the left MCA territory. "
-                    "2. 6 mm right upper lobe pulmonary nodule. 3. Hepatic steatosis.",
-        label_visibility="collapsed",
-    )
-    if st.button("Find codes", type="primary", key="tools_icd_go"):
-        if not text.strip():
-            st.warning("Paste an imaging finding first.")
-            st.session_state.pop("tools_icd_result", None)
-        else:
-            try:
-                with st.spinner("Coding…"):
-                    st.session_state["tools_icd_result"] = code_imaging_findings(text)
-            except Exception as e:
-                st.session_state["tools_icd_result"] = {"error": str(e)}
-
-    result = st.session_state.get("tools_icd_result")
-    if not result:
-        return
-    if result.get("error"):
-        st.error(f"Coding failed: {result['error']}")
-        return
-    items = result.get("items") or []
-    if not items:
-        st.info("Nothing codeable found — normal or negative statements are skipped.")
-        return
-
-    lines = []
-    for it in items:
-        head = f"**{it['finding']}**"
-        if it["validation"] == "unresolved":
-            st.markdown(f"- {head} — no valid code found for “{it['code']}”" +
-                        (". Closest in the table: " + "; ".join(
-                            f"{c['code']} {c['description']}" for c in it["candidates"][:4])
-                         if it["candidates"] else "."))
-            continue
-        tag = _ICD_STATUS_TAG.get(it["status"])
-        body = f"- {head} → **{it['code']}** {it['description']}"
-        if tag:
-            body += f" — _{tag}_"
-        st.markdown(body)
-        detail = []
-        if it["basis"]:
-            detail.append(f"Why this code: {it['basis']}")
-        if it["if_confirmed"]:
-            when = f" ({it['if_confirmed_when']})" if it["if_confirmed_when"] else ""
-            detail.append(f"If confirmed: **{it['if_confirmed']}** {it['if_confirmed_description']}{when}")
-        if it["sharpen"]:
-            detail.append(f"More specific if documented: {it['sharpen']}")
-        for d in detail:
-            st.markdown(f"   - {d}")
-        lines.append(f"{it['code']} {it['description']}")
-
-    if lines:
-        st.caption("Problem-list lines")
-        st.code("\n".join(lines), language=None)
-
-
 # Tab → tools, in display order. A tool may sit under more than one tab; if it
 # owns widgets, give it a per-tab key suffix (see _render_thrombolytic_ci).
 _TOOL_TABS = {
@@ -2405,7 +2329,6 @@ _TOOL_TABS = {
     "Heme": [_render_retic_index, _render_iron_deficit, _render_vte_prophylaxis,
              _render_caprini],
     "General": [_render_sofa2, _render_sofa, _render_qsofa, _render_news],
-    "Coding": [_render_icd10_coder],
     "Reference": [
         _render_empiric_abx,
         lambda: _render_thrombolytic_ci("reference"),
