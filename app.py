@@ -33,6 +33,7 @@ from ui_pages.page_suggest import render as render_suggest
 from ui_pages.page_ap import render as render_ap
 from ui_pages.page_rrt import render as render_rrt
 from ui_pages.page_tools import render as render_tools
+from ui_pages.page_tools import render_in_progress as render_tools_in_progress
 from ui_pages.page_value_based_care import render as render_value_based_care
 
 st.set_page_config(page_title="Hospital Medicine Shelf", page_icon="🩺", layout="wide")
@@ -53,6 +54,7 @@ _PAGES = {
     "Dashboard": render_dashboard,
     "Readmissions": render_value_based_care,
     "Tools": render_tools,
+    "Tools in progress": render_tools_in_progress,
     "RRT meds": render_rrt,
     "Reviews": render_notes,
     "Suggest an article": render_suggest,

@@ -481,7 +481,7 @@ def _render_gcs() -> None:
     st.markdown(f"**GCS = {total}{suffix} / 15** ({breakdown})")
 
     if total <= 8:
-        st.error("Severe (≤8) — consider a definitive airway.")
+        st.error("Severe (≤8).")
     elif total <= 12:
         st.warning("Moderate (9–12).")
     else:
@@ -1554,6 +1554,241 @@ def _render_bova() -> None:
         st.error("Stage III — high risk.")
 
 
+# SOFA (Vincent 1996), the organ-dysfunction score Sepsis-3 is built on. Each
+# list is (lower bound inclusive, points) for "higher is worse" values, checked
+# in order; P/F and platelets run the other way.
+_SOFA_BILI = [(12.0, 4), (6.0, 3), (2.0, 2), (1.2, 1)]
+_SOFA_CREAT = [(5.0, 4), (3.5, 3), (2.0, 2), (1.2, 1)]
+_SOFA_PLT = [(20, 4), (50, 3), (100, 2), (150, 1)]  # (below this, points)
+_SOFA_CV = [
+    (0, "MAP ≥ 70, no vasopressors"),
+    (1, "MAP < 70, no vasopressors"),
+    (2, "Dopamine ≤ 5 or dobutamine (any dose)"),
+    (3, "Dopamine > 5, or epinephrine / norepinephrine ≤ 0.1"),
+    (4, "Dopamine > 15, or epinephrine / norepinephrine > 0.1"),
+]
+_SEPSIS3_DELTA = 2
+
+
+def _sofa_resp(pf: float, supported: bool) -> int:
+    # 3 and 4 require respiratory support; unsupported patients cap at 2.
+    if pf < 100 and supported:
+        return 4
+    if pf < 200 and supported:
+        return 3
+    if pf < 300:
+        return 2
+    return 1 if pf < 400 else 0
+
+
+def _sofa_cns(gcs: float) -> int:
+    if gcs < 6:
+        return 4
+    if gcs <= 9:
+        return 3
+    if gcs <= 12:
+        return 2
+    return 1 if gcs <= 14 else 0
+
+
+def _render_sofa() -> None:
+    st.subheader("SOFA (original, 1996)")
+    st.caption("Worst values over the past 24 h. Vasopressor doses in µg/kg/min, "
+               "given for at least 1 hour.")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3 = st.columns(3)
+    pao2 = _num(c1, "PaO₂ mmHg", "tools_sofa_pao2", 1.0)
+    fio2 = _num(c2, "FiO₂ %", "tools_sofa_fio2", 1.0)
+    supported = c3.checkbox("On respiratory support (NIV / ventilator)",
+                            key="tools_sofa_support")
+    c4, c5, c6 = st.columns(3)
+    plt = _num(c4, "Platelets ×10³/µL", "tools_sofa_plt", 1.0)
+    bili = _num(c5, "Bilirubin mg/dL", "tools_sofa_bili", 0.1, "%.1f")
+    creat = _num(c6, "Creatinine mg/dL", "tools_sofa_creat", 0.1, "%.2f")
+    c7, c8, c9 = st.columns(3)
+    gcs = _num(c7, "GCS (3–15)", "tools_sofa_gcs", 1.0)
+    uop = _num(c8, "Urine output mL/day", "tools_sofa_uop", 10.0)
+    baseline = _num(c9, "Baseline SOFA (blank = 0)", "tools_sofa_baseline", 1.0)
+    cv = _score_select(st, "Cardiovascular", "tools_sofa_cv", _SOFA_CV)
+
+    parts: dict[str, int] = {"Cardiovascular": cv}
+    if pao2 is not None and fio2:
+        pf = pao2 / (fio2 / 100.0)
+        parts[f"Respiration (P/F {pf:.0f})"] = _sofa_resp(pf, supported)
+    if plt is not None:
+        parts["Coagulation"] = next((p for lim, p in _SOFA_PLT if plt < lim), 0)
+    if bili is not None:
+        parts["Liver"] = _band_down(bili, _SOFA_BILI, 0)
+    if gcs is not None:
+        parts["CNS"] = _sofa_cns(gcs)
+    if creat is not None or uop is not None:
+        renal = _band_down(creat, _SOFA_CREAT, 0) if creat is not None else 0
+        if uop is not None:
+            renal = max(renal, 4 if uop < 200 else 3 if uop < 500 else 0)
+        parts["Renal"] = renal
+
+    total = sum(parts.values())
+    missing = 6 - len(parts)
+    st.markdown(f"**SOFA = {total} / 24**"
+                + (f" ({missing} of 6 systems not entered, counted as 0)" if missing else ""))
+    detail = [f"{k}: +{v}" for k, v in parts.items() if v]
+    if detail:
+        st.markdown("- " + " · ".join(detail))
+
+    delta = total - (baseline or 0)
+    if delta >= _SEPSIS3_DELTA:
+        st.warning(f"Rise of {delta:.0f} from baseline (≥ 2) — with suspected infection, "
+                   "meets Sepsis-3 sepsis.")
+    else:
+        st.caption(f"Rise of {delta:.0f} from baseline — below the Sepsis-3 threshold of 2.")
+
+
+# SOFA-2 (Ranzani, JAMA 2025). Thresholds are upper bounds inclusive for P/F
+# and platelets ("≤"), lower bounds exclusive for bilirubin and creatinine (">").
+_SOFA2_BILI = [(12.0, 4), (6.0, 3), (3.0, 2), (1.2, 1)]
+_SOFA2_CREAT = [(3.5, 3), (2.0, 2), (1.2, 1)]
+_SOFA2_PLT = [(50, 4), (80, 3), (100, 2), (150, 1)]
+_SOFA2_RESP_SUPPORT = ["None / conventional O₂",
+                       "Advanced (HFNC, CPAP, BiPAP/NIV, invasive or home ventilation)",
+                       "ECMO (for respiratory failure)"]
+_SOFA2_CV = [
+    (0, "MAP ≥ 70, no vasoactive agent"),
+    (1, "MAP < 70, no vasoactive agent"),
+    (2, "Norepi + epi ≤ 0.2, or any other vasoactive agent alone"),
+    (3, "Norepi + epi > 0.2–0.4, or ≤ 0.2 plus another agent"),
+    (4, "Norepi + epi > 0.4, or > 0.2–0.4 plus another agent, or mechanical support"),
+]
+_SOFA2_UOP = [
+    (0, "Not reduced / not measured"),
+    (1, "< 0.5 mL/kg/h for 6–12 h"),
+    (2, "< 0.5 mL/kg/h for ≥ 12 h"),
+    (3, "< 0.3 mL/kg/h for ≥ 24 h, or anuria ≥ 12 h"),
+]
+
+
+def _above(value: float, bands: list[tuple[float, int]]) -> int:
+    """Points for the first band whose bound the value exceeds."""
+    return next((pts for bound, pts in bands if value > bound), 0)
+
+
+def _at_most(value: float, bands: list[tuple[float, int]]) -> int:
+    """Points for the first band whose bound the value is at or below."""
+    return next((pts for bound, pts in bands if value <= bound), 0)
+
+
+def _sofa2_brain(gcs: float) -> int:
+    if gcs <= 5:
+        return 4
+    if gcs <= 8:
+        return 3
+    if gcs <= 12:
+        return 2
+    return 1 if gcs <= 14 else 0
+
+
+def _render_sofa2() -> None:
+    st.subheader("SOFA-2 (2025)")
+    st.caption("Worst values over the past 24 h. Vasopressor doses in µg/kg/min. "
+               "Sedated patients: use the last GCS before sedation.")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3 = st.columns(3)
+    pao2 = _num(c1, "PaO₂ mmHg", "tools_sofa2_pao2", 1.0)
+    fio2 = _num(c2, "FiO₂ %", "tools_sofa2_fio2", 1.0)
+    support = c3.selectbox("Respiratory support", _SOFA2_RESP_SUPPORT,
+                           key="tools_sofa2_support", label_visibility="collapsed")
+    c4, c5, c6 = st.columns(3)
+    plt = _num(c4, "Platelets ×10³/µL", "tools_sofa2_plt", 1.0)
+    bili = _num(c5, "Bilirubin mg/dL", "tools_sofa2_bili", 0.1, "%.1f")
+    creat = _num(c6, "Creatinine mg/dL", "tools_sofa2_creat", 0.1, "%.2f")
+    c7, c8, c9 = st.columns(3)
+    gcs = _num(c7, "GCS (3–15)", "tools_sofa2_gcs", 1.0)
+    delirium = c8.checkbox("On drug treatment for delirium", key="tools_sofa2_delirium")
+    baseline = _num(c9, "Baseline SOFA (blank = 0)", "tools_sofa2_baseline", 1.0)
+    c10, c11 = st.columns(2)
+    cv = _score_select(c10, "Cardiovascular", "tools_sofa2_cv", _SOFA2_CV)
+    uop = _score_select(c11, "Urine output", "tools_sofa2_uop", _SOFA2_UOP)
+    rrt = st.checkbox("Receiving RRT, or meets criteria for it (including chronic "
+                      "dialysis)", key="tools_sofa2_rrt")
+
+    parts: dict[str, int] = {"Cardiovascular": cv}
+    if support == _SOFA2_RESP_SUPPORT[2]:
+        parts["Respiratory (ECMO)"] = 4
+    elif pao2 is not None and fio2:
+        pf = pao2 / (fio2 / 100.0)
+        advanced = support == _SOFA2_RESP_SUPPORT[1]
+        resp = _at_most(pf, [(300, 1)])
+        if pf <= 225:
+            resp = 2
+        if advanced and pf <= 150:
+            resp = 4 if pf <= 75 else 3
+        parts[f"Respiratory (P/F {pf:.0f})"] = resp
+    if plt is not None:
+        parts["Hemostasis"] = _at_most(plt, _SOFA2_PLT)
+    if bili is not None:
+        parts["Liver"] = _above(bili, _SOFA2_BILI)
+    if gcs is not None or delirium:
+        brain = _sofa2_brain(gcs) if gcs is not None else 0
+        parts["Brain"] = max(brain, 1) if delirium else brain
+    if rrt or creat is not None or uop:
+        kidney = 4 if rrt else max(uop, _above(creat, _SOFA2_CREAT) if creat is not None else 0)
+        parts["Kidney"] = kidney
+
+    total = sum(parts.values())
+    missing = 6 - len(parts)
+    st.markdown(f"**SOFA-2 = {total} / 24**"
+                + (f" ({missing} of 6 systems not entered, counted as 0)" if missing else ""))
+    detail = [f"{k}: +{v}" for k, v in parts.items() if v]
+    if detail:
+        st.markdown("- " + " · ".join(detail))
+
+    delta = total - (baseline or 0)
+    if delta >= _SEPSIS3_DELTA:
+        st.warning(f"Rise of {delta:.0f} from baseline (≥ 2) — with suspected infection, "
+                   "meets the Sepsis-3 definition of sepsis.")
+    else:
+        st.caption(f"Rise of {delta:.0f} from baseline — below the Sepsis-3 threshold of 2.")
+
+
+def _render_qsofa() -> None:
+    st.subheader("qSOFA")
+
+    def _num(col, label, key, step, fmt=None):
+        return col.number_input(label, value=None, step=step, format=fmt,
+                                placeholder=label, label_visibility="collapsed",
+                                key=key)
+
+    c1, c2, c3 = st.columns(3)
+    rr = _num(c1, "Resp rate /min", "tools_qsofa_rr", 1.0)
+    sbp = _num(c2, "Systolic BP mmHg", "tools_qsofa_sbp", 1.0)
+    ams = c3.checkbox("Altered mentation (GCS < 15)", key="tools_qsofa_ams")
+
+    if rr is None or sbp is None:
+        st.caption("Enter respiratory rate and systolic BP to score.")
+        return
+
+    parts = [(rr >= 22, "RR ≥ 22"), (sbp <= 100, "SBP ≤ 100"), (ams, "Altered mentation")]
+    total = sum(hit for hit, _ in parts)
+    st.markdown(f"**qSOFA = {total} / 3**")
+    if total:
+        st.markdown("- " + " · ".join(f"{name}: +1" for hit, name in parts if hit))
+    if total >= 2:
+        st.warning("≥ 2 — with suspected infection, higher risk of death or prolonged "
+                   "ICU stay (Seymour 2016).")
+    else:
+        st.caption("< 2 — not positive. qSOFA is insensitive; a negative score does not "
+                   "rule out sepsis.")
+
+
 # NEWS (RCP 2012) and NEWS2 (RCP 2017) share every band except SpO₂ scale 2
 # (hypercapnic respiratory failure) and NEWS2 scoring new confusion as 3.
 # Each list is (upper bound inclusive, points), checked in order.
@@ -1901,10 +2136,9 @@ _TOOL_TABS = {
         _render_corrected_sodium,
     ],
     "Neuro": [
-        _render_nihss,
         _render_gcs,
+        _render_nihss,
         lambda: _render_thrombolytic_ci("neuro"),
-        _render_stroke_localizer,
     ],
     "Cardiology": [_render_qtc, lambda: _render_omi("cardio")],
     "Pulmonary": [
@@ -1912,7 +2146,6 @@ _TOOL_TABS = {
         _render_bova,
         _render_hestia,
         lambda: _render_inhalers("pulm"),
-        _render_pft,
     ],
     "GI & Hepatology": [
         _render_glasgow_blatchford,
@@ -1920,7 +2153,7 @@ _TOOL_TABS = {
         _render_r_factor,
     ],
     "Heme": [_render_retic_index, _render_iron_deficit],
-    "General": [_render_news],
+    "General": [_render_sofa2, _render_sofa, _render_qsofa, _render_news],
     "Coding": [_render_icd10_coder],
     "Reference": [
         _render_empiric_abx,
@@ -1942,3 +2175,12 @@ def render() -> None:
                 if i:
                     st.divider()
                 tool()
+
+
+def render_in_progress() -> None:
+    """Tools parked off the public site while they're being worked on."""
+    st.title("🚧 Tools in progress")
+    for i, tool in enumerate((_render_stroke_localizer, _render_pft)):
+        if i:
+            st.divider()
+        tool()
